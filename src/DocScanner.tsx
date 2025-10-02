@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useFrameProcessor } from 'react-native-vision-camera';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
@@ -22,11 +22,15 @@ type CameraRef = {
   }>;
 };
 
+type CameraOverrides = Omit<React.ComponentProps<typeof Camera>, 'style' | 'ref' | 'frameProcessor'>;
+
 interface Props {
   onCapture?: (photo: { path: string; quad: Point[] | null }) => void;
   overlayColor?: string;
   autoCapture?: boolean;
   minStableFrames?: number;
+  cameraProps?: CameraOverrides;
+  children?: ReactNode;
 }
 
 export const DocScanner: React.FC<Props> = ({
@@ -34,6 +38,8 @@ export const DocScanner: React.FC<Props> = ({
   overlayColor = '#e7a649',
   autoCapture = true,
   minStableFrames = 8,
+  cameraProps,
+  children,
 }) => {
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -126,7 +132,10 @@ export const DocScanner: React.FC<Props> = ({
     capture();
   }, [autoCapture, minStableFrames, onCapture, quad, stable]);
 
-  if (!device || !hasPermission) {
+  const { device: overrideDevice, ...cameraRestProps } = cameraProps ?? {};
+  const resolvedDevice = overrideDevice ?? device;
+
+  if (!resolvedDevice || !hasPermission) {
     return null;
   }
 
@@ -135,11 +144,12 @@ export const DocScanner: React.FC<Props> = ({
       <Camera
         ref={handleCameraRef}
         style={StyleSheet.absoluteFillObject}
-        device={device}
+        device={resolvedDevice}
         isActive
         photo
         frameProcessor={frameProcessor}
         frameProcessorFps={15}
+        {...cameraRestProps}
       />
       <Overlay quad={quad} color={overlayColor} />
       {!autoCapture && (
@@ -155,6 +165,7 @@ export const DocScanner: React.FC<Props> = ({
           }}
         />
       )}
+      {children}
     </View>
   );
 };
