@@ -1,0 +1,25 @@
+{
+  "name": "react-native-rectangle-doc-scanner",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "yarn build"
+  },
+  "peerDependencies": {
+    "@shopify/react-native-skia": "*",
+    "react": "*",
+    "react-native": "*",
+    "react-native-fast-opencv": "*",
+    "react-native-reanimated": "*",
+    "react-native-vision-camera": "*",
+    "react-native-worklets-core": "*",
+    "vision-camera-resize-plugin": "*"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.41",
+    "@types/react-native": "0.73.0",
+    "typescript": "^5.3.3"
+  }
+}
