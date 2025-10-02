@@ -3,6 +3,14 @@
   "version": "0.2.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danchew90/react-native-rectangle-doc-scanner.git"
+  },
+  "homepage": "https://github.com/danchew90/react-native-rectangle-doc-scanner",
+  "bugs": {
+    "url": "https://github.com/danchew90/react-native-rectangle-doc-scanner/issues"
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "yarn build"
