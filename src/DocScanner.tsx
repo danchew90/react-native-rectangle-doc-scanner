@@ -172,17 +172,36 @@ export const DocScanner: React.FC<Props> = ({
         const { value: perimeter } = OpenCV.invoke('arcLength', contour, true);
         const approx = OpenCV.createObject(ObjectType.PointVector);
 
-        step = `contour_${i}_approxPolyDP`;
-        reportStage(step);
-        OpenCV.invoke('approxPolyDP', contour, approx, 0.012 * perimeter, true);
+        let approxArray: Array<{ x: number; y: number }> = [];
+        let epsilonBase = 0.01 * perimeter;
 
-        step = `contour_${i}_toJS`;
-        reportStage(step);
-        const approxValue = OpenCV.toJSValue(approx);
-        const approxArray = Array.isArray(approxValue?.array) ? approxValue.array : [];
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          const epsilon = epsilonBase * (1 + attempt * 0.5);
+          step = `contour_${i}_approxPolyDP_attempt_${attempt}`;
+          reportStage(step);
+          OpenCV.invoke('approxPolyDP', contour, approx, epsilon, true);
 
-        if (__DEV__) {
-          reportStage(`${step}_length_${approxArray.length}`);
+          step = `contour_${i}_toJS_attempt_${attempt}`;
+          reportStage(step);
+          const approxValue = OpenCV.toJSValue(approx);
+          const candidate = Array.isArray(approxValue?.array) ? approxValue.array : [];
+
+          if (__DEV__) {
+            console.log('[DocScanner] approx length', candidate.length, 'epsilon', epsilon);
+          }
+
+          if (candidate.length === 4) {
+            approxArray = candidate as Array<{ x: number; y: number }>;
+            break;
+          }
+
+          if (approxArray.length === 0 || Math.abs(candidate.length - 4) < Math.abs(approxArray.length - 4)) {
+            approxArray = candidate as Array<{ x: number; y: number }>;
+          }
+        }
+
+        if (approxArray.length !== 4) {
+          continue;
         }
 
         if (approxArray.length !== 4) {
