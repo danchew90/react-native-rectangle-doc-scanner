@@ -215,15 +215,18 @@ export const DocScanner: React.FC<Props> = ({
             const rectW = rectValue.width ?? rectValue?.size?.width ?? 0;
             const rectH = rectValue.height ?? rectValue?.size?.height ?? 0;
 
-            approxArray = [
-              { x: rectX, y: rectY },
-              { x: rectX + rectW, y: rectY },
-              { x: rectX + rectW, y: rectY + rectH },
-              { x: rectX, y: rectY + rectH },
-            ];
+            // Validate that we have a valid rectangle
+            if (rectW > 0 && rectH > 0) {
+              approxArray = [
+                { x: rectX, y: rectY },
+                { x: rectX + rectW, y: rectY },
+                { x: rectX + rectW, y: rectY + rectH },
+                { x: rectX, y: rectY + rectH },
+              ];
 
-            if (__DEV__) {
-              console.log('[DocScanner] boundingRect fallback', approxArray);
+              if (__DEV__) {
+                console.log('[DocScanner] boundingRect fallback', approxArray);
+              }
             }
           } catch (err) {
             if (__DEV__) {
@@ -238,6 +241,21 @@ export const DocScanner: React.FC<Props> = ({
 
         step = `contour_${i}_convex`;
         reportStage(step);
+
+        // Validate points before processing
+        const isValidPoint = (pt: { x: number; y: number }) => {
+          return typeof pt.x === 'number' && typeof pt.y === 'number' &&
+                 !isNaN(pt.x) && !isNaN(pt.y) &&
+                 isFinite(pt.x) && isFinite(pt.y);
+        };
+
+        if (!approxArray.every(isValidPoint)) {
+          if (__DEV__) {
+            console.warn('[DocScanner] invalid points in approxArray', approxArray);
+          }
+          continue;
+        }
+
         const points: Point[] = approxArray.map((pt: { x: number; y: number }) => ({
           x: pt.x / ratio,
           y: pt.y / ratio,
