@@ -177,10 +177,10 @@ export const DocScanner: React.FC<Props> = ({
         const approx = OpenCV.createObject(ObjectType.PointVector);
 
         let approxArray: Array<{ x: number; y: number }> = [];
-        let epsilonBase = 0.01 * perimeter;
+        let epsilonBase = 0.008 * perimeter;
 
-        for (let attempt = 0; attempt < 5; attempt += 1) {
-          const epsilon = epsilonBase * (1 + attempt * 0.5);
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          const epsilon = epsilonBase * (1 + attempt * 0.75);
           step = `contour_${i}_approxPolyDP_attempt_${attempt}`;
           reportStage(step);
           OpenCV.invoke('approxPolyDP', contour, approx, epsilon, true);
@@ -205,20 +205,18 @@ export const DocScanner: React.FC<Props> = ({
         }
 
         if (approxArray.length !== 4) {
-          // fallback to minAreaRect -> boxPoints
+          // fallback: boundingRect (axis-aligned) so we always have 4 points
           try {
-            const minRect = OpenCV.invoke('minAreaRect', contour);
-            const rectPoints = OpenCV.createObject(ObjectType.PointVector);
-            OpenCV.invoke('boxPoints', minRect, rectPoints);
-            const rectValue = OpenCV.toJSValue(rectPoints);
-            const rectArray = Array.isArray(rectValue?.array) ? rectValue.array : [];
-
-            if (rectArray.length === 4) {
-              approxArray = rectArray as Array<{ x: number; y: number }>;
-            }
+            const { x: rectX, y: rectY, width: rectW, height: rectH } = OpenCV.invoke('boundingRect', contour);
+            approxArray = [
+              { x: rectX, y: rectY },
+              { x: rectX + rectW, y: rectY },
+              { x: rectX + rectW, y: rectY + rectH },
+              { x: rectX, y: rectY + rectH },
+            ];
           } catch (err) {
             if (__DEV__) {
-              console.warn('[DocScanner] minAreaRect fallback failed', err);
+              console.warn('[DocScanner] boundingRect fallback failed', err);
             }
           }
         }
