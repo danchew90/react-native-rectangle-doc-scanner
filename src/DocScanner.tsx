@@ -206,14 +206,25 @@ export const DocScanner: React.FC<Props> = ({
 
         if (approxArray.length !== 4) {
           // fallback: boundingRect (axis-aligned) so we always have 4 points
+          if (__DEV__) {
+            console.log('[DocScanner] attempting boundingRect fallback, current length:', approxArray.length);
+          }
           try {
             const rect = OpenCV.invoke('boundingRect', contour);
             const rectValue = rect?.value ?? rect;
+
+            if (__DEV__) {
+              console.log('[DocScanner] boundingRect result:', JSON.stringify(rectValue));
+            }
 
             const rectX = rectValue.x ?? rectValue?.topLeft?.x ?? 0;
             const rectY = rectValue.y ?? rectValue?.topLeft?.y ?? 0;
             const rectW = rectValue.width ?? rectValue?.size?.width ?? 0;
             const rectH = rectValue.height ?? rectValue?.size?.height ?? 0;
+
+            if (__DEV__) {
+              console.log('[DocScanner] parsed rect:', { x: rectX, y: rectY, w: rectW, h: rectH });
+            }
 
             // Validate that we have a valid rectangle
             if (rectW > 0 && rectH > 0) {
@@ -225,12 +236,16 @@ export const DocScanner: React.FC<Props> = ({
               ];
 
               if (__DEV__) {
-                console.log('[DocScanner] boundingRect fallback', approxArray);
+                console.log('[DocScanner] boundingRect fallback success', approxArray);
+              }
+            } else {
+              if (__DEV__) {
+                console.warn('[DocScanner] boundingRect has invalid dimensions');
               }
             }
           } catch (err) {
             if (__DEV__) {
-              console.warn('[DocScanner] boundingRect fallback failed', err);
+              console.warn('[DocScanner] boundingRect fallback exception', err);
             }
           }
         }
