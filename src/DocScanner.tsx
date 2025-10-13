@@ -177,6 +177,7 @@ export const DocScanner: React.FC<Props> = ({
         const approx = OpenCV.createObject(ObjectType.PointVector);
 
         let approxArray: Array<{ x: number; y: number }> = [];
+        let usedBoundingRect = false;
         let epsilonBase = 0.006 * perimeter;
 
         for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -225,6 +226,7 @@ export const DocScanner: React.FC<Props> = ({
                 { x: rectX + rectW, y: rectY + rectH },
                 { x: rectX, y: rectY + rectH },
               ];
+              usedBoundingRect = true;
 
               if (__DEV__) {
                 console.log('[DocScanner] using boundingRect fallback:', approxArray);
@@ -263,7 +265,8 @@ export const DocScanner: React.FC<Props> = ({
           y: pt.y / ratio,
         }));
 
-        if (!isConvexQuadrilateral(points)) {
+        // Skip convexity check for boundingRect (always forms a valid rectangle)
+        if (!usedBoundingRect && !isConvexQuadrilateral(points)) {
           continue;
         }
 
