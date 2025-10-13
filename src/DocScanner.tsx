@@ -83,6 +83,9 @@ export const DocScanner: React.FC<Props> = ({
   }, [requestPermission]);
 
   const updateQuad = useRunOnJS((value: Point[] | null) => {
+    if (__DEV__) {
+      console.log('[DocScanner] quad', value);
+    }
     setQuad(value);
   }, []);
 
