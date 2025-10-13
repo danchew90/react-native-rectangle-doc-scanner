@@ -163,7 +163,7 @@ export const DocScanner: React.FC<Props> = ({
         reportStage(step);
         const { value: area } = OpenCV.invoke('contourArea', contour, false);
 
-        if (area < width * height * 0.05) {
+        if (area < width * height * 0.02) {
           continue;
         }
 
@@ -174,12 +174,16 @@ export const DocScanner: React.FC<Props> = ({
 
         step = `contour_${i}_approxPolyDP`;
         reportStage(step);
-        OpenCV.invoke('approxPolyDP', contour, approx, 0.015 * perimeter, true);
+        OpenCV.invoke('approxPolyDP', contour, approx, 0.012 * perimeter, true);
 
         step = `contour_${i}_toJS`;
         reportStage(step);
         const approxValue = OpenCV.toJSValue(approx);
         const approxArray = Array.isArray(approxValue?.array) ? approxValue.array : [];
+
+        if (__DEV__) {
+          reportStage(`${step}_length_${approxArray.length}`);
+        }
 
         if (approxArray.length !== 4) {
           continue;
