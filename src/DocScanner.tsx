@@ -2,7 +2,7 @@ import React, { ReactNode, useCallback, useEffect, useRef, useState } from 'reac
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useFrameProcessor } from 'react-native-vision-camera';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
-import { runOnJS } from 'react-native-reanimated';
+import { useRunOnJS } from 'react-native-worklets-core';
 import {
   OpenCV,
   ColorConversionCodes,
@@ -82,72 +82,110 @@ export const DocScanner: React.FC<Props> = ({
     requestPermission();
   }, [requestPermission]);
 
+  const updateQuad = useRunOnJS((value: Point[] | null) => {
+    setQuad(value);
+  }, []);
+
+  const reportError = useRunOnJS((step: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : `${error}`;
+    console.warn(`[DocScanner] frame error at ${step}: ${message}`);
+  }, []);
+
   const frameProcessor = useFrameProcessor((frame) => {
     'worklet';
 
-    const ratio = 480 / frame.width;
-    const w = Math.floor(frame.width * ratio);
-    const h = Math.floor(frame.height * ratio);
-    const resized = resize(frame, {
-      dataType: 'uint8',
-      pixelFormat: 'bgr',
-      scale: { width: w, height: h },
-    });
+    let step = 'start';
 
-    const mat = OpenCV.frameBufferToMat(h, w, 3, resized);
+    try {
+      const ratio = 480 / frame.width;
+      const width = Math.floor(frame.width * ratio);
+      const height = Math.floor(frame.height * ratio);
+      step = 'resize';
+      const resized = resize(frame, {
+        dataType: 'uint8',
+        pixelFormat: 'bgr',
+        scale: { width: width, height: height },
+      });
 
-    OpenCV.invoke('cvtColor', mat, mat, ColorConversionCodes.COLOR_BGR2GRAY);
+      step = 'frameBufferToMat';
+      const mat = OpenCV.frameBufferToMat(height, width, 3, resized);
 
-    const kernel = OpenCV.createObject(ObjectType.Size, 4, 4);
-    const element = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, kernel);
-    OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_OPEN, element);
+      step = 'cvtColor';
+      OpenCV.invoke('cvtColor', mat, mat, ColorConversionCodes.COLOR_BGR2GRAY);
 
-    OpenCV.invoke('GaussianBlur', mat, mat, kernel, 0);
-    OpenCV.invoke('Canny', mat, mat, 75, 100);
+      const morphologyKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
+      step = 'getStructuringElement';
+      const element = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, morphologyKernel);
+      step = 'morphologyEx';
+      OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_OPEN, element);
 
-    const contours = OpenCV.createObject(ObjectType.PointVectorOfVectors);
-    OpenCV.invoke('findContours', mat, contours, RetrievalModes.RETR_LIST, ContourApproximationModes.CHAIN_APPROX_SIMPLE);
+      const gaussianKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
+      step = 'GaussianBlur';
+      OpenCV.invoke('GaussianBlur', mat, mat, gaussianKernel, 0);
+      step = 'Canny';
+      OpenCV.invoke('Canny', mat, mat, 75, 100);
 
-    let best: Point[] | null = null;
-    let maxArea = 0;
+      step = 'createContours';
+      const contours = OpenCV.createObject(ObjectType.PointVectorOfVectors);
+      OpenCV.invoke('findContours', mat, contours, RetrievalModes.RETR_LIST, ContourApproximationModes.CHAIN_APPROX_SIMPLE);
 
-    const arr = OpenCV.toJSValue(contours).array;
+      let best: Point[] | null = null;
+      let maxArea = 0;
 
-    for (let i = 0; i < arr.length; i++) {
-      const c = OpenCV.copyObjectFromVector(contours, i);
-      const { value: area } = OpenCV.invoke('contourArea', c, false);
+      step = 'toJSValue';
+      const contourVector = OpenCV.toJSValue(contours);
+      const contourArray = Array.isArray(contourVector?.array) ? contourVector.array : [];
 
-      if (area < w * h * 0.1) {
-        continue;
+      for (let i = 0; i < contourArray.length; i += 1) {
+        step = `contour_${i}_copy`;
+        const contour = OpenCV.copyObjectFromVector(contours, i);
+
+        step = `contour_${i}_area`;
+        const { value: area } = OpenCV.invoke('contourArea', contour, false);
+
+        if (area < width * height * 0.1) {
+          continue;
+        }
+
+        step = `contour_${i}_arcLength`;
+        const { value: perimeter } = OpenCV.invoke('arcLength', contour, true);
+        const approx = OpenCV.createObject(ObjectType.PointVector);
+
+        step = `contour_${i}_approxPolyDP`;
+        OpenCV.invoke('approxPolyDP', contour, approx, 0.02 * perimeter, true);
+
+        step = `contour_${i}_toJS`;
+        const approxValue = OpenCV.toJSValue(approx);
+        const approxArray = Array.isArray(approxValue?.array) ? approxValue.array : [];
+
+        if (approxArray.length !== 4) {
+          continue;
+        }
+
+        step = `contour_${i}_convex`;
+        const points: Point[] = approxArray.map((pt: { x: number; y: number }) => ({
+          x: pt.x / ratio,
+          y: pt.y / ratio,
+        }));
+
+        if (!isConvexQuadrilateral(points)) {
+          continue;
+        }
+
+        if (area > maxArea) {
+          best = points;
+          maxArea = area;
+        }
       }
 
-      const { value: peri } = OpenCV.invoke('arcLength', c, true);
-      const approx = OpenCV.createObject(ObjectType.PointVector);
-      OpenCV.invoke('approxPolyDP', c, approx, 0.02 * peri, true);
-      const size = OpenCV.invokeWithOutParam('size', approx);
-      if (size !== 4) {
-        continue;
-      }
-
-      const pts: Point[] = [];
-      for (let j = 0; j < 4; j++) {
-        const p = OpenCV.invoke('atPoint', approx, j, 0);
-        pts.push({ x: p.x / ratio, y: p.y / ratio });
-      }
-
-      if (!isConvexQuadrilateral(pts)) {
-        continue;
-      }
-
-      if (area > maxArea) {
-        best = pts;
-        maxArea = area;
-      }
+      step = 'clearBuffers';
+      OpenCV.clearBuffers();
+      step = 'updateQuad';
+      updateQuad(best);
+    } catch (error) {
+      reportError(step, error);
     }
-
-    OpenCV.clearBuffers();
-    runOnJS(setQuad)(best);
-  }, [resize]);
+  }, [resize, reportError, updateQuad]);
 
   useEffect(() => {
     const s = checkStability(quad);
