@@ -163,7 +163,11 @@ export const DocScanner: React.FC<Props> = ({
         reportStage(step);
         const { value: area } = OpenCV.invoke('contourArea', contour, false);
 
-        if (area < width * height * 0.02) {
+        if (__DEV__) {
+          console.log('[DocScanner] area ratio', area / (width * height));
+        }
+
+        if (area < width * height * 0.005) {
           continue;
         }
 
@@ -201,7 +205,22 @@ export const DocScanner: React.FC<Props> = ({
         }
 
         if (approxArray.length !== 4) {
-          continue;
+          // fallback to minAreaRect -> boxPoints
+          try {
+            const minRect = OpenCV.invoke('minAreaRect', contour);
+            const rectPoints = OpenCV.createObject(ObjectType.PointVector);
+            OpenCV.invoke('boxPoints', minRect, rectPoints);
+            const rectValue = OpenCV.toJSValue(rectPoints);
+            const rectArray = Array.isArray(rectValue?.array) ? rectValue.array : [];
+
+            if (rectArray.length === 4) {
+              approxArray = rectArray as Array<{ x: number; y: number }>;
+            }
+          } catch (err) {
+            if (__DEV__) {
+              console.warn('[DocScanner] minAreaRect fallback failed', err);
+            }
+          }
         }
 
         if (approxArray.length !== 4) {
