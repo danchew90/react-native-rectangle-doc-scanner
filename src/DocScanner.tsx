@@ -94,6 +94,12 @@ export const DocScanner: React.FC<Props> = ({
     console.warn(`[DocScanner] frame error at ${step}: ${message}`);
   }, []);
 
+  const reportStage = useRunOnJS((stage: string) => {
+    if (__DEV__) {
+      console.log('[DocScanner] stage', stage);
+    }
+  }, []);
+
   const frameProcessor = useFrameProcessor((frame) => {
     'worklet';
 
@@ -104,6 +110,7 @@ export const DocScanner: React.FC<Props> = ({
       const width = Math.floor(frame.width * ratio);
       const height = Math.floor(frame.height * ratio);
       step = 'resize';
+      reportStage(step);
       const resized = resize(frame, {
         dataType: 'uint8',
         pixelFormat: 'bgr',
@@ -111,24 +118,31 @@ export const DocScanner: React.FC<Props> = ({
       });
 
       step = 'frameBufferToMat';
+      reportStage(step);
       const mat = OpenCV.frameBufferToMat(height, width, 3, resized);
 
       step = 'cvtColor';
+      reportStage(step);
       OpenCV.invoke('cvtColor', mat, mat, ColorConversionCodes.COLOR_BGR2GRAY);
 
       const morphologyKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
       step = 'getStructuringElement';
+      reportStage(step);
       const element = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, morphologyKernel);
       step = 'morphologyEx';
+      reportStage(step);
       OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_OPEN, element);
 
       const gaussianKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
       step = 'GaussianBlur';
+      reportStage(step);
       OpenCV.invoke('GaussianBlur', mat, mat, gaussianKernel, 0);
       step = 'Canny';
+      reportStage(step);
       OpenCV.invoke('Canny', mat, mat, 75, 100);
 
       step = 'createContours';
+      reportStage(step);
       const contours = OpenCV.createObject(ObjectType.PointVectorOfVectors);
       OpenCV.invoke('findContours', mat, contours, RetrievalModes.RETR_LIST, ContourApproximationModes.CHAIN_APPROX_SIMPLE);
 
@@ -136,14 +150,17 @@ export const DocScanner: React.FC<Props> = ({
       let maxArea = 0;
 
       step = 'toJSValue';
+      reportStage(step);
       const contourVector = OpenCV.toJSValue(contours);
       const contourArray = Array.isArray(contourVector?.array) ? contourVector.array : [];
 
       for (let i = 0; i < contourArray.length; i += 1) {
         step = `contour_${i}_copy`;
+        reportStage(step);
         const contour = OpenCV.copyObjectFromVector(contours, i);
 
         step = `contour_${i}_area`;
+        reportStage(step);
         const { value: area } = OpenCV.invoke('contourArea', contour, false);
 
         if (area < width * height * 0.1) {
@@ -151,13 +168,16 @@ export const DocScanner: React.FC<Props> = ({
         }
 
         step = `contour_${i}_arcLength`;
+        reportStage(step);
         const { value: perimeter } = OpenCV.invoke('arcLength', contour, true);
         const approx = OpenCV.createObject(ObjectType.PointVector);
 
         step = `contour_${i}_approxPolyDP`;
+        reportStage(step);
         OpenCV.invoke('approxPolyDP', contour, approx, 0.02 * perimeter, true);
 
         step = `contour_${i}_toJS`;
+        reportStage(step);
         const approxValue = OpenCV.toJSValue(approx);
         const approxArray = Array.isArray(approxValue?.array) ? approxValue.array : [];
 
@@ -166,6 +186,7 @@ export const DocScanner: React.FC<Props> = ({
         }
 
         step = `contour_${i}_convex`;
+        reportStage(step);
         const points: Point[] = approxArray.map((pt: { x: number; y: number }) => ({
           x: pt.x / ratio,
           y: pt.y / ratio,
@@ -182,8 +203,10 @@ export const DocScanner: React.FC<Props> = ({
       }
 
       step = 'clearBuffers';
+      reportStage(step);
       OpenCV.clearBuffers();
       step = 'updateQuad';
+      reportStage(step);
       updateQuad(best);
     } catch (error) {
       reportError(step, error);
