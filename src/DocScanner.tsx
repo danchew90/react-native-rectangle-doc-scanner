@@ -177,10 +177,10 @@ export const DocScanner: React.FC<Props> = ({
         const approx = OpenCV.createObject(ObjectType.PointVector);
 
         let approxArray: Array<{ x: number; y: number }> = [];
-        let epsilonBase = 0.008 * perimeter;
+        let epsilonBase = 0.006 * perimeter;
 
-        for (let attempt = 0; attempt < 8; attempt += 1) {
-          const epsilon = epsilonBase * (1 + attempt * 0.75);
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          const epsilon = epsilonBase * (1 + attempt);
           step = `contour_${i}_approxPolyDP_attempt_${attempt}`;
           reportStage(step);
           OpenCV.invoke('approxPolyDP', contour, approx, epsilon, true);
@@ -207,13 +207,24 @@ export const DocScanner: React.FC<Props> = ({
         if (approxArray.length !== 4) {
           // fallback: boundingRect (axis-aligned) so we always have 4 points
           try {
-            const { x: rectX, y: rectY, width: rectW, height: rectH } = OpenCV.invoke('boundingRect', contour);
+            const rect = OpenCV.invoke('boundingRect', contour);
+            const rectValue = rect?.value ?? rect;
+
+            const rectX = rectValue.x ?? rectValue?.topLeft?.x ?? 0;
+            const rectY = rectValue.y ?? rectValue?.topLeft?.y ?? 0;
+            const rectW = rectValue.width ?? rectValue?.size?.width ?? 0;
+            const rectH = rectValue.height ?? rectValue?.size?.height ?? 0;
+
             approxArray = [
               { x: rectX, y: rectY },
               { x: rectX + rectW, y: rectY },
               { x: rectX + rectW, y: rectY + rectH },
               { x: rectX, y: rectY + rectH },
             ];
+
+            if (__DEV__) {
+              console.log('[DocScanner] boundingRect fallback', approxArray);
+            }
           } catch (err) {
             if (__DEV__) {
               console.warn('[DocScanner] boundingRect fallback failed', err);
