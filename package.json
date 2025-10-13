@@ -29,5 +29,8 @@
     "@types/react": "^18.2.41",
     "@types/react-native": "0.73.0",
     "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "react-native-worklets-core": "^1.6.2"
   }
 }
