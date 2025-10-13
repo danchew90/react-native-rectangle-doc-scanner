@@ -16,6 +16,33 @@ import { Overlay } from './utils/overlay';
 import { checkStability } from './utils/stability';
 import type { Point } from './types';
 
+const isConvexQuadrilateral = (points: Point[]) => {
+  if (points.length !== 4) {
+    return false;
+  }
+
+  let previous = 0;
+
+  for (let i = 0; i < 4; i++) {
+    const p0 = points[i];
+    const p1 = points[(i + 1) % 4];
+    const p2 = points[(i + 2) % 4];
+    const cross = (p1.x - p0.x) * (p2.y - p1.y) - (p1.y - p0.y) * (p2.x - p1.x);
+
+    if (Math.abs(cross) < 1e-3) {
+      return false;
+    }
+
+    if (i === 0) {
+      previous = cross;
+    } else if (previous * cross < 0) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 type CameraRef = {
   takePhoto: (options: { qualityPrioritization: 'balanced' | 'quality' | 'speed' }) => Promise<{
     path: string;
@@ -98,14 +125,21 @@ export const DocScanner: React.FC<Props> = ({
       const approx = OpenCV.createObject(ObjectType.PointVector);
       OpenCV.invoke('approxPolyDP', c, approx, 0.02 * peri, true);
       const size = OpenCV.invokeWithOutParam('size', approx);
-      const { value: convex } = OpenCV.invoke('isContourConvex', approx);
+      if (size !== 4) {
+        continue;
+      }
 
-      if (convex && size === 4 && area > maxArea) {
-        const pts: Point[] = [];
-        for (let j = 0; j < 4; j++) {
-          const p = OpenCV.invoke('atPoint', approx, j, 0);
-          pts.push({ x: p.x / ratio, y: p.y / ratio });
-        }
+      const pts: Point[] = [];
+      for (let j = 0; j < 4; j++) {
+        const p = OpenCV.invoke('atPoint', approx, j, 0);
+        pts.push({ x: p.x / ratio, y: p.y / ratio });
+      }
+
+      if (!isConvexQuadrilateral(pts)) {
+        continue;
+      }
+
+      if (area > maxArea) {
         best = pts;
         maxArea = area;
       }
