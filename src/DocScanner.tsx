@@ -167,37 +167,32 @@ export const DocScanner: React.FC<Props> = ({
       reportStage(step);
       OpenCV.invoke('cvtColor', mat, mat, ColorConversionCodes.COLOR_BGR2GRAY);
 
-      // Apply bilateral filter for better edge preservation
-      step = 'bilateralFilter';
+      // Apply Gaussian blur to reduce noise
+      const gaussianKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
+      step = 'GaussianBlur';
       reportStage(step);
-      const filtered = OpenCV.createObject(ObjectType.Mat);
-      OpenCV.invoke('bilateralFilter', mat, filtered, 9, 75, 75);
+      OpenCV.invoke('GaussianBlur', mat, mat, gaussianKernel, 0);
 
-      // Use adaptive threshold for better contrast in varying lighting
-      step = 'adaptiveThreshold';
-      reportStage(step);
-      const thresh = OpenCV.createObject(ObjectType.Mat);
-      OpenCV.invoke('adaptiveThreshold', filtered, thresh, 255, 1, 1, 11, 2);
-
-      // Morphological operations to clean up noise
+      // Morphological operations to enhance edges
       const morphologyKernel = OpenCV.createObject(ObjectType.Size, 3, 3);
       step = 'getStructuringElement';
       reportStage(step);
       const element = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, morphologyKernel);
       step = 'morphologyEx';
       reportStage(step);
-      OpenCV.invoke('morphologyEx', thresh, mat, MorphTypes.MORPH_CLOSE, element);
+      OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_CLOSE, element);
 
-      // Apply Gaussian blur before Canny for smoother edges
-      const gaussianKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
-      step = 'GaussianBlur';
-      reportStage(step);
-      OpenCV.invoke('GaussianBlur', mat, mat, gaussianKernel, 0);
-
-      // Use higher Canny thresholds for cleaner edges
+      // Canny edge detection with optimized thresholds
       step = 'Canny';
       reportStage(step);
       OpenCV.invoke('Canny', mat, mat, 50, 150);
+
+      // Dilate edges slightly to connect nearby contours
+      step = 'dilate';
+      reportStage(step);
+      const dilateKernel = OpenCV.createObject(ObjectType.Size, 2, 2);
+      const dilateElement = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, dilateKernel);
+      OpenCV.invoke('dilate', mat, mat, dilateElement);
 
       step = 'createContours';
       reportStage(step);
