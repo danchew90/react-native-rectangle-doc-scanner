@@ -14,6 +14,7 @@ import {
 } from 'react-native-fast-opencv';
 import { Overlay } from './utils/overlay';
 import { checkStability } from './utils/stability';
+import { averageQuad, blendQuads, isValidQuad, orderQuadPoints, quadDistance, sanitizeQuad } from './utils/quad';
 import type { Point } from './types';
 
 const isConvexQuadrilateral = (points: Point[]) => {
@@ -97,56 +98,64 @@ export const DocScanner: React.FC<Props> = ({
   }, [requestPermission]);
 
   const lastQuadRef = useRef<Point[] | null>(null);
-  const smoothingBufferRef = useRef<(Point[] | null)[]>([]);
+  const smoothingBufferRef = useRef<Point[][]>([]);
+  const anchorQuadRef = useRef<Point[] | null>(null);
+  const missingFrameCountRef = useRef(0);
+
+  const MAX_HISTORY = 5;
+  const SNAP_DISTANCE = 5; // pixels; keep corners locked when movement is tiny
+  const BLEND_DISTANCE = 20; // pixels; softly ease between similar shapes
+  const BLEND_ALPHA = 0.35;
 
   const updateQuad = useRunOnJS((value: Point[] | null) => {
     if (__DEV__) {
       console.log('[DocScanner] quad', value);
     }
 
-    // Add to smoothing buffer
-    smoothingBufferRef.current.push(value);
+    if (!isValidQuad(value)) {
+      missingFrameCountRef.current += 1;
 
-    // Keep only last 3 frames for smoothing
-    if (smoothingBufferRef.current.length > 3) {
+      if (lastQuadRef.current && missingFrameCountRef.current <= 2) {
+        setQuad(lastQuadRef.current);
+        return;
+      }
+
+      smoothingBufferRef.current = [];
+      anchorQuadRef.current = null;
+      lastQuadRef.current = null;
+      setQuad(null);
+      return;
+    }
+
+    missingFrameCountRef.current = 0;
+
+    const ordered = orderQuadPoints(value);
+    const sanitized = sanitizeQuad(ordered);
+
+    smoothingBufferRef.current.push(sanitized);
+    if (smoothingBufferRef.current.length > MAX_HISTORY) {
       smoothingBufferRef.current.shift();
     }
 
-    // If we have a valid quad, smooth it
-    if (value && value.length === 4) {
-      // Average with previous frames if available
-      if (smoothingBufferRef.current.length >= 2) {
-        const validQuads = smoothingBufferRef.current.filter(q => q !== null && q.length === 4) as Point[][];
+    const history = smoothingBufferRef.current;
+    const hasHistory = history.length >= 2;
+    let candidate = hasHistory ? averageQuad(history) : sanitized;
 
-        if (validQuads.length >= 2) {
-          // Average the positions
-          const smoothed: Point[] = value.map((_, idx) => {
-            let sumX = 0;
-            let sumY = 0;
-            validQuads.forEach(quad => {
-              sumX += quad[idx].x;
-              sumY += quad[idx].y;
-            });
-            return {
-              x: sumX / validQuads.length,
-              y: sumY / validQuads.length,
-            };
-          });
+    const anchor = anchorQuadRef.current;
+    if (anchor && isValidQuad(anchor)) {
+      const delta = quadDistance(candidate, anchor);
 
-          lastQuadRef.current = smoothed;
-          setQuad(smoothed);
-          return;
-        }
+      if (delta <= SNAP_DISTANCE) {
+        candidate = anchor;
+      } else if (delta <= BLEND_DISTANCE) {
+        candidate = blendQuads(anchor, candidate, BLEND_ALPHA);
       }
-
-      lastQuadRef.current = value;
-      setQuad(value);
-    } else if (lastQuadRef.current) {
-      // Keep showing last quad for 1 frame to reduce flickering
-      setQuad(lastQuadRef.current);
-    } else {
-      setQuad(null);
     }
+
+    candidate = orderQuadPoints(candidate);
+    anchorQuadRef.current = candidate;
+    lastQuadRef.current = candidate;
+    setQuad(candidate);
   }, []);
 
   const reportError = useRunOnJS((step: string, error: unknown) => {

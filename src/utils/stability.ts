@@ -1,10 +1,13 @@
 import type { Point } from '../types';
+import { isValidQuad, quadDistance } from './quad';
 
 let last: Point[] | null = null;
 let stable = 0;
 
+const STABILITY_DISTANCE = 8;
+
 export function checkStability(current: Point[] | null): number {
-  if (!current) {
+  if (!isValidQuad(current)) {
     stable = 0;
     last = null;
     return 0;
@@ -16,12 +19,9 @@ export function checkStability(current: Point[] | null): number {
     return stable;
   }
 
-  const diff = Math.hypot(
-    avg(current.map((p) => p.x)) - avg(last.map((p) => p.x)),
-    avg(current.map((p) => p.y)) - avg(last.map((p) => p.y))
-  );
+  const diff = quadDistance(current, last);
 
-  if (diff < 10) {
+  if (diff < STABILITY_DISTANCE) {
     stable++;
   } else {
     stable = 0;
@@ -30,5 +30,3 @@ export function checkStability(current: Point[] | null): number {
   last = current;
   return stable;
 }
-
-const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
