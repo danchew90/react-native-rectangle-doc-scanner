@@ -207,8 +207,8 @@ export const DocScanner: React.FC<Props> = ({
         reportStage(step);
         const { value: area } = OpenCV.invoke('contourArea', contour, false);
 
-        // Skip extremely small contours below an absolute pixel threshold
-        if (area < 500) {
+        // Skip extremely small contours, but keep threshold very low to allow distant documents
+        if (area < 200) {
           continue;
         }
 
@@ -220,9 +220,7 @@ export const DocScanner: React.FC<Props> = ({
           console.log('[DocScanner] area', area, 'ratio', areaRatio);
         }
 
-        // Filter by area: document should be at least 0.01% and at most 99% of frame
-        // This prevents detecting tiny noise or the entire frame
-        if (areaRatio < 0.0001 || areaRatio > 0.99) {
+        if (areaRatio < 0.00002 || areaRatio > 0.99) {
           continue;
         }
 
