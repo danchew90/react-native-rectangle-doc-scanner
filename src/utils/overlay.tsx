@@ -10,7 +10,14 @@ type OverlayProps = {
 export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649' }) => {
   const path = useMemo(() => {
     if (!quad) {
+      if (__DEV__) {
+        console.log('[Overlay] no quad');
+      }
       return null;
+    }
+
+    if (__DEV__) {
+      console.log('[Overlay] drawing quad:', quad);
     }
 
     const skPath = Skia.Path.Make();

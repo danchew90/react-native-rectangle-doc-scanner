@@ -17,30 +17,44 @@ import { checkStability } from './utils/stability';
 import type { Point } from './types';
 
 const isConvexQuadrilateral = (points: Point[]) => {
-  if (points.length !== 4) {
+  'worklet';
+  try {
+    if (points.length !== 4) {
+      return false;
+    }
+
+    // Validate all points have valid x and y
+    for (const p of points) {
+      if (typeof p.x !== 'number' || typeof p.y !== 'number' ||
+          !isFinite(p.x) || !isFinite(p.y)) {
+        return false;
+      }
+    }
+
+    let previous = 0;
+
+    for (let i = 0; i < 4; i++) {
+      const p0 = points[i];
+      const p1 = points[(i + 1) % 4];
+      const p2 = points[(i + 2) % 4];
+      const cross = (p1.x - p0.x) * (p2.y - p1.y) - (p1.y - p0.y) * (p2.x - p1.x);
+
+      // Relax the collinearity check - allow very small cross products
+      if (Math.abs(cross) < 0.1) {
+        return false;
+      }
+
+      if (i === 0) {
+        previous = cross;
+      } else if (previous * cross < 0) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch (err) {
     return false;
   }
-
-  let previous = 0;
-
-  for (let i = 0; i < 4; i++) {
-    const p0 = points[i];
-    const p1 = points[(i + 1) % 4];
-    const p2 = points[(i + 2) % 4];
-    const cross = (p1.x - p0.x) * (p2.y - p1.y) - (p1.y - p0.y) * (p2.x - p1.x);
-
-    if (Math.abs(cross) < 1e-3) {
-      return false;
-    }
-
-    if (i === 0) {
-      previous = cross;
-    } else if (previous * cross < 0) {
-      return false;
-    }
-  }
-
-  return true;
 };
 
 type CameraRef = {
