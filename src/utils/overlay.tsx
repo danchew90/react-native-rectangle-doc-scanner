@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import type { Point } from '../types';
 
@@ -18,6 +19,7 @@ export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649' }) => 
 
     if (__DEV__) {
       console.log('[Overlay] drawing quad:', quad);
+      console.log('[Overlay] color:', color);
     }
 
     const skPath = Skia.Path.Make();
@@ -25,16 +27,31 @@ export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649' }) => 
     quad.slice(1).forEach((p) => skPath.lineTo(p.x, p.y));
     skPath.close();
     return skPath;
-  }, [quad]);
+  }, [quad, color]);
 
   return (
-    <Canvas style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }}>
-      {path && (
-        <>
-          <Path path={path} color={color} style="stroke" strokeWidth={8} />
-          <Path path={path} color="rgba(231, 166, 73, 0.2)" style="fill" />
-        </>
-      )}
-    </Canvas>
+    <View style={styles.container} pointerEvents="none">
+      <Canvas style={styles.canvas}>
+        {path && (
+          <>
+            <Path path={path} color={color} style="stroke" strokeWidth={8} />
+            <Path path={path} color="rgba(231, 166, 73, 0.2)" style="fill" />
+          </>
+        )}
+      </Canvas>
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  canvas: {
+    flex: 1,
+  },
+});
