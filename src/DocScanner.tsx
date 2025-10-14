@@ -352,9 +352,19 @@ export const DocScanner: React.FC<Props> = ({
       // Bilateral filter for edge-preserving smoothing (better quality than Gaussian)
       step = 'bilateralFilter';
       reportStage(step);
-      const tempMat = OpenCV.createObject(ObjectType.Mat);
-      OpenCV.invoke('bilateralFilter', mat, tempMat, 9, 75, 75);
-      mat = tempMat;
+      try {
+        const tempMat = OpenCV.createObject(ObjectType.Mat);
+        OpenCV.invoke('bilateralFilter', mat, tempMat, 9, 75, 75);
+        mat = tempMat;
+      } catch (error) {
+        if (__DEV__) {
+          console.warn('[DocScanner] bilateralFilter unavailable, falling back to GaussianBlur', error);
+        }
+        step = 'gaussianBlurFallback';
+        reportStage(step);
+        const blurKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
+        OpenCV.invoke('GaussianBlur', mat, mat, blurKernel, 0);
+      }
 
       step = 'Canny';
       reportStage(step);
