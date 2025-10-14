@@ -224,9 +224,13 @@ export const DocScanner: React.FC<Props> = ({
           continue;
         }
 
+        // Use convex hull to simplify contour before polygon approximation
+        const hull = OpenCV.createObject(ObjectType.PointVector);
+        OpenCV.invoke('convexHull', contour, hull);
+
         step = `contour_${i}_arcLength`;
         reportStage(step);
-        const { value: perimeter } = OpenCV.invoke('arcLength', contour, true);
+        const { value: perimeter } = OpenCV.invoke('arcLength', hull, true);
         const approx = OpenCV.createObject(ObjectType.PointVector);
 
         let approxArray: Array<{ x: number; y: number }> = [];
@@ -239,7 +243,7 @@ export const DocScanner: React.FC<Props> = ({
           const epsilon = epsilonValues[attempt] * perimeter;
           step = `contour_${i}_approxPolyDP_attempt_${attempt}`;
           reportStage(step);
-          OpenCV.invoke('approxPolyDP', contour, approx, epsilon, true);
+          OpenCV.invoke('approxPolyDP', hull, approx, epsilon, true);
 
           step = `contour_${i}_toJS_attempt_${attempt}`;
           reportStage(step);
@@ -257,28 +261,38 @@ export const DocScanner: React.FC<Props> = ({
         }
 
         if (approxArray.length !== 4) {
-          // fallback: boundingRect (axis-aligned) so we always have 4 points
+          // fallback: rotated rectangle using minAreaRect
           try {
-            const rect = OpenCV.invoke('boundingRect', contour);
+            const rect = OpenCV.invoke('minAreaRect', contour);
             const rectValue = rect?.value ?? rect;
-            const rectX = rectValue.x ?? rectValue?.topLeft?.x ?? 0;
-            const rectY = rectValue.y ?? rectValue?.topLeft?.y ?? 0;
-            const rectW = rectValue.width ?? rectValue?.size?.width ?? 0;
-            const rectH = rectValue.height ?? rectValue?.size?.height ?? 0;
 
-            approxArray = [
-              { x: rectX, y: rectY },
-              { x: rectX + rectW, y: rectY },
-              { x: rectX + rectW, y: rectY + rectH },
-              { x: rectX, y: rectY + rectH },
-            ];
+            const centerX = rectValue.centerX ?? rectValue.center?.x ?? 0;
+            const centerY = rectValue.centerY ?? rectValue.center?.y ?? 0;
+            const rectW = rectValue.width ?? rectValue.size?.width ?? 0;
+            const rectH = rectValue.height ?? rectValue.size?.height ?? 0;
+            const angleDeg = rectValue.angle ?? rectValue.rotation ?? 0;
 
-            if (__DEV__) {
-              console.log('[DocScanner] boundingRect fallback', approxArray);
+            if (rectW > 0 && rectH > 0) {
+              const angleRad = (angleDeg * Math.PI) / 180;
+              const cosA = Math.cos(angleRad);
+              const sinA = Math.sin(angleRad);
+              const halfW = rectW / 2;
+              const halfH = rectH / 2;
+
+              approxArray = [
+                { x: centerX - halfW * cosA + halfH * sinA, y: centerY - halfW * sinA - halfH * cosA },
+                { x: centerX + halfW * cosA + halfH * sinA, y: centerY + halfW * sinA - halfH * cosA },
+                { x: centerX + halfW * cosA - halfH * sinA, y: centerY + halfW * sinA + halfH * cosA },
+                { x: centerX - halfW * cosA - halfH * sinA, y: centerY - halfW * sinA + halfH * cosA },
+              ];
+
+              if (__DEV__) {
+                console.log('[DocScanner] minAreaRect fallback', rectValue, approxArray);
+              }
             }
           } catch (err) {
             if (__DEV__) {
-              console.warn('[DocScanner] boundingRect fallback failed', err);
+              console.warn('[DocScanner] minAreaRect fallback failed', err);
             }
           }
         }
