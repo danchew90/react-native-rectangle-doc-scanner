@@ -254,9 +254,24 @@ export const DocScanner: React.FC<Props> = ({
           continue;
         }
 
+        // Try to use convex hull for better corner detection
+        let contourToUse = contour;
+        try {
+          step = `contour_${i}_convexHull`;
+          reportStage(step);
+          const hull = OpenCV.createObject(ObjectType.PointVector);
+          OpenCV.invoke('convexHull', contour, hull, false, true);
+          contourToUse = hull;
+        } catch (err) {
+          // If convexHull fails, use original contour
+          if (__DEV__) {
+            console.warn('[DocScanner] convexHull failed, using original contour');
+          }
+        }
+
         step = `contour_${i}_arcLength`;
         reportStage(step);
-        const { value: perimeter } = OpenCV.invoke('arcLength', contour, true);
+        const { value: perimeter } = OpenCV.invoke('arcLength', contourToUse, true);
         const approx = OpenCV.createObject(ObjectType.PointVector);
 
         let approxArray: Array<{ x: number; y: number }> = [];
@@ -271,7 +286,7 @@ export const DocScanner: React.FC<Props> = ({
           const epsilon = epsilonValues[attempt] * perimeter;
           step = `contour_${i}_approxPolyDP_attempt_${attempt}`;
           reportStage(step);
-          OpenCV.invoke('approxPolyDP', contour, approx, epsilon, true);
+          OpenCV.invoke('approxPolyDP', contourToUse, approx, epsilon, true);
 
           step = `contour_${i}_toJS_attempt_${attempt}`;
           reportStage(step);
