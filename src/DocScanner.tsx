@@ -76,13 +76,33 @@ type CameraRef = {
 
 type CameraOverrides = Omit<React.ComponentProps<typeof Camera>, 'style' | 'ref' | 'frameProcessor'>;
 
+/**
+ * Configuration for detection quality and behavior
+ */
+export interface DetectionConfig {
+  /** Processing resolution width (default: 1280) - higher = more accurate but slower */
+  processingWidth?: number;
+  /** Canny edge detection lower threshold (default: 40) */
+  cannyLowThreshold?: number;
+  /** Canny edge detection upper threshold (default: 120) */
+  cannyHighThreshold?: number;
+  /** Snap distance in pixels for corner locking (default: 8) */
+  snapDistance?: number;
+  /** Max frames to hold anchor when detection fails (default: 20) */
+  maxAnchorMisses?: number;
+  /** Maximum center movement allowed while maintaining lock (default: 200px) */
+  maxCenterDelta?: number;
+}
+
 interface Props {
-  onCapture?: (photo: { path: string; quad: Point[] | null }) => void;
+  onCapture?: (photo: { path: string; quad: Point[] | null; width: number; height: number }) => void;
   overlayColor?: string;
   autoCapture?: boolean;
   minStableFrames?: number;
   cameraProps?: CameraOverrides;
   children?: ReactNode;
+  /** Advanced detection configuration */
+  detectionConfig?: DetectionConfig;
 }
 
 export const DocScanner: React.FC<Props> = ({
@@ -92,6 +112,7 @@ export const DocScanner: React.FC<Props> = ({
   minStableFrames = 8,
   cameraProps,
   children,
+  detectionConfig = {},
 }) => {
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -115,20 +136,26 @@ export const DocScanner: React.FC<Props> = ({
   const lastMeasurementRef = useRef<Point[] | null>(null);
   const frameSizeRef = useRef<{ width: number; height: number } | null>(null);
 
+  // Detection parameters - configurable via props with sensible defaults
+  const PROCESSING_WIDTH = detectionConfig.processingWidth ?? 1280;
+  const CANNY_LOW = detectionConfig.cannyLowThreshold ?? 40;
+  const CANNY_HIGH = detectionConfig.cannyHighThreshold ?? 120;
+  const SNAP_DISTANCE = detectionConfig.snapDistance ?? 8;
+  const MAX_ANCHOR_MISSES = detectionConfig.maxAnchorMisses ?? 20;
+  const REJECT_CENTER_DELTA = detectionConfig.maxCenterDelta ?? 200;
+
+  // Fixed parameters for algorithm stability
   const MAX_HISTORY = 5;
-  const SNAP_DISTANCE = 8; // pixels; keep corners locked when movement is tiny (increased for stronger lock)
   const SNAP_CENTER_DISTANCE = 18;
-  const BLEND_DISTANCE = 80; // pixels; softly ease between similar shapes (increased)
-  const MAX_CENTER_DELTA = 120; // increased to allow more camera movement
-  const REJECT_CENTER_DELTA = 200; // increased to maintain lock during camera movement
-  const MAX_AREA_SHIFT = 0.55; // more tolerance for perspective changes
+  const BLEND_DISTANCE = 80;
+  const MAX_CENTER_DELTA = 120;
+  const MAX_AREA_SHIFT = 0.55;
   const HISTORY_RESET_DISTANCE = 90;
   const MIN_AREA_RATIO = 0.0002;
   const MAX_AREA_RATIO = 0.9;
   const MIN_EDGE_RATIO = 0.015;
-  const MAX_ANCHOR_MISSES = 20; // increased to hold anchor longer when detection temporarily fails
   const MIN_CONFIDENCE_TO_HOLD = 2;
-  const MAX_ANCHOR_CONFIDENCE = 30; // increased max confidence for stronger anchoring
+  const MAX_ANCHOR_CONFIDENCE = 30;
 
   const updateQuad = useRunOnJS((value: Point[] | null) => {
     if (__DEV__) {
@@ -290,8 +317,8 @@ export const DocScanner: React.FC<Props> = ({
       // Report frame size for coordinate transformation
       updateFrameSize(frame.width, frame.height);
 
-      // Use higher resolution for better accuracy - 1280p for improved corner detection
-      const ratio = 1280 / frame.width;
+      // Use configurable resolution for accuracy vs performance balance
+      const ratio = PROCESSING_WIDTH / frame.width;
       const width = Math.floor(frame.width * ratio);
       const height = Math.floor(frame.height * ratio);
       step = 'resize';
@@ -304,29 +331,35 @@ export const DocScanner: React.FC<Props> = ({
 
       step = 'frameBufferToMat';
       reportStage(step);
-      const mat = OpenCV.frameBufferToMat(height, width, 3, resized);
+      let mat = OpenCV.frameBufferToMat(height, width, 3, resized);
 
       step = 'cvtColor';
       reportStage(step);
       OpenCV.invoke('cvtColor', mat, mat, ColorConversionCodes.COLOR_BGR2GRAY);
 
-      const morphologyKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
+      // Enhanced morphological operations for noise reduction
+      const morphologyKernel = OpenCV.createObject(ObjectType.Size, 7, 7);
       step = 'getStructuringElement';
       reportStage(step);
       const element = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, morphologyKernel);
       step = 'morphologyEx';
       reportStage(step);
+      // MORPH_CLOSE to fill small holes in edges
+      OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_CLOSE, element);
+      // MORPH_OPEN to remove small noise
       OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_OPEN, element);
 
-      const gaussianKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
-      step = 'GaussianBlur';
+      // Bilateral filter for edge-preserving smoothing (better quality than Gaussian)
+      step = 'bilateralFilter';
       reportStage(step);
-      OpenCV.invoke('GaussianBlur', mat, mat, gaussianKernel, 0);
+      const tempMat = OpenCV.createObject(ObjectType.Mat);
+      OpenCV.invoke('bilateralFilter', mat, tempMat, 9, 75, 75);
+      mat = tempMat;
+
       step = 'Canny';
       reportStage(step);
-      // Improved Canny parameters for better edge detection accuracy
-      // Lower threshold (50 -> more edges detected) and higher threshold (150 -> stronger edges kept)
-      OpenCV.invoke('Canny', mat, mat, 50, 150);
+      // Configurable Canny parameters for adaptive edge detection
+      OpenCV.invoke('Canny', mat, mat, CANNY_LOW, CANNY_HIGH);
 
       step = 'createContours';
       reportStage(step);
@@ -489,15 +522,20 @@ export const DocScanner: React.FC<Props> = ({
 
   useEffect(() => {
     const capture = async () => {
-      if (autoCapture && quad && stable >= minStableFrames && camera.current) {
+      if (autoCapture && quad && stable >= minStableFrames && camera.current && frameSize) {
         const photo = await camera.current.takePhoto({ qualityPrioritization: 'quality' });
-        onCapture?.({ path: photo.path, quad });
+        onCapture?.({
+          path: photo.path,
+          quad,
+          width: frameSize.width,
+          height: frameSize.height,
+        });
         setStable(0);
       }
     };
 
     capture();
-  }, [autoCapture, minStableFrames, onCapture, quad, stable]);
+  }, [autoCapture, minStableFrames, onCapture, quad, stable, frameSize]);
 
   const { device: overrideDevice, ...cameraRestProps } = cameraProps ?? {};
   const resolvedDevice = overrideDevice ?? device;
@@ -523,12 +561,17 @@ export const DocScanner: React.FC<Props> = ({
         <TouchableOpacity
           style={styles.button}
           onPress={async () => {
-            if (!camera.current) {
+            if (!camera.current || !frameSize) {
               return;
             }
 
             const photo = await camera.current.takePhoto({ qualityPrioritization: 'quality' });
-            onCapture?.({ path: photo.path, quad });
+            onCapture?.({
+              path: photo.path,
+              quad,
+              width: frameSize.width,
+              height: frameSize.height,
+            });
           }}
         />
       )}

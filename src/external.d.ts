@@ -107,3 +107,28 @@ declare module '@shopify/react-native-skia' {
 
   export const Path: ComponentType<PathProps>;
 }
+
+declare module 'react-native-perspective-image-cropper' {
+  import type { ComponentType } from 'react';
+
+  export type Rectangle = {
+    topLeft: { x: number; y: number };
+    topRight: { x: number; y: number };
+    bottomLeft: { x: number; y: number };
+    bottomRight: { x: number; y: number };
+  };
+
+  export type CustomImageCropperProps = {
+    height: number;
+    width: number;
+    image: string;
+    rectangleCoordinates?: Rectangle;
+    overlayColor?: string;
+    overlayStrokeColor?: string;
+    handlerColor?: string;
+    enablePanStrict?: boolean;
+    onDragEnd?: (coordinates: Rectangle) => void;
+  };
+
+  export const CustomImageCropper: ComponentType<CustomImageCropperProps>;
+}
