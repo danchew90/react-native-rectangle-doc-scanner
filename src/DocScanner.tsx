@@ -208,7 +208,11 @@ export const DocScanner: React.FC<Props> = ({
         const { value: area } = OpenCV.invoke('contourArea', contour, false);
 
         // Skip extremely small contours, but keep threshold very low to allow distant documents
-        if (area < 200) {
+        if (typeof area !== 'number' || !isFinite(area)) {
+          continue;
+        }
+
+        if (area < 50) {
           continue;
         }
 
@@ -220,7 +224,7 @@ export const DocScanner: React.FC<Props> = ({
           console.log('[DocScanner] area', area, 'ratio', areaRatio);
         }
 
-        if (areaRatio < 0.00002 || areaRatio > 0.99) {
+        if (areaRatio < 0.000005 || areaRatio > 0.995) {
           continue;
         }
 
