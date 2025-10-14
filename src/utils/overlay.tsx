@@ -6,15 +6,16 @@ import type { Point } from '../types';
 type OverlayProps = {
   quad: Point[] | null;
   color?: string;
+  frameSize: { width: number; height: number } | null;
 };
 
-export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649' }) => {
+export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649', frameSize }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   const path = useMemo(() => {
-    if (!quad) {
+    if (!quad || !frameSize) {
       if (__DEV__) {
-        console.log('[Overlay] no quad');
+        console.log('[Overlay] no quad or frameSize', { quad, frameSize });
       }
       return null;
     }
@@ -23,14 +24,32 @@ export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649' }) => 
       console.log('[Overlay] drawing quad:', quad);
       console.log('[Overlay] color:', color);
       console.log('[Overlay] screen dimensions:', screenWidth, 'x', screenHeight);
+      console.log('[Overlay] frame dimensions:', frameSize.width, 'x', frameSize.height);
+    }
+
+    // Transform coordinates from camera frame space to screen space
+    const scaleX = screenWidth / frameSize.width;
+    const scaleY = screenHeight / frameSize.height;
+
+    if (__DEV__) {
+      console.log('[Overlay] scale factors:', scaleX, 'x', scaleY);
+    }
+
+    const transformedQuad = quad.map((p) => ({
+      x: p.x * scaleX,
+      y: p.y * scaleY,
+    }));
+
+    if (__DEV__) {
+      console.log('[Overlay] transformed quad:', transformedQuad);
     }
 
     const skPath = Skia.Path.Make();
-    skPath.moveTo(quad[0].x, quad[0].y);
-    quad.slice(1).forEach((p) => skPath.lineTo(p.x, p.y));
+    skPath.moveTo(transformedQuad[0].x, transformedQuad[0].y);
+    transformedQuad.slice(1).forEach((p) => skPath.lineTo(p.x, p.y));
     skPath.close();
     return skPath;
-  }, [quad, color, screenWidth, screenHeight]);
+  }, [quad, color, screenWidth, screenHeight, frameSize]);
 
   // Test path - always visible for debugging
   const testPath = useMemo(() => {

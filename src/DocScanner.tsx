@@ -133,12 +133,20 @@ export const DocScanner: React.FC<Props> = ({
     }
   }, []);
 
+  const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
+  const updateFrameSize = useRunOnJS((width: number, height: number) => {
+    setFrameSize({ width, height });
+  }, []);
+
   const frameProcessor = useFrameProcessor((frame) => {
     'worklet';
 
     let step = 'start';
 
     try {
+      // Report frame size for coordinate transformation
+      updateFrameSize(frame.width, frame.height);
+
       const ratio = 480 / frame.width;
       const width = Math.floor(frame.width * ratio);
       const height = Math.floor(frame.height * ratio);
@@ -369,7 +377,7 @@ export const DocScanner: React.FC<Props> = ({
         frameProcessorFps={15}
         {...cameraRestProps}
       />
-      <Overlay quad={quad} color={overlayColor} />
+      <Overlay quad={quad} color={overlayColor} frameSize={frameSize} />
       {!autoCapture && (
         <TouchableOpacity
           style={styles.button}
