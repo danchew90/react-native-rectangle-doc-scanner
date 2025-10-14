@@ -14,7 +14,17 @@ import {
 } from 'react-native-fast-opencv';
 import { Overlay } from './utils/overlay';
 import { checkStability } from './utils/stability';
-import { averageQuad, blendQuads, isValidQuad, orderQuadPoints, quadDistance, sanitizeQuad } from './utils/quad';
+import {
+  blendQuads,
+  isValidQuad,
+  orderQuadPoints,
+  quadArea,
+  quadCenter,
+  quadDistance,
+  quadEdgeLengths,
+  sanitizeQuad,
+  weightedAverageQuad,
+} from './utils/quad';
 import type { Point } from './types';
 
 const isConvexQuadrilateral = (points: Point[]) => {
@@ -101,11 +111,19 @@ export const DocScanner: React.FC<Props> = ({
   const smoothingBufferRef = useRef<Point[][]>([]);
   const anchorQuadRef = useRef<Point[] | null>(null);
   const missingFrameCountRef = useRef(0);
+  const lastMeasurementRef = useRef<Point[] | null>(null);
+  const frameSizeRef = useRef<{ width: number; height: number } | null>(null);
 
   const MAX_HISTORY = 5;
   const SNAP_DISTANCE = 5; // pixels; keep corners locked when movement is tiny
-  const BLEND_DISTANCE = 20; // pixels; softly ease between similar shapes
-  const BLEND_ALPHA = 0.35;
+  const SNAP_CENTER_DISTANCE = 12;
+  const BLEND_DISTANCE = 65; // pixels; softly ease between similar shapes
+  const MAX_CENTER_DELTA = 85;
+  const MAX_AREA_SHIFT = 0.45;
+  const HISTORY_RESET_DISTANCE = 70;
+  const MIN_AREA_RATIO = 0.0035;
+  const MAX_AREA_RATIO = 0.9;
+  const MIN_EDGE_RATIO = 0.025;
 
   const updateQuad = useRunOnJS((value: Point[] | null) => {
     if (__DEV__) {
@@ -132,6 +150,44 @@ export const DocScanner: React.FC<Props> = ({
     const ordered = orderQuadPoints(value);
     const sanitized = sanitizeQuad(ordered);
 
+    const frameSize = frameSizeRef.current;
+    const frameArea = frameSize ? frameSize.width * frameSize.height : null;
+    const area = quadArea(sanitized);
+    const edges = quadEdgeLengths(sanitized);
+    const minEdge = Math.min(...edges);
+    const maxEdge = Math.max(...edges);
+    const aspectRatio = maxEdge > 0 ? maxEdge / Math.max(minEdge, 1) : 0;
+
+    const minEdgeThreshold = frameSize
+      ? Math.max(14, Math.min(frameSize.width, frameSize.height) * MIN_EDGE_RATIO)
+      : 14;
+
+    const areaTooSmall = frameArea ? area < frameArea * MIN_AREA_RATIO : area === 0;
+    const areaTooLarge = frameArea ? area > frameArea * MAX_AREA_RATIO : false;
+    const edgesTooShort = minEdge < minEdgeThreshold;
+    const aspectTooExtreme = aspectRatio > 7;
+
+    if (areaTooSmall || areaTooLarge || edgesTooShort || aspectTooExtreme) {
+      missingFrameCountRef.current += 1;
+
+      if (lastQuadRef.current && missingFrameCountRef.current <= 2) {
+        setQuad(lastQuadRef.current);
+        return;
+      }
+
+      smoothingBufferRef.current = [];
+      anchorQuadRef.current = null;
+      lastQuadRef.current = null;
+      setQuad(null);
+      return;
+    }
+
+    const lastMeasurement = lastMeasurementRef.current;
+    if (lastMeasurement && quadDistance(lastMeasurement, sanitized) > HISTORY_RESET_DISTANCE) {
+      smoothingBufferRef.current = [];
+    }
+    lastMeasurementRef.current = sanitized;
+
     smoothingBufferRef.current.push(sanitized);
     if (smoothingBufferRef.current.length > MAX_HISTORY) {
       smoothingBufferRef.current.shift();
@@ -139,16 +195,26 @@ export const DocScanner: React.FC<Props> = ({
 
     const history = smoothingBufferRef.current;
     const hasHistory = history.length >= 2;
-    let candidate = hasHistory ? averageQuad(history) : sanitized;
+    let candidate = hasHistory ? weightedAverageQuad(history) : sanitized;
 
     const anchor = anchorQuadRef.current;
     if (anchor && isValidQuad(anchor)) {
       const delta = quadDistance(candidate, anchor);
+      const anchorCenter = quadCenter(anchor);
+      const candidateCenter = quadCenter(candidate);
+      const anchorArea = quadArea(anchor);
+      const candidateArea = quadArea(candidate);
+      const centerDelta = Math.hypot(candidateCenter.x - anchorCenter.x, candidateCenter.y - anchorCenter.y);
+      const areaShift = anchorArea > 0 ? Math.abs(anchorArea - candidateArea) / anchorArea : 0;
 
-      if (delta <= SNAP_DISTANCE) {
+      if (delta <= SNAP_DISTANCE && centerDelta <= SNAP_CENTER_DISTANCE && areaShift <= 0.08) {
         candidate = anchor;
-      } else if (delta <= BLEND_DISTANCE) {
-        candidate = blendQuads(anchor, candidate, BLEND_ALPHA);
+      } else if (delta <= BLEND_DISTANCE && centerDelta <= MAX_CENTER_DELTA && areaShift <= MAX_AREA_SHIFT) {
+        const normalizedDelta = Math.min(1, delta / BLEND_DISTANCE);
+        const adaptiveAlpha = 0.25 + normalizedDelta * 0.45; // 0.25..0.7 range
+        candidate = blendQuads(anchor, candidate, adaptiveAlpha);
+      } else {
+        smoothingBufferRef.current = [sanitized];
       }
     }
 
@@ -169,6 +235,7 @@ export const DocScanner: React.FC<Props> = ({
 
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
   const updateFrameSize = useRunOnJS((width: number, height: number) => {
+    frameSizeRef.current = { width, height };
     setFrameSize({ width, height });
   }, []);
 

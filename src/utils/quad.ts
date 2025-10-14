@@ -109,3 +109,73 @@ export const sanitizeQuad = (quad: Point[]): Point[] => {
     y: Number.isFinite(point.y) ? point.y : 0,
   }));
 };
+
+export const quadArea = (quad: Point[]): number => {
+  if (!isValidQuad(quad)) {
+    return 0;
+  }
+
+  let area = 0;
+  for (let i = 0; i < 4; i += 1) {
+    const current = quad[i];
+    const next = quad[(i + 1) % 4];
+    area += current.x * next.y - next.x * current.y;
+  }
+
+  return Math.abs(area) / 2;
+};
+
+export const quadCenter = (quad: Point[]): Point => {
+  if (!isValidQuad(quad)) {
+    return { x: 0, y: 0 };
+  }
+
+  const sum = quad.reduce(
+    (acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }),
+    { x: 0, y: 0 },
+  );
+
+  return {
+    x: sum.x / quad.length,
+    y: sum.y / quad.length,
+  };
+};
+
+export const quadEdgeLengths = (quad: Point[]): number[] => {
+  if (!isValidQuad(quad)) {
+    return [0, 0, 0, 0];
+  }
+
+  const lengths: number[] = [];
+
+  for (let i = 0; i < 4; i += 1) {
+    const current = quad[i];
+    const next = quad[(i + 1) % 4];
+    lengths.push(Math.hypot(next.x - current.x, next.y - current.y));
+  }
+
+  return lengths;
+};
+
+export const weightedAverageQuad = (quads: Point[][]): Point[] => {
+  if (!Array.isArray(quads) || quads.length === 0) {
+    throw new Error('Cannot average empty quad array');
+  }
+
+  const weights = quads.map((_, index) => index + 1);
+  const totalWeight = weights.reduce((acc, weight) => acc + weight, 0);
+
+  const accum: Point[] = quads[0].map(() => ({ x: 0, y: 0 }));
+
+  quads.forEach((quad, quadIndex) => {
+    quad.forEach((point, pointIndex) => {
+      accum[pointIndex].x += point.x * weights[quadIndex];
+      accum[pointIndex].y += point.y * weights[quadIndex];
+    });
+  });
+
+  return accum.map((point) => ({
+    x: point.x / totalWeight,
+    y: point.y / totalWeight,
+  }));
+};
