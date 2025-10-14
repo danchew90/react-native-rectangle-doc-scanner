@@ -27,18 +27,46 @@ export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649', frame
       console.log('[Overlay] frame dimensions:', frameSize.width, 'x', frameSize.height);
     }
 
-    // Transform coordinates from camera frame space to screen space
-    const scaleX = screenWidth / frameSize.width;
-    const scaleY = screenHeight / frameSize.height;
+    // Check if camera is in landscape mode (width > height) but screen is portrait (height > width)
+    const isFrameLandscape = frameSize.width > frameSize.height;
+    const isScreenPortrait = screenHeight > screenWidth;
+    const needsRotation = isFrameLandscape && isScreenPortrait;
 
     if (__DEV__) {
-      console.log('[Overlay] scale factors:', scaleX, 'x', scaleY);
+      console.log('[Overlay] needs rotation:', needsRotation);
     }
 
-    const transformedQuad = quad.map((p) => ({
-      x: p.x * scaleX,
-      y: p.y * scaleY,
-    }));
+    let transformedQuad: Point[];
+
+    if (needsRotation) {
+      // Camera is landscape, screen is portrait - need to rotate 90 degrees
+      // Transform: rotate 90° clockwise and scale
+      // New coordinates: x' = y * (screenWidth / frameHeight), y' = (frameWidth - x) * (screenHeight / frameWidth)
+      const scaleX = screenWidth / frameSize.height;
+      const scaleY = screenHeight / frameSize.width;
+
+      if (__DEV__) {
+        console.log('[Overlay] rotation scale factors:', scaleX, 'x', scaleY);
+      }
+
+      transformedQuad = quad.map((p) => ({
+        x: p.y * scaleX,
+        y: (frameSize.width - p.x) * scaleY,
+      }));
+    } else {
+      // Same orientation - just scale
+      const scaleX = screenWidth / frameSize.width;
+      const scaleY = screenHeight / frameSize.height;
+
+      if (__DEV__) {
+        console.log('[Overlay] scale factors:', scaleX, 'x', scaleY);
+      }
+
+      transformedQuad = quad.map((p) => ({
+        x: p.x * scaleX,
+        y: p.y * scaleY,
+      }));
+    }
 
     if (__DEV__) {
       console.log('[Overlay] transformed quad:', transformedQuad);
