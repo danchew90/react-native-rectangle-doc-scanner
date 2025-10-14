@@ -123,9 +123,9 @@ export const DocScanner: React.FC<Props> = ({
   const REJECT_CENTER_DELTA = 145;
   const MAX_AREA_SHIFT = 0.45;
   const HISTORY_RESET_DISTANCE = 70;
-  const MIN_AREA_RATIO = 0.0035;
+  const MIN_AREA_RATIO = 0.0002;
   const MAX_AREA_RATIO = 0.9;
-  const MIN_EDGE_RATIO = 0.025;
+  const MIN_EDGE_RATIO = 0.015;
   const MAX_ANCHOR_MISSES = 12;
   const MIN_CONFIDENCE_TO_HOLD = 2;
   const MAX_ANCHOR_CONFIDENCE = 20;
@@ -224,10 +224,13 @@ export const DocScanner: React.FC<Props> = ({
       const areaShift = anchorArea > 0 ? Math.abs(anchorArea - candidateArea) / anchorArea : 0;
 
       if (centerDelta >= REJECT_CENTER_DELTA || areaShift > 1.2) {
-        const handled = fallbackToAnchor(true);
-        if (handled) {
-          return;
-        }
+        smoothingBufferRef.current = [sanitized];
+        lastMeasurementRef.current = sanitized;
+        anchorQuadRef.current = candidate;
+        anchorConfidenceRef.current = 1;
+        anchorMissesRef.current = 0;
+        lastQuadRef.current = candidate;
+        setQuad(candidate);
         return;
       }
 
@@ -365,7 +368,7 @@ export const DocScanner: React.FC<Props> = ({
         }
 
         // Skip if area ratio is too small or too large
-        if (areaRatio < 0.005 || areaRatio > 0.95) {
+        if (areaRatio < 0.0002 || areaRatio > 0.99) {
           continue;
         }
 
