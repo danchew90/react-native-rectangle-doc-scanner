@@ -116,19 +116,19 @@ export const DocScanner: React.FC<Props> = ({
   const frameSizeRef = useRef<{ width: number; height: number } | null>(null);
 
   const MAX_HISTORY = 5;
-  const SNAP_DISTANCE = 5; // pixels; keep corners locked when movement is tiny
-  const SNAP_CENTER_DISTANCE = 12;
-  const BLEND_DISTANCE = 65; // pixels; softly ease between similar shapes
-  const MAX_CENTER_DELTA = 85;
-  const REJECT_CENTER_DELTA = 145;
-  const MAX_AREA_SHIFT = 0.45;
-  const HISTORY_RESET_DISTANCE = 70;
+  const SNAP_DISTANCE = 8; // pixels; keep corners locked when movement is tiny (increased for stronger lock)
+  const SNAP_CENTER_DISTANCE = 18;
+  const BLEND_DISTANCE = 80; // pixels; softly ease between similar shapes (increased)
+  const MAX_CENTER_DELTA = 120; // increased to allow more camera movement
+  const REJECT_CENTER_DELTA = 200; // increased to maintain lock during camera movement
+  const MAX_AREA_SHIFT = 0.55; // more tolerance for perspective changes
+  const HISTORY_RESET_DISTANCE = 90;
   const MIN_AREA_RATIO = 0.0002;
   const MAX_AREA_RATIO = 0.9;
   const MIN_EDGE_RATIO = 0.015;
-  const MAX_ANCHOR_MISSES = 12;
+  const MAX_ANCHOR_MISSES = 20; // increased to hold anchor longer when detection temporarily fails
   const MIN_CONFIDENCE_TO_HOLD = 2;
-  const MAX_ANCHOR_CONFIDENCE = 20;
+  const MAX_ANCHOR_CONFIDENCE = 30; // increased max confidence for stronger anchoring
 
   const updateQuad = useRunOnJS((value: Point[] | null) => {
     if (__DEV__) {
@@ -290,8 +290,8 @@ export const DocScanner: React.FC<Props> = ({
       // Report frame size for coordinate transformation
       updateFrameSize(frame.width, frame.height);
 
-      // Use higher resolution for better accuracy - 960p
-      const ratio = 960 / frame.width;
+      // Use higher resolution for better accuracy - 1280p for improved corner detection
+      const ratio = 1280 / frame.width;
       const width = Math.floor(frame.width * ratio);
       const height = Math.floor(frame.height * ratio);
       step = 'resize';
@@ -324,7 +324,9 @@ export const DocScanner: React.FC<Props> = ({
       OpenCV.invoke('GaussianBlur', mat, mat, gaussianKernel, 0);
       step = 'Canny';
       reportStage(step);
-      OpenCV.invoke('Canny', mat, mat, 30, 100);
+      // Improved Canny parameters for better edge detection accuracy
+      // Lower threshold (50 -> more edges detected) and higher threshold (150 -> stronger edges kept)
+      OpenCV.invoke('Canny', mat, mat, 50, 150);
 
       step = 'createContours';
       reportStage(step);

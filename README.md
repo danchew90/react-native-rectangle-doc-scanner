@@ -5,6 +5,10 @@ VisionCamera + Fast-OpenCV powered document scanner template built for React Nat
 ## Features
 - Real-time quad detection using `react-native-fast-opencv`
 - Frame processor worklet executed on the UI thread via `react-native-vision-camera`
+- High-resolution processing (1280p) for accurate corner detection
+- Advanced anchor locking system maintains corner positions during camera movement
+- Intelligent edge detection with optimized Canny parameters (50/150 thresholds)
+- Adaptive smoothing with weighted averaging across multiple frames
 - Resize plugin keeps frame processing fast on lower-end devices
 - Skia overlay visualises detected document contours
 - Stability tracker enables auto-capture once the document is steady
@@ -106,6 +110,37 @@ Passing `children` lets you render any UI on top of the camera preview, so you c
 - If you disable `autoCapture`, the built-in shutter button appears; you can still provide your own UI as `children` to replace or augment it.
 - The internal frame processor handles document detection; do not override `frameProcessor` in `cameraProps`.
 - Adjust `minStableFrames` or tweak lighting conditions if auto capture is too sensitive or too slow.
+
+## Detection Algorithm
+
+The scanner uses a sophisticated multi-stage pipeline:
+
+1. **Pre-processing** (1280p resolution for accuracy)
+   - Converts frame to grayscale
+   - Applies morphological opening to reduce noise
+   - Gaussian blur for smoother edges
+   - Canny edge detection with 50/150 thresholds
+
+2. **Contour Detection**
+   - Finds external contours using CHAIN_APPROX_SIMPLE
+   - Applies convex hull for better corner detection
+   - Tests multiple epsilon values (0.1%-10%) for approxPolyDP
+   - Validates quadrilaterals for convexity
+
+3. **Anchor Locking System**
+   - Once corners are detected, they "snap" to stable positions
+   - Maintains lock even when camera moves (up to 200px center delta)
+   - Holds anchor for up to 20 missed detections
+   - Adaptive blending between old and new positions for smooth transitions
+   - Builds confidence over time (max 30 frames) for stronger locking
+
+4. **Quad Validation**
+   - Checks area ratio (0.02%-90% of frame)
+   - Validates minimum edge lengths
+   - Ensures reasonable aspect ratios
+   - Filters out non-convex shapes
+
+This approach ensures corners remain locked once detected, allowing you to move the camera slightly without losing the document boundary.
 
 ## Build
 ```sh
