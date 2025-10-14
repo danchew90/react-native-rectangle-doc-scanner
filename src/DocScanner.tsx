@@ -267,8 +267,20 @@ export const DocScanner: React.FC<Props> = ({
         }));
 
         // Skip convexity check for boundingRect (always forms a valid rectangle)
-        if (!usedBoundingRect && !isConvexQuadrilateral(points)) {
-          continue;
+        if (!usedBoundingRect) {
+          try {
+            if (!isConvexQuadrilateral(points)) {
+              if (__DEV__) {
+                console.log('[DocScanner] not convex, skipping:', points);
+              }
+              continue;
+            }
+          } catch (err) {
+            if (__DEV__) {
+              console.warn('[DocScanner] convex check error:', err, 'points:', points);
+            }
+            continue;
+          }
         }
 
         if (area > maxArea) {
