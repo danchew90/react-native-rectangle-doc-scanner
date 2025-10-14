@@ -79,17 +79,6 @@ export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649', frame
     return skPath;
   }, [quad, color, screenWidth, screenHeight, frameSize]);
 
-  // Test path - always visible for debugging
-  const testPath = useMemo(() => {
-    const tp = Skia.Path.Make();
-    tp.moveTo(100, 100);
-    tp.lineTo(300, 100);
-    tp.lineTo(300, 300);
-    tp.lineTo(100, 300);
-    tp.close();
-    return tp;
-  }, []);
-
   if (__DEV__) {
     console.log('[Overlay] rendering Canvas with dimensions:', screenWidth, 'x', screenHeight);
   }
@@ -97,10 +86,6 @@ export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649', frame
   return (
     <View style={styles.container} pointerEvents="none">
       <Canvas style={{ width: screenWidth, height: screenHeight }}>
-        {/* Debug: always show a test rectangle */}
-        <Path path={testPath} color="red" style="stroke" strokeWidth={4} />
-
-        {/* Actual quad overlay */}
         {path && (
           <>
             <Path path={path} color={color} style="stroke" strokeWidth={8} />

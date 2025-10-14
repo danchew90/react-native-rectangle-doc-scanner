@@ -225,7 +225,7 @@ export const DocScanner: React.FC<Props> = ({
         }
 
         // Skip if area ratio is too small or too large
-        if (areaRatio < 0.01 || areaRatio > 0.95) {
+        if (areaRatio < 0.02 || areaRatio > 0.95) {
           continue;
         }
 
@@ -236,9 +236,8 @@ export const DocScanner: React.FC<Props> = ({
 
         let approxArray: Array<{ x: number; y: number }> = [];
 
-        // Start with smaller epsilon for more accurate corner detection
-        // Try epsilon values from 0.5% to 5% of perimeter
-        const epsilonValues = [0.005, 0.01, 0.015, 0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05];
+        // Try epsilon values from 0.2% to 8% of perimeter
+        const epsilonValues = [0.002, 0.004, 0.006, 0.008, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08];
 
         for (let attempt = 0; attempt < epsilonValues.length; attempt += 1) {
           const epsilon = epsilonValues[attempt] * perimeter;
