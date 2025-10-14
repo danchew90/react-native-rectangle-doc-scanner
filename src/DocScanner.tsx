@@ -202,18 +202,27 @@ export const DocScanner: React.FC<Props> = ({
         reportStage(step);
         const contour = OpenCV.copyObjectFromVector(contours, i);
 
-        step = `contour_${i}_area`;
+        // Compute absolute area first
+        step = `contour_${i}_area_abs`;
         reportStage(step);
         const { value: area } = OpenCV.invoke('contourArea', contour, false);
+
+        // Skip extremely small contours below an absolute pixel threshold
+        if (area < 500) {
+          continue;
+        }
+
+        step = `contour_${i}_area`; // ratio stage
+        reportStage(step);
         const areaRatio = area / frameArea;
 
         if (__DEV__) {
-          console.log('[DocScanner] area ratio', areaRatio);
+          console.log('[DocScanner] area', area, 'ratio', areaRatio);
         }
 
-        // Filter by area: document should be at least 0.1% and at most 98% of frame
+        // Filter by area: document should be at least 0.01% and at most 99% of frame
         // This prevents detecting tiny noise or the entire frame
-        if (areaRatio < 0.001 || areaRatio > 0.98) {
+        if (areaRatio < 0.0001 || areaRatio > 0.99) {
           continue;
         }
 
