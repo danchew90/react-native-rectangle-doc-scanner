@@ -147,7 +147,8 @@ export const DocScanner: React.FC<Props> = ({
       // Report frame size for coordinate transformation
       updateFrameSize(frame.width, frame.height);
 
-      const ratio = 480 / frame.width;
+      // Use higher resolution for better accuracy - 720p instead of 480p
+      const ratio = 720 / frame.width;
       const width = Math.floor(frame.width * ratio);
       const height = Math.floor(frame.height * ratio);
       step = 'resize';
@@ -166,29 +167,46 @@ export const DocScanner: React.FC<Props> = ({
       reportStage(step);
       OpenCV.invoke('cvtColor', mat, mat, ColorConversionCodes.COLOR_BGR2GRAY);
 
-      const morphologyKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
+      // Apply bilateral filter for better edge preservation
+      step = 'bilateralFilter';
+      reportStage(step);
+      const filtered = OpenCV.createObject(ObjectType.Mat);
+      OpenCV.invoke('bilateralFilter', mat, filtered, 9, 75, 75);
+
+      // Use adaptive threshold for better contrast in varying lighting
+      step = 'adaptiveThreshold';
+      reportStage(step);
+      const thresh = OpenCV.createObject(ObjectType.Mat);
+      OpenCV.invoke('adaptiveThreshold', filtered, thresh, 255, 1, 1, 11, 2);
+
+      // Morphological operations to clean up noise
+      const morphologyKernel = OpenCV.createObject(ObjectType.Size, 3, 3);
       step = 'getStructuringElement';
       reportStage(step);
       const element = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, morphologyKernel);
       step = 'morphologyEx';
       reportStage(step);
-      OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_OPEN, element);
+      OpenCV.invoke('morphologyEx', thresh, mat, MorphTypes.MORPH_CLOSE, element);
 
+      // Apply Gaussian blur before Canny for smoother edges
       const gaussianKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
       step = 'GaussianBlur';
       reportStage(step);
       OpenCV.invoke('GaussianBlur', mat, mat, gaussianKernel, 0);
+
+      // Use higher Canny thresholds for cleaner edges
       step = 'Canny';
       reportStage(step);
-      OpenCV.invoke('Canny', mat, mat, 75, 100);
+      OpenCV.invoke('Canny', mat, mat, 50, 150);
 
       step = 'createContours';
       reportStage(step);
       const contours = OpenCV.createObject(ObjectType.PointVectorOfVectors);
-      OpenCV.invoke('findContours', mat, contours, RetrievalModes.RETR_LIST, ContourApproximationModes.CHAIN_APPROX_SIMPLE);
+      OpenCV.invoke('findContours', mat, contours, RetrievalModes.RETR_EXTERNAL, ContourApproximationModes.CHAIN_APPROX_SIMPLE);
 
       let best: Point[] | null = null;
       let maxArea = 0;
+      const frameArea = width * height;
 
       step = 'toJSValue';
       reportStage(step);
@@ -203,13 +221,15 @@ export const DocScanner: React.FC<Props> = ({
         step = `contour_${i}_area`;
         reportStage(step);
         const { value: area } = OpenCV.invoke('contourArea', contour, false);
+        const areaRatio = area / frameArea;
 
         if (__DEV__) {
-          console.log('[DocScanner] area ratio', area / (width * height));
+          console.log('[DocScanner] area ratio', areaRatio);
         }
 
-        // Lower threshold to detect smaller documents
-        if (area < width * height * 0.0001) {
+        // Filter by area: document should be at least 5% and at most 95% of frame
+        // This prevents detecting tiny noise or the entire frame
+        if (areaRatio < 0.05 || areaRatio > 0.95) {
           continue;
         }
 
@@ -219,11 +239,13 @@ export const DocScanner: React.FC<Props> = ({
         const approx = OpenCV.createObject(ObjectType.PointVector);
 
         let approxArray: Array<{ x: number; y: number }> = [];
-        let usedBoundingRect = false;
-        let epsilonBase = 0.006 * perimeter;
 
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-          const epsilon = epsilonBase * (1 + attempt);
+        // Start with smaller epsilon for more accurate corner detection
+        // Try epsilon values from 0.5% to 5% of perimeter
+        const epsilonValues = [0.005, 0.01, 0.015, 0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05];
+
+        for (let attempt = 0; attempt < epsilonValues.length; attempt += 1) {
+          const epsilon = epsilonValues[attempt] * perimeter;
           step = `contour_${i}_approxPolyDP_attempt_${attempt}`;
           reportStage(step);
           OpenCV.invoke('approxPolyDP', contour, approx, epsilon, true);
@@ -241,46 +263,9 @@ export const DocScanner: React.FC<Props> = ({
             approxArray = candidate as Array<{ x: number; y: number }>;
             break;
           }
-
-          if (approxArray.length === 0 || Math.abs(candidate.length - 4) < Math.abs(approxArray.length - 4)) {
-            approxArray = candidate as Array<{ x: number; y: number }>;
-          }
         }
 
-        if (approxArray.length !== 4) {
-          // fallback: boundingRect (axis-aligned) so we always have 4 points
-          try {
-            const rect = OpenCV.invoke('boundingRect', contour);
-            // Convert the rect object to JS value to get actual coordinates
-            const rectJS = OpenCV.toJSValue(rect);
-            const rectValue = rectJS?.value ?? rectJS;
-
-            const rectX = rectValue?.x ?? 0;
-            const rectY = rectValue?.y ?? 0;
-            const rectW = rectValue?.width ?? 0;
-            const rectH = rectValue?.height ?? 0;
-
-            // Validate that we have a valid rectangle
-            if (rectW > 0 && rectH > 0) {
-              approxArray = [
-                { x: rectX, y: rectY },
-                { x: rectX + rectW, y: rectY },
-                { x: rectX + rectW, y: rectY + rectH },
-                { x: rectX, y: rectY + rectH },
-              ];
-              usedBoundingRect = true;
-
-              if (__DEV__) {
-                console.log('[DocScanner] using boundingRect fallback:', approxArray);
-              }
-            }
-          } catch (err) {
-            if (__DEV__) {
-              console.warn('[DocScanner] boundingRect fallback failed:', err);
-            }
-          }
-        }
-
+        // Only proceed if we found exactly 4 corners
         if (approxArray.length !== 4) {
           continue;
         }
@@ -307,21 +292,19 @@ export const DocScanner: React.FC<Props> = ({
           y: pt.y / ratio,
         }));
 
-        // Skip convexity check for boundingRect (always forms a valid rectangle)
-        if (!usedBoundingRect) {
-          try {
-            if (!isConvexQuadrilateral(points)) {
-              if (__DEV__) {
-                console.log('[DocScanner] not convex, skipping:', points);
-              }
-              continue;
-            }
-          } catch (err) {
+        // Verify the quadrilateral is convex (valid document shape)
+        try {
+          if (!isConvexQuadrilateral(points)) {
             if (__DEV__) {
-              console.warn('[DocScanner] convex check error:', err, 'points:', points);
+              console.log('[DocScanner] not convex, skipping:', points);
             }
             continue;
           }
+        } catch (err) {
+          if (__DEV__) {
+            console.warn('[DocScanner] convex check error:', err, 'points:', points);
+          }
+          continue;
         }
 
         if (area > maxArea) {
