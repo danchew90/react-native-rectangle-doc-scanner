@@ -96,11 +96,30 @@ export const DocScanner: React.FC<Props> = ({
     requestPermission();
   }, [requestPermission]);
 
+  const lastQuadRef = useRef<Point[] | null>(null);
+  const noQuadFramesRef = useRef(0);
+
   const updateQuad = useRunOnJS((value: Point[] | null) => {
     if (__DEV__) {
       console.log('[DocScanner] quad', value);
     }
-    setQuad(value);
+
+    if (value) {
+      // Found a quad, reset counter and update
+      noQuadFramesRef.current = 0;
+      lastQuadRef.current = value;
+      setQuad(value);
+    } else {
+      // No quad found, keep the last one for a few frames
+      noQuadFramesRef.current += 1;
+
+      // Keep the last quad for up to 3 frames
+      if (noQuadFramesRef.current > 3) {
+        lastQuadRef.current = null;
+        setQuad(null);
+      }
+      // Otherwise, keep showing the last quad
+    }
   }, []);
 
   const reportError = useRunOnJS((step: string, error: unknown) => {
