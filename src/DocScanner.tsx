@@ -224,30 +224,27 @@ export const DocScanner: React.FC<Props> = ({
           console.log('[DocScanner] area', area, 'ratio', areaRatio);
         }
 
-        if (areaRatio < 0.000005 || areaRatio > 0.995) {
+        // Skip if area ratio is too small or too large
+        if (areaRatio < 0.01 || areaRatio > 0.95) {
           continue;
         }
 
-        // Use convex hull to simplify contour before polygon approximation
-        const hull = OpenCV.createObject(ObjectType.PointVector);
-        OpenCV.invoke('convexHull', contour, hull);
-
         step = `contour_${i}_arcLength`;
         reportStage(step);
-        const { value: perimeter } = OpenCV.invoke('arcLength', hull, true);
+        const { value: perimeter } = OpenCV.invoke('arcLength', contour, true);
         const approx = OpenCV.createObject(ObjectType.PointVector);
 
         let approxArray: Array<{ x: number; y: number }> = [];
 
         // Start with smaller epsilon for more accurate corner detection
-        // Try epsilon values from 0.4% up to 6% of perimeter
-        const epsilonValues = [0.004, 0.006, 0.008, 0.01, 0.012, 0.015, 0.02, 0.03, 0.04, 0.05, 0.06];
+        // Try epsilon values from 0.5% to 5% of perimeter
+        const epsilonValues = [0.005, 0.01, 0.015, 0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05];
 
         for (let attempt = 0; attempt < epsilonValues.length; attempt += 1) {
           const epsilon = epsilonValues[attempt] * perimeter;
           step = `contour_${i}_approxPolyDP_attempt_${attempt}`;
           reportStage(step);
-          OpenCV.invoke('approxPolyDP', hull, approx, epsilon, true);
+          OpenCV.invoke('approxPolyDP', contour, approx, epsilon, true);
 
           step = `contour_${i}_toJS_attempt_${attempt}`;
           reportStage(step);
@@ -264,44 +261,7 @@ export const DocScanner: React.FC<Props> = ({
           }
         }
 
-        if (approxArray.length !== 4) {
-          // fallback: rotated rectangle using minAreaRect
-          try {
-            const rect = OpenCV.invoke('minAreaRect', contour);
-            const rectValue = rect?.value ?? rect;
-
-            const centerX = rectValue.centerX ?? rectValue.center?.x ?? 0;
-            const centerY = rectValue.centerY ?? rectValue.center?.y ?? 0;
-            const rectW = rectValue.width ?? rectValue.size?.width ?? 0;
-            const rectH = rectValue.height ?? rectValue.size?.height ?? 0;
-            const angleDeg = rectValue.angle ?? rectValue.rotation ?? 0;
-
-            if (rectW > 0 && rectH > 0) {
-              const angleRad = (angleDeg * Math.PI) / 180;
-              const cosA = Math.cos(angleRad);
-              const sinA = Math.sin(angleRad);
-              const halfW = rectW / 2;
-              const halfH = rectH / 2;
-
-              approxArray = [
-                { x: centerX - halfW * cosA + halfH * sinA, y: centerY - halfW * sinA - halfH * cosA },
-                { x: centerX + halfW * cosA + halfH * sinA, y: centerY + halfW * sinA - halfH * cosA },
-                { x: centerX + halfW * cosA - halfH * sinA, y: centerY + halfW * sinA + halfH * cosA },
-                { x: centerX - halfW * cosA - halfH * sinA, y: centerY - halfW * sinA + halfH * cosA },
-              ];
-
-              if (__DEV__) {
-                console.log('[DocScanner] minAreaRect fallback', rectValue, approxArray);
-              }
-            }
-          } catch (err) {
-            if (__DEV__) {
-              console.warn('[DocScanner] minAreaRect fallback failed', err);
-            }
-          }
-        }
-
-        // Only proceed if we found exactly 4 corners after fallback
+        // Only proceed if we found exactly 4 corners
         if (approxArray.length !== 4) {
           continue;
         }
