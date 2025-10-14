@@ -110,7 +110,8 @@ export const DocScanner: React.FC<Props> = ({
   const lastQuadRef = useRef<Point[] | null>(null);
   const smoothingBufferRef = useRef<Point[][]>([]);
   const anchorQuadRef = useRef<Point[] | null>(null);
-  const missingFrameCountRef = useRef(0);
+  const anchorMissesRef = useRef(0);
+  const anchorConfidenceRef = useRef(0);
   const lastMeasurementRef = useRef<Point[] | null>(null);
   const frameSizeRef = useRef<{ width: number; height: number } | null>(null);
 
@@ -125,28 +126,52 @@ export const DocScanner: React.FC<Props> = ({
   const MIN_AREA_RATIO = 0.0035;
   const MAX_AREA_RATIO = 0.9;
   const MIN_EDGE_RATIO = 0.025;
+  const MAX_ANCHOR_MISSES = 12;
+  const MIN_CONFIDENCE_TO_HOLD = 2;
+  const MAX_ANCHOR_CONFIDENCE = 20;
 
   const updateQuad = useRunOnJS((value: Point[] | null) => {
     if (__DEV__) {
       console.log('[DocScanner] quad', value);
     }
 
-    if (!isValidQuad(value)) {
-      missingFrameCountRef.current += 1;
-
-      if (lastQuadRef.current && missingFrameCountRef.current <= 2) {
-        setQuad(lastQuadRef.current);
-        return;
+    const fallbackToAnchor = (resetHistory: boolean) => {
+      if (resetHistory) {
+        smoothingBufferRef.current = [];
+        lastMeasurementRef.current = null;
       }
 
-      smoothingBufferRef.current = [];
+      const anchor = anchorQuadRef.current;
+      const anchorConfidence = anchorConfidenceRef.current;
+
+      if (anchor && anchorConfidence >= MIN_CONFIDENCE_TO_HOLD) {
+        anchorMissesRef.current += 1;
+
+        if (anchorMissesRef.current <= MAX_ANCHOR_MISSES) {
+          anchorConfidenceRef.current = Math.max(1, anchorConfidence - 1);
+          lastQuadRef.current = anchor;
+          setQuad(anchor);
+          return true;
+        }
+      }
+
+      anchorMissesRef.current = 0;
+      anchorConfidenceRef.current = 0;
       anchorQuadRef.current = null;
       lastQuadRef.current = null;
       setQuad(null);
+      return false;
+    };
+
+    if (!isValidQuad(value)) {
+      const handled = fallbackToAnchor(false);
+      if (handled) {
+        return;
+      }
       return;
     }
 
-    missingFrameCountRef.current = 0;
+    anchorMissesRef.current = 0;
 
     const ordered = orderQuadPoints(value);
     const sanitized = sanitizeQuad(ordered);
@@ -169,34 +194,24 @@ export const DocScanner: React.FC<Props> = ({
     const aspectTooExtreme = aspectRatio > 7;
 
     if (areaTooSmall || areaTooLarge || edgesTooShort || aspectTooExtreme) {
-      missingFrameCountRef.current += 1;
-
-      if (lastQuadRef.current && missingFrameCountRef.current <= 2) {
-        setQuad(lastQuadRef.current);
+      const handled = fallbackToAnchor(true);
+      if (handled) {
         return;
       }
-
-      smoothingBufferRef.current = [];
-      anchorQuadRef.current = null;
-      lastQuadRef.current = null;
-      setQuad(null);
       return;
     }
 
     const lastMeasurement = lastMeasurementRef.current;
-    if (lastMeasurement && quadDistance(lastMeasurement, sanitized) > HISTORY_RESET_DISTANCE) {
-      smoothingBufferRef.current = [];
-    }
-    lastMeasurementRef.current = sanitized;
+    const shouldResetHistory =
+      lastMeasurement && quadDistance(lastMeasurement, sanitized) > HISTORY_RESET_DISTANCE;
 
-    smoothingBufferRef.current.push(sanitized);
-    if (smoothingBufferRef.current.length > MAX_HISTORY) {
-      smoothingBufferRef.current.shift();
-    }
+    const existingHistory = shouldResetHistory ? [] : smoothingBufferRef.current;
+    const nextHistory = existingHistory.length >= MAX_HISTORY
+      ? [...existingHistory.slice(existingHistory.length - (MAX_HISTORY - 1)), sanitized]
+      : [...existingHistory, sanitized];
 
-    const history = smoothingBufferRef.current;
-    const hasHistory = history.length >= 2;
-    let candidate = hasHistory ? weightedAverageQuad(history) : sanitized;
+    const hasHistory = nextHistory.length >= 2;
+    let candidate = hasHistory ? weightedAverageQuad(nextHistory) : sanitized;
 
     const anchor = anchorQuadRef.current;
     if (anchor && isValidQuad(anchor)) {
@@ -209,35 +224,43 @@ export const DocScanner: React.FC<Props> = ({
       const areaShift = anchorArea > 0 ? Math.abs(anchorArea - candidateArea) / anchorArea : 0;
 
       if (centerDelta >= REJECT_CENTER_DELTA || areaShift > 1.2) {
-        missingFrameCountRef.current += 1;
-
-        if (missingFrameCountRef.current <= 2) {
-          setQuad(anchor);
+        const handled = fallbackToAnchor(true);
+        if (handled) {
           return;
         }
-
-        smoothingBufferRef.current = [];
-        anchorQuadRef.current = null;
-        lastQuadRef.current = null;
-        setQuad(null);
         return;
       }
 
       if (delta <= SNAP_DISTANCE && centerDelta <= SNAP_CENTER_DISTANCE && areaShift <= 0.08) {
         candidate = anchor;
+        smoothingBufferRef.current = nextHistory;
+        lastMeasurementRef.current = sanitized;
+        anchorConfidenceRef.current = Math.min(anchorConfidenceRef.current + 1, MAX_ANCHOR_CONFIDENCE);
       } else if (delta <= BLEND_DISTANCE && centerDelta <= MAX_CENTER_DELTA && areaShift <= MAX_AREA_SHIFT) {
         const normalizedDelta = Math.min(1, delta / BLEND_DISTANCE);
         const adaptiveAlpha = 0.25 + normalizedDelta * 0.45; // 0.25..0.7 range
         candidate = blendQuads(anchor, candidate, adaptiveAlpha);
+        smoothingBufferRef.current = nextHistory;
+        lastMeasurementRef.current = sanitized;
+        anchorConfidenceRef.current = Math.min(anchorConfidenceRef.current + 1, MAX_ANCHOR_CONFIDENCE);
       } else {
-        smoothingBufferRef.current = [sanitized];
+        const handled = fallbackToAnchor(true);
+        if (handled) {
+          return;
+        }
+        return;
       }
+    } else {
+      smoothingBufferRef.current = nextHistory;
+      lastMeasurementRef.current = sanitized;
+      anchorConfidenceRef.current = Math.min(anchorConfidenceRef.current + 1, MAX_ANCHOR_CONFIDENCE);
     }
 
     candidate = orderQuadPoints(candidate);
     anchorQuadRef.current = candidate;
     lastQuadRef.current = candidate;
     setQuad(candidate);
+    anchorMissesRef.current = 0;
   }, []);
 
   const reportError = useRunOnJS((step: string, error: unknown) => {
