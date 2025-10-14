@@ -119,6 +119,7 @@ export const DocScanner: React.FC<Props> = ({
   const SNAP_CENTER_DISTANCE = 12;
   const BLEND_DISTANCE = 65; // pixels; softly ease between similar shapes
   const MAX_CENTER_DELTA = 85;
+  const REJECT_CENTER_DELTA = 145;
   const MAX_AREA_SHIFT = 0.45;
   const HISTORY_RESET_DISTANCE = 70;
   const MIN_AREA_RATIO = 0.0035;
@@ -206,6 +207,21 @@ export const DocScanner: React.FC<Props> = ({
       const candidateArea = quadArea(candidate);
       const centerDelta = Math.hypot(candidateCenter.x - anchorCenter.x, candidateCenter.y - anchorCenter.y);
       const areaShift = anchorArea > 0 ? Math.abs(anchorArea - candidateArea) / anchorArea : 0;
+
+      if (centerDelta >= REJECT_CENTER_DELTA || areaShift > 1.2) {
+        missingFrameCountRef.current += 1;
+
+        if (missingFrameCountRef.current <= 2) {
+          setQuad(anchor);
+          return;
+        }
+
+        smoothingBufferRef.current = [];
+        anchorQuadRef.current = null;
+        lastQuadRef.current = null;
+        setQuad(null);
+        return;
+      }
 
       if (delta <= SNAP_DISTANCE && centerDelta <= SNAP_CENTER_DISTANCE && areaShift <= 0.08) {
         candidate = anchor;
