@@ -167,32 +167,21 @@ export const DocScanner: React.FC<Props> = ({
       reportStage(step);
       OpenCV.invoke('cvtColor', mat, mat, ColorConversionCodes.COLOR_BGR2GRAY);
 
-      // Apply Gaussian blur to reduce noise
-      const gaussianKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
-      step = 'GaussianBlur';
-      reportStage(step);
-      OpenCV.invoke('GaussianBlur', mat, mat, gaussianKernel, 0);
-
-      // Morphological operations to enhance edges
-      const morphologyKernel = OpenCV.createObject(ObjectType.Size, 3, 3);
+      const morphologyKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
       step = 'getStructuringElement';
       reportStage(step);
       const element = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, morphologyKernel);
       step = 'morphologyEx';
       reportStage(step);
-      OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_CLOSE, element);
+      OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_OPEN, element);
 
-      // Canny edge detection with optimized thresholds
+      const gaussianKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
+      step = 'GaussianBlur';
+      reportStage(step);
+      OpenCV.invoke('GaussianBlur', mat, mat, gaussianKernel, 0);
       step = 'Canny';
       reportStage(step);
       OpenCV.invoke('Canny', mat, mat, 50, 150);
-
-      // Dilate edges slightly to connect nearby contours
-      step = 'dilate';
-      reportStage(step);
-      const dilateKernel = OpenCV.createObject(ObjectType.Size, 2, 2);
-      const dilateElement = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, dilateKernel);
-      OpenCV.invoke('dilate', mat, mat, dilateElement);
 
       step = 'createContours';
       reportStage(step);
@@ -222,9 +211,9 @@ export const DocScanner: React.FC<Props> = ({
           console.log('[DocScanner] area ratio', areaRatio);
         }
 
-        // Filter by area: document should be at least 5% and at most 95% of frame
+        // Filter by area: document should be at least 0.1% and at most 98% of frame
         // This prevents detecting tiny noise or the entire frame
-        if (areaRatio < 0.05 || areaRatio > 0.95) {
+        if (areaRatio < 0.001 || areaRatio > 0.98) {
           continue;
         }
 
@@ -236,8 +225,8 @@ export const DocScanner: React.FC<Props> = ({
         let approxArray: Array<{ x: number; y: number }> = [];
 
         // Start with smaller epsilon for more accurate corner detection
-        // Try epsilon values from 0.5% to 5% of perimeter
-        const epsilonValues = [0.005, 0.01, 0.015, 0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05];
+        // Try epsilon values from 0.4% up to 6% of perimeter
+        const epsilonValues = [0.004, 0.006, 0.008, 0.01, 0.012, 0.015, 0.02, 0.03, 0.04, 0.05, 0.06];
 
         for (let attempt = 0; attempt < epsilonValues.length; attempt += 1) {
           const epsilon = epsilonValues[attempt] * perimeter;
@@ -260,7 +249,34 @@ export const DocScanner: React.FC<Props> = ({
           }
         }
 
-        // Only proceed if we found exactly 4 corners
+        if (approxArray.length !== 4) {
+          // fallback: boundingRect (axis-aligned) so we always have 4 points
+          try {
+            const rect = OpenCV.invoke('boundingRect', contour);
+            const rectValue = rect?.value ?? rect;
+            const rectX = rectValue.x ?? rectValue?.topLeft?.x ?? 0;
+            const rectY = rectValue.y ?? rectValue?.topLeft?.y ?? 0;
+            const rectW = rectValue.width ?? rectValue?.size?.width ?? 0;
+            const rectH = rectValue.height ?? rectValue?.size?.height ?? 0;
+
+            approxArray = [
+              { x: rectX, y: rectY },
+              { x: rectX + rectW, y: rectY },
+              { x: rectX + rectW, y: rectY + rectH },
+              { x: rectX, y: rectY + rectH },
+            ];
+
+            if (__DEV__) {
+              console.log('[DocScanner] boundingRect fallback', approxArray);
+            }
+          } catch (err) {
+            if (__DEV__) {
+              console.warn('[DocScanner] boundingRect fallback failed', err);
+            }
+          }
+        }
+
+        // Only proceed if we found exactly 4 corners after fallback
         if (approxArray.length !== 4) {
           continue;
         }
