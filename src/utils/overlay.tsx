@@ -28,8 +28,13 @@ export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649' }) => 
   }, [quad]);
 
   return (
-    <Canvas style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-      {path && <Path path={path} color={color} style="stroke" strokeWidth={4} />}
+    <Canvas style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }}>
+      {path && (
+        <>
+          <Path path={path} color={color} style="stroke" strokeWidth={8} />
+          <Path path={path} color="rgba(231, 166, 73, 0.2)" style="fill" />
+        </>
+      )}
     </Canvas>
   );
 };
