@@ -96,13 +96,57 @@ export const DocScanner: React.FC<Props> = ({
     requestPermission();
   }, [requestPermission]);
 
+  const lastQuadRef = useRef<Point[] | null>(null);
+  const smoothingBufferRef = useRef<(Point[] | null)[]>([]);
+
   const updateQuad = useRunOnJS((value: Point[] | null) => {
     if (__DEV__) {
       console.log('[DocScanner] quad', value);
     }
 
-    // Always update immediately for real-time tracking
-    setQuad(value);
+    // Add to smoothing buffer
+    smoothingBufferRef.current.push(value);
+
+    // Keep only last 3 frames for smoothing
+    if (smoothingBufferRef.current.length > 3) {
+      smoothingBufferRef.current.shift();
+    }
+
+    // If we have a valid quad, smooth it
+    if (value && value.length === 4) {
+      // Average with previous frames if available
+      if (smoothingBufferRef.current.length >= 2) {
+        const validQuads = smoothingBufferRef.current.filter(q => q !== null && q.length === 4) as Point[][];
+
+        if (validQuads.length >= 2) {
+          // Average the positions
+          const smoothed: Point[] = value.map((_, idx) => {
+            let sumX = 0;
+            let sumY = 0;
+            validQuads.forEach(quad => {
+              sumX += quad[idx].x;
+              sumY += quad[idx].y;
+            });
+            return {
+              x: sumX / validQuads.length,
+              y: sumY / validQuads.length,
+            };
+          });
+
+          lastQuadRef.current = smoothed;
+          setQuad(smoothed);
+          return;
+        }
+      }
+
+      lastQuadRef.current = value;
+      setQuad(value);
+    } else if (lastQuadRef.current) {
+      // Keep showing last quad for 1 frame to reduce flickering
+      setQuad(lastQuadRef.current);
+    } else {
+      setQuad(null);
+    }
   }, []);
 
   const reportError = useRunOnJS((step: string, error: unknown) => {
@@ -128,8 +172,8 @@ export const DocScanner: React.FC<Props> = ({
       // Report frame size for coordinate transformation
       updateFrameSize(frame.width, frame.height);
 
-      // Use higher resolution for better accuracy - 720p instead of 480p
-      const ratio = 720 / frame.width;
+      // Use higher resolution for better accuracy - 960p
+      const ratio = 960 / frame.width;
       const width = Math.floor(frame.width * ratio);
       const height = Math.floor(frame.height * ratio);
       step = 'resize';
@@ -162,7 +206,7 @@ export const DocScanner: React.FC<Props> = ({
       OpenCV.invoke('GaussianBlur', mat, mat, gaussianKernel, 0);
       step = 'Canny';
       reportStage(step);
-      OpenCV.invoke('Canny', mat, mat, 50, 150);
+      OpenCV.invoke('Canny', mat, mat, 30, 100);
 
       step = 'createContours';
       reportStage(step);
@@ -217,8 +261,8 @@ export const DocScanner: React.FC<Props> = ({
 
         let approxArray: Array<{ x: number; y: number }> = [];
 
-        // Try epsilon values from 0.2% to 8% of perimeter
-        const epsilonValues = [0.002, 0.004, 0.006, 0.008, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08];
+        // Try epsilon values from 0.3% to 6% of perimeter for better corner detection
+        const epsilonValues = [0.003, 0.005, 0.007, 0.009, 0.011, 0.013, 0.015, 0.018, 0.02, 0.025, 0.03, 0.04, 0.05, 0.06];
 
         for (let attempt = 0; attempt < epsilonValues.length; attempt += 1) {
           const epsilon = epsilonValues[attempt] * perimeter;
