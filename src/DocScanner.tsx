@@ -167,7 +167,8 @@ export const DocScanner: React.FC<Props> = ({
           console.log('[DocScanner] area ratio', area / (width * height));
         }
 
-        if (area < width * height * 0.005) {
+        // Lower threshold to detect smaller documents
+        if (area < width * height * 0.0001) {
           continue;
         }
 
