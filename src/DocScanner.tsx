@@ -344,225 +344,182 @@ export const DocScanner: React.FC<Props> = ({
       const element = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, morphologyKernel);
       step = 'morphologyEx';
       reportStage(step);
+      // MORPH_CLOSE to fill small holes in edges
       OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_CLOSE, element);
+      // MORPH_OPEN to remove small noise
       OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_OPEN, element);
-
-      const ADAPTIVE_THRESH_GAUSSIAN_C = 1;
-      const THRESH_BINARY = 0;
-      const THRESH_OTSU = 8;
 
       // Bilateral filter for edge-preserving smoothing (better quality than Gaussian)
       step = 'bilateralFilter';
       reportStage(step);
-      let processed = mat;
       try {
         const tempMat = OpenCV.createObject(ObjectType.Mat);
         OpenCV.invoke('bilateralFilter', mat, tempMat, 9, 75, 75);
-        processed = tempMat;
+        mat = tempMat;
       } catch (error) {
         if (__DEV__) {
           console.warn('[DocScanner] bilateralFilter unavailable, falling back to GaussianBlur', error);
         }
+        step = 'gaussianBlurFallback';
+        reportStage(step);
         const blurKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
         OpenCV.invoke('GaussianBlur', mat, mat, blurKernel, 0);
-        processed = mat;
       }
 
-      // Additional blur and close pass to smooth jagged edges
-      step = 'gaussianBlur';
+      step = 'Canny';
       reportStage(step);
-      const gaussianKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
-      OpenCV.invoke('GaussianBlur', processed, processed, gaussianKernel, 0);
-      OpenCV.invoke('morphologyEx', processed, processed, MorphTypes.MORPH_CLOSE, element);
+      // Configurable Canny parameters for adaptive edge detection
+      OpenCV.invoke('Canny', mat, mat, CANNY_LOW, CANNY_HIGH);
 
-      const baseMat = OpenCV.invoke('clone', processed);
+      step = 'createContours';
+      reportStage(step);
+      const contours = OpenCV.createObject(ObjectType.PointVectorOfVectors);
+      OpenCV.invoke('findContours', mat, contours, RetrievalModes.RETR_EXTERNAL, ContourApproximationModes.CHAIN_APPROX_SIMPLE);
+
+      let best: Point[] | null = null;
+      let maxArea = 0;
       const frameArea = width * height;
-      const originalArea = frame.width * frame.height;
-      const minEdgeThreshold = Math.max(14, Math.min(frame.width, frame.height) * MIN_EDGE_RATIO);
-      const epsilonValues = [
-        0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009,
-        0.01, 0.012, 0.015, 0.018, 0.02, 0.025, 0.03, 0.035, 0.04, 0.05,
-        0.06, 0.07, 0.08, 0.09, 0.1, 0.12,
-      ];
 
-      let bestQuad: Point[] | null = null;
-      let bestArea = 0;
-      let convexHullWarned = false;
+      step = 'toJSValue';
+      reportStage(step);
+      const contourVector = OpenCV.toJSValue(contours);
+      const contourArray = Array.isArray(contourVector?.array) ? contourVector.array : [];
 
-      const considerCandidate = (candidate: { quad: Point[]; area: number } | null) => {
-        'worklet';
-        if (!candidate) {
-          return;
-        }
-        if (!bestQuad || candidate.area > bestArea) {
-          bestQuad = candidate.quad;
-          bestArea = candidate.area;
-        }
-      };
-
-      const evaluateContours = (inputMat: unknown, attemptLabel: string): { quad: Point[]; area: number } | null => {
-        'worklet';
-
-        step = `findContours_${attemptLabel}`;
+      for (let i = 0; i < contourArray.length; i += 1) {
+        step = `contour_${i}_copy`;
         reportStage(step);
-        const contours = OpenCV.createObject(ObjectType.PointVectorOfVectors);
-        OpenCV.invoke('findContours', inputMat, contours, RetrievalModes.RETR_EXTERNAL, ContourApproximationModes.CHAIN_APPROX_SIMPLE);
+        const contour = OpenCV.copyObjectFromVector(contours, i);
 
-        const contourVector = OpenCV.toJSValue(contours);
-        const contourArray = Array.isArray(contourVector?.array) ? contourVector.array : [];
+        // Compute absolute area first
+        step = `contour_${i}_area_abs`;
+        reportStage(step);
+        const { value: area } = OpenCV.invoke('contourArea', contour, false);
 
-        let bestLocal: { quad: Point[]; area: number } | null = null;
+        // Skip extremely small contours, but keep threshold very low to allow distant documents
+        if (typeof area !== 'number' || !isFinite(area)) {
+          continue;
+        }
 
-        for (let i = 0; i < contourArray.length; i += 1) {
-          step = `${attemptLabel}_contour_${i}_copy`;
+        if (area < 50) {
+          continue;
+        }
+
+        step = `contour_${i}_area`; // ratio stage
+        reportStage(step);
+        const areaRatio = area / frameArea;
+
+        if (__DEV__) {
+          console.log('[DocScanner] area', area, 'ratio', areaRatio);
+        }
+
+        // Skip if area ratio is too small or too large
+        if (areaRatio < 0.0002 || areaRatio > 0.99) {
+          continue;
+        }
+
+        // Try to use convex hull for better corner detection
+        let contourToUse = contour;
+        try {
+          step = `contour_${i}_convexHull`;
           reportStage(step);
-          const contour = OpenCV.copyObjectFromVector(contours, i);
-
-          step = `${attemptLabel}_contour_${i}_area`;
-          reportStage(step);
-          const { value: area } = OpenCV.invoke('contourArea', contour, false);
-          if (typeof area !== 'number' || !isFinite(area) || area < 60) {
-            continue;
-          }
-
-          const resizedRatio = area / frameArea;
-          if (resizedRatio < 0.00012 || resizedRatio > 0.98) {
-            continue;
-          }
-
-          let contourToUse = contour;
-          try {
-            const hull = OpenCV.createObject(ObjectType.PointVector);
-            OpenCV.invoke('convexHull', contour, hull, false, true);
-            contourToUse = hull;
-          } catch (err) {
-            if (__DEV__ && !convexHullWarned) {
-              console.warn('[DocScanner] convexHull failed, using original contour');
-              convexHullWarned = true;
-            }
-          }
-
-          const { value: perimeter } = OpenCV.invoke('arcLength', contourToUse, true);
-          if (typeof perimeter !== 'number' || !isFinite(perimeter) || perimeter < 80) {
-            continue;
-          }
-
-          const approx = OpenCV.createObject(ObjectType.PointVector);
-          let approxArray: Array<{ x: number; y: number }> = [];
-
-          for (let attempt = 0; attempt < epsilonValues.length; attempt += 1) {
-            const epsilon = epsilonValues[attempt] * perimeter;
-            step = `${attemptLabel}_contour_${i}_approx_${attempt}`;
-            reportStage(step);
-            OpenCV.invoke('approxPolyDP', contourToUse, approx, epsilon, true);
-
-            const approxValue = OpenCV.toJSValue(approx);
-            const candidate = Array.isArray(approxValue?.array) ? approxValue.array : [];
-            if (candidate.length === 4) {
-              approxArray = candidate as Array<{ x: number; y: number }>;
-              break;
-            }
-          }
-
-          if (approxArray.length !== 4) {
-            continue;
-          }
-
-          const isValidPoint = (pt: { x: number; y: number }) =>
-            typeof pt.x === 'number' && typeof pt.y === 'number' && isFinite(pt.x) && isFinite(pt.y);
-
-          if (!approxArray.every(isValidPoint)) {
-            continue;
-          }
-
-          const normalizedPoints: Point[] = approxArray.map((pt) => ({
-            x: pt.x / ratio,
-            y: pt.y / ratio,
-          }));
-
-          if (!isConvexQuadrilateral(normalizedPoints)) {
-            continue;
-          }
-
-          const sanitized = sanitizeQuad(orderQuadPoints(normalizedPoints));
-          if (!isValidQuad(sanitized)) {
-            continue;
-          }
-
-          const edges = quadEdgeLengths(sanitized);
-          const minEdge = Math.min(...edges);
-          const maxEdge = Math.max(...edges);
-          if (!Number.isFinite(minEdge) || minEdge < minEdgeThreshold) {
-            continue;
-          }
-          const aspectRatio = maxEdge / Math.max(minEdge, 1);
-          if (!Number.isFinite(aspectRatio) || aspectRatio > 8.5) {
-            continue;
-          }
-
-          const quadAreaValue = quadArea(sanitized);
-          const originalRatio = originalArea > 0 ? quadAreaValue / originalArea : 0;
-          if (originalRatio < 0.00012 || originalRatio > 0.92) {
-            continue;
-          }
-
-          const candidate = {
-            quad: sanitized,
-            area: quadAreaValue,
-          };
-
-          if (!bestLocal || candidate.area > bestLocal.area) {
-            bestLocal = candidate;
+          const hull = OpenCV.createObject(ObjectType.PointVector);
+          OpenCV.invoke('convexHull', contour, hull, false, true);
+          contourToUse = hull;
+        } catch (err) {
+          // If convexHull fails, use original contour
+          if (__DEV__) {
+            console.warn('[DocScanner] convexHull failed, using original contour');
           }
         }
 
-        return bestLocal;
-      };
-
-      const runCanny = (label: string, low: number, high: number) => {
-        'worklet';
-        const working = OpenCV.invoke('clone', baseMat);
-        step = `${label}_canny`;
+        step = `contour_${i}_arcLength`;
         reportStage(step);
-        OpenCV.invoke('Canny', working, working, low, high);
-        OpenCV.invoke('morphologyEx', working, working, MorphTypes.MORPH_CLOSE, element);
-        considerCandidate(evaluateContours(working, label));
-      };
+        const { value: perimeter } = OpenCV.invoke('arcLength', contourToUse, true);
+        const approx = OpenCV.createObject(ObjectType.PointVector);
 
-      const runAdaptive = (label: string, blockSize: number, c: number) => {
-        'worklet';
-        const working = OpenCV.invoke('clone', baseMat);
-        step = `${label}_adaptive`;
+        let approxArray: Array<{ x: number; y: number }> = [];
+
+        // Try more epsilon values from 0.1% to 10% for difficult shapes
+        const epsilonValues = [
+          0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009,
+          0.01, 0.012, 0.015, 0.018, 0.02, 0.025, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1
+        ];
+
+        for (let attempt = 0; attempt < epsilonValues.length; attempt += 1) {
+          const epsilon = epsilonValues[attempt] * perimeter;
+          step = `contour_${i}_approxPolyDP_attempt_${attempt}`;
+          reportStage(step);
+          OpenCV.invoke('approxPolyDP', contourToUse, approx, epsilon, true);
+
+          step = `contour_${i}_toJS_attempt_${attempt}`;
+          reportStage(step);
+          const approxValue = OpenCV.toJSValue(approx);
+          const candidate = Array.isArray(approxValue?.array) ? approxValue.array : [];
+
+          if (__DEV__) {
+            console.log('[DocScanner] approx length', candidate.length, 'epsilon', epsilon);
+          }
+
+          if (candidate.length === 4) {
+            approxArray = candidate as Array<{ x: number; y: number }>;
+            break;
+          }
+        }
+
+        // Only proceed if we found exactly 4 corners
+        if (approxArray.length !== 4) {
+          continue;
+        }
+
+        step = `contour_${i}_convex`;
         reportStage(step);
-        OpenCV.invoke('adaptiveThreshold', working, working, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, blockSize, c);
-        OpenCV.invoke('morphologyEx', working, working, MorphTypes.MORPH_CLOSE, element);
-        considerCandidate(evaluateContours(working, label));
-      };
 
-      const runOtsu = () => {
-        'worklet';
-        const working = OpenCV.invoke('clone', baseMat);
-        step = 'otsu_threshold';
-        reportStage(step);
-        OpenCV.invoke('threshold', working, working, 0, 255, THRESH_BINARY | THRESH_OTSU);
-        OpenCV.invoke('morphologyEx', working, working, MorphTypes.MORPH_CLOSE, element);
-        considerCandidate(evaluateContours(working, 'otsu'));
-      };
+        // Validate points before processing
+        const isValidPoint = (pt: { x: number; y: number }) => {
+          return typeof pt.x === 'number' && typeof pt.y === 'number' &&
+                 !isNaN(pt.x) && !isNaN(pt.y) &&
+                 isFinite(pt.x) && isFinite(pt.y);
+        };
 
-      runCanny('canny_primary', CANNY_LOW, CANNY_HIGH);
-      runCanny('canny_soft', Math.max(6, CANNY_LOW * 0.6), Math.max(CANNY_LOW * 1.2, CANNY_HIGH * 0.75));
-      runCanny('canny_hard', Math.max(12, CANNY_LOW * 1.1), CANNY_HIGH * 1.25);
+        if (!approxArray.every(isValidPoint)) {
+          if (__DEV__) {
+            console.warn('[DocScanner] invalid points in approxArray', approxArray);
+          }
+          continue;
+        }
 
-      runAdaptive('adaptive_19', 19, 7);
-      runAdaptive('adaptive_23', 23, 5);
-      runOtsu();
+        const points: Point[] = approxArray.map((pt: { x: number; y: number }) => ({
+          x: pt.x / ratio,
+          y: pt.y / ratio,
+        }));
+
+        // Verify the quadrilateral is convex (valid document shape)
+        try {
+          if (!isConvexQuadrilateral(points)) {
+            if (__DEV__) {
+              console.log('[DocScanner] not convex, skipping:', points);
+            }
+            continue;
+          }
+        } catch (err) {
+          if (__DEV__) {
+            console.warn('[DocScanner] convex check error:', err, 'points:', points);
+          }
+          continue;
+        }
+
+        if (area > maxArea) {
+          best = points;
+          maxArea = area;
+        }
+      }
 
       step = 'clearBuffers';
       reportStage(step);
       OpenCV.clearBuffers();
       step = 'updateQuad';
       reportStage(step);
-      updateQuad(bestQuad);
+      updateQuad(best);
     } catch (error) {
       reportError(step, error);
     }
