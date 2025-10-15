@@ -93,38 +93,38 @@ export const CropEditor: React.FC<CropEditorProps> = ({
     onCropChange?.(rect);
   }, [imageSize, onCropChange]);
 
-  // Wait for image to load to get dimensions
-  if (!imageSize || isImageLoading) {
-    return (
-      <View style={[styles.container, styles.loadingContainer]} onLayout={handleLayout}>
-        <Image
-          source={{ uri: `file://${document.path}` }}
-          style={styles.hiddenImage}
-          onLoad={handleImageLoad}
-          onError={(error) => {
-            console.error('Image load error:', error);
-            setIsImageLoading(false);
-          }}
-          resizeMode="contain"
-        />
-        <ActivityIndicator size="large" color={handlerColor} />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container} onLayout={handleLayout}>
-      <CustomImageCropper
-        height={displaySize.height}
-        width={displaySize.width}
-        image={`file://${document.path}`}
-        rectangleCoordinates={getInitialRectangle()}
-        overlayColor={overlayColor}
-        overlayStrokeColor={overlayStrokeColor}
-        handlerColor={handlerColor}
-        enablePanStrict={enablePanStrict}
-        onDragEnd={handleDragEnd}
+      {/* Always load the hidden image to get dimensions */}
+      <Image
+        source={{ uri: `file://${document.path}` }}
+        style={styles.hiddenImage}
+        onLoad={handleImageLoad}
+        onError={(error) => {
+          console.error('Image load error:', error);
+          setIsImageLoading(false);
+        }}
+        resizeMode="contain"
       />
+
+      {/* Show loading or cropper */}
+      {!imageSize || isImageLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={handlerColor} />
+        </View>
+      ) : (
+        <CustomImageCropper
+          height={displaySize.height}
+          width={displaySize.width}
+          image={`file://${document.path}`}
+          rectangleCoordinates={getInitialRectangle()}
+          overlayColor={overlayColor}
+          overlayStrokeColor={overlayStrokeColor}
+          handlerColor={handlerColor}
+          enablePanStrict={enablePanStrict}
+          onDragEnd={handleDragEnd}
+        />
+      )}
     </View>
   );
 };
