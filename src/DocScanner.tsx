@@ -76,12 +76,6 @@ type CameraRef = {
 
 type CameraOverrides = Omit<React.ComponentProps<typeof Camera>, 'style' | 'ref' | 'frameProcessor'>;
 
-type DetectionCandidate = {
-  quad: Point[];
-  area: number;
-  label: string;
-};
-
 /**
  * Configuration for detection quality and behavior
  */
@@ -343,9 +337,70 @@ export const DocScanner: React.FC<Props> = ({
       reportStage(step);
       OpenCV.invoke('cvtColor', mat, mat, ColorConversionCodes.COLOR_BGR2GRAY);
 
-      let bestCandidate: DetectionCandidate | null = null;
+      // Enhanced morphological operations for noise reduction
+      const morphologyKernel = OpenCV.createObject(ObjectType.Size, 7, 7);
+      step = 'getStructuringElement';
+      reportStage(step);
+      const element = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, morphologyKernel);
+      step = 'morphologyEx';
+      reportStage(step);
+      OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_CLOSE, element);
+      OpenCV.invoke('morphologyEx', mat, mat, MorphTypes.MORPH_OPEN, element);
 
-      const evaluateContours = (inputMat: unknown, attemptLabel: string): DetectionCandidate | null => {
+      const ADAPTIVE_THRESH_GAUSSIAN_C = 1;
+      const THRESH_BINARY = 0;
+      const THRESH_OTSU = 8;
+
+      // Bilateral filter for edge-preserving smoothing (better quality than Gaussian)
+      step = 'bilateralFilter';
+      reportStage(step);
+      let processed = mat;
+      try {
+        const tempMat = OpenCV.createObject(ObjectType.Mat);
+        OpenCV.invoke('bilateralFilter', mat, tempMat, 9, 75, 75);
+        processed = tempMat;
+      } catch (error) {
+        if (__DEV__) {
+          console.warn('[DocScanner] bilateralFilter unavailable, falling back to GaussianBlur', error);
+        }
+        const blurKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
+        OpenCV.invoke('GaussianBlur', mat, mat, blurKernel, 0);
+        processed = mat;
+      }
+
+      // Additional blur and close pass to smooth jagged edges
+      step = 'gaussianBlur';
+      reportStage(step);
+      const gaussianKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
+      OpenCV.invoke('GaussianBlur', processed, processed, gaussianKernel, 0);
+      OpenCV.invoke('morphologyEx', processed, processed, MorphTypes.MORPH_CLOSE, element);
+
+      const baseMat = OpenCV.invoke('clone', processed);
+      const frameArea = width * height;
+      const originalArea = frame.width * frame.height;
+      const minEdgeThreshold = Math.max(14, Math.min(frame.width, frame.height) * MIN_EDGE_RATIO);
+      const epsilonValues = [
+        0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009,
+        0.01, 0.012, 0.015, 0.018, 0.02, 0.025, 0.03, 0.035, 0.04, 0.05,
+        0.06, 0.07, 0.08, 0.09, 0.1, 0.12,
+      ];
+
+      let bestQuad: Point[] | null = null;
+      let bestArea = 0;
+      let convexHullWarned = false;
+
+      const considerCandidate = (candidate: { quad: Point[]; area: number } | null) => {
+        'worklet';
+        if (!candidate) {
+          return;
+        }
+        if (!bestQuad || candidate.area > bestArea) {
+          bestQuad = candidate.quad;
+          bestArea = candidate.area;
+        }
+      };
+
+      const evaluateContours = (inputMat: unknown, attemptLabel: string): { quad: Point[]; area: number } | null => {
         'worklet';
 
         step = `findContours_${attemptLabel}`;
@@ -356,10 +411,7 @@ export const DocScanner: React.FC<Props> = ({
         const contourVector = OpenCV.toJSValue(contours);
         const contourArray = Array.isArray(contourVector?.array) ? contourVector.array : [];
 
-        let bestLocal: DetectionCandidate | null = null;
-        const resizedArea = width * height;
-        const originalArea = frame.width * frame.height;
-        const minEdgeThreshold = Math.max(16, Math.min(frame.width, frame.height) * 0.012);
+        let bestLocal: { quad: Point[]; area: number } | null = null;
 
         for (let i = 0; i < contourArray.length; i += 1) {
           step = `${attemptLabel}_contour_${i}_copy`;
@@ -368,13 +420,13 @@ export const DocScanner: React.FC<Props> = ({
 
           step = `${attemptLabel}_contour_${i}_area`;
           reportStage(step);
-          const { value: rawArea } = OpenCV.invoke('contourArea', contour, false);
-          if (typeof rawArea !== 'number' || !isFinite(rawArea) || rawArea < 40) {
+          const { value: area } = OpenCV.invoke('contourArea', contour, false);
+          if (typeof area !== 'number' || !isFinite(area) || area < 60) {
             continue;
           }
 
-          const resizedAreaRatio = rawArea / resizedArea;
-          if (resizedAreaRatio < 0.0001 || resizedAreaRatio > 0.97) {
+          const resizedRatio = area / frameArea;
+          if (resizedRatio < 0.00012 || resizedRatio > 0.98) {
             continue;
           }
 
@@ -384,21 +436,18 @@ export const DocScanner: React.FC<Props> = ({
             OpenCV.invoke('convexHull', contour, hull, false, true);
             contourToUse = hull;
           } catch (err) {
-            if (__DEV__) {
+            if (__DEV__ && !convexHullWarned) {
               console.warn('[DocScanner] convexHull failed, using original contour');
+              convexHullWarned = true;
             }
           }
 
           const { value: perimeter } = OpenCV.invoke('arcLength', contourToUse, true);
-          if (typeof perimeter !== 'number' || !isFinite(perimeter) || perimeter < 40) {
+          if (typeof perimeter !== 'number' || !isFinite(perimeter) || perimeter < 80) {
             continue;
           }
 
           const approx = OpenCV.createObject(ObjectType.PointVector);
-          const epsilonValues = [
-            0.012, 0.01, 0.008, 0.006, 0.005, 0.004, 0.0035, 0.003, 0.0025, 0.002, 0.0016, 0.0012,
-          ];
-
           let approxArray: Array<{ x: number; y: number }> = [];
 
           for (let attempt = 0; attempt < epsilonValues.length; attempt += 1) {
@@ -409,7 +458,6 @@ export const DocScanner: React.FC<Props> = ({
 
             const approxValue = OpenCV.toJSValue(approx);
             const candidate = Array.isArray(approxValue?.array) ? approxValue.array : [];
-
             if (candidate.length === 4) {
               approxArray = candidate as Array<{ x: number; y: number }>;
               break;
@@ -441,31 +489,26 @@ export const DocScanner: React.FC<Props> = ({
             continue;
           }
 
-          const quadEdges = quadEdgeLengths(sanitized);
-          const minEdge = Math.min(...quadEdges);
-          const maxEdge = Math.max(...quadEdges);
+          const edges = quadEdgeLengths(sanitized);
+          const minEdge = Math.min(...edges);
+          const maxEdge = Math.max(...edges);
           if (!Number.isFinite(minEdge) || minEdge < minEdgeThreshold) {
             continue;
           }
           const aspectRatio = maxEdge / Math.max(minEdge, 1);
-          if (!Number.isFinite(aspectRatio) || aspectRatio > 9) {
+          if (!Number.isFinite(aspectRatio) || aspectRatio > 8.5) {
             continue;
           }
 
           const quadAreaValue = quadArea(sanitized);
-          const areaRatioOriginal = originalArea > 0 ? quadAreaValue / originalArea : 0;
-          if (areaRatioOriginal < 0.00008 || areaRatioOriginal > 0.92) {
+          const originalRatio = originalArea > 0 ? quadAreaValue / originalArea : 0;
+          if (originalRatio < 0.00012 || originalRatio > 0.92) {
             continue;
           }
 
-          if (__DEV__) {
-            console.log('[DocScanner] candidate', attemptLabel, 'areaRatio', areaRatioOriginal);
-          }
-
-          const candidate: DetectionCandidate = {
+          const candidate = {
             quad: sanitized,
             area: quadAreaValue,
-            label: attemptLabel,
           };
 
           if (!bestLocal || candidate.area > bestLocal.area) {
@@ -476,56 +519,9 @@ export const DocScanner: React.FC<Props> = ({
         return bestLocal;
       };
 
-      const considerCandidate = (candidate: DetectionCandidate | null) => {
-        'worklet';
-        if (!candidate) {
-          return;
-        }
-        if (__DEV__) {
-          console.log('[DocScanner] best so far from', candidate.label, 'area', candidate.area);
-        }
-        if (!bestCandidate || candidate.area > bestCandidate.area) {
-          bestCandidate = candidate;
-        }
-      };
-
-      const ADAPTIVE_THRESH_GAUSSIAN_C = 1;
-      const THRESH_BINARY = 0;
-      const THRESH_OTSU = 8;
-
-      step = 'prepareMorphology';
-      reportStage(step);
-      const morphologyKernel = OpenCV.createObject(ObjectType.Size, 5, 5);
-      const element = OpenCV.invoke('getStructuringElement', MorphShapes.MORPH_RECT, morphologyKernel);
-      const blurKernelSize = OpenCV.createObject(ObjectType.Size, 5, 5);
-
-      // Edge-preserving smoothing for noisy frames
-      step = 'bilateralFilter';
-      reportStage(step);
-      let filteredMat = mat;
-      try {
-        const tempMat = OpenCV.createObject(ObjectType.Mat);
-        OpenCV.invoke('bilateralFilter', mat, tempMat, 9, 75, 75);
-        filteredMat = tempMat;
-      } catch (error) {
-        if (__DEV__) {
-          console.warn('[DocScanner] bilateralFilter unavailable, falling back to GaussianBlur', error);
-        }
-      }
-
-      step = 'gaussianBlur';
-      reportStage(step);
-      OpenCV.invoke('GaussianBlur', filteredMat, filteredMat, blurKernelSize, 0);
-
-      step = 'morphologyClose';
-      reportStage(step);
-      OpenCV.invoke('morphologyEx', filteredMat, filteredMat, MorphTypes.MORPH_CLOSE, element);
-
-      const baseGray = OpenCV.invoke('clone', filteredMat);
-
       const runCanny = (label: string, low: number, high: number) => {
         'worklet';
-        const working = OpenCV.invoke('clone', baseGray);
+        const working = OpenCV.invoke('clone', baseMat);
         step = `${label}_canny`;
         reportStage(step);
         OpenCV.invoke('Canny', working, working, low, high);
@@ -533,36 +529,40 @@ export const DocScanner: React.FC<Props> = ({
         considerCandidate(evaluateContours(working, label));
       };
 
-      runCanny('canny_primary', CANNY_LOW, CANNY_HIGH);
-      runCanny('canny_soft', Math.max(8, CANNY_LOW * 0.6), CANNY_HIGH * 0.7 + CANNY_LOW * 0.2);
-
-      const runAdaptive = (label: string, blockSize: number, c: number, thresholdMode: number) => {
+      const runAdaptive = (label: string, blockSize: number, c: number) => {
         'worklet';
-        const working = OpenCV.invoke('clone', baseGray);
+        const working = OpenCV.invoke('clone', baseMat);
         step = `${label}_adaptive`;
         reportStage(step);
-        if (thresholdMode === THRESH_OTSU) {
-          OpenCV.invoke('threshold', working, working, 0, 255, THRESH_BINARY | THRESH_OTSU);
-        } else {
-          OpenCV.invoke('adaptiveThreshold', working, working, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, blockSize, c);
-        }
+        OpenCV.invoke('adaptiveThreshold', working, working, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, blockSize, c);
         OpenCV.invoke('morphologyEx', working, working, MorphTypes.MORPH_CLOSE, element);
         considerCandidate(evaluateContours(working, label));
       };
 
-      runAdaptive('adaptive', 19, 7, THRESH_BINARY);
-      runAdaptive('otsu', 0, 0, THRESH_OTSU);
+      const runOtsu = () => {
+        'worklet';
+        const working = OpenCV.invoke('clone', baseMat);
+        step = 'otsu_threshold';
+        reportStage(step);
+        OpenCV.invoke('threshold', working, working, 0, 255, THRESH_BINARY | THRESH_OTSU);
+        OpenCV.invoke('morphologyEx', working, working, MorphTypes.MORPH_CLOSE, element);
+        considerCandidate(evaluateContours(working, 'otsu'));
+      };
+
+      runCanny('canny_primary', CANNY_LOW, CANNY_HIGH);
+      runCanny('canny_soft', Math.max(6, CANNY_LOW * 0.6), Math.max(CANNY_LOW * 1.2, CANNY_HIGH * 0.75));
+      runCanny('canny_hard', Math.max(12, CANNY_LOW * 1.1), CANNY_HIGH * 1.25);
+
+      runAdaptive('adaptive_19', 19, 7);
+      runAdaptive('adaptive_23', 23, 5);
+      runOtsu();
 
       step = 'clearBuffers';
       reportStage(step);
       OpenCV.clearBuffers();
       step = 'updateQuad';
       reportStage(step);
-      if (bestCandidate) {
-        updateQuad((bestCandidate as DetectionCandidate).quad);
-      } else {
-        updateQuad(null);
-      }
+      updateQuad(bestQuad);
     } catch (error) {
       reportError(step, error);
     }
