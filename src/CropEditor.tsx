@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, Image, Dimensions } from 'react-native';
+import { View, StyleSheet, Image, Dimensions, ActivityIndicator } from 'react-native';
 import CustomImageCropper from 'react-native-perspective-image-cropper';
 import type { Rectangle as CropperRectangle } from 'react-native-perspective-image-cropper';
 import type { Point, Rectangle, CapturedDocument } from './types';
@@ -40,6 +40,7 @@ export const CropEditor: React.FC<CropEditorProps> = ({
     width: Dimensions.get('window').width,
     height: Dimensions.get('window').height,
   });
+  const [isImageLoading, setIsImageLoading] = useState(true);
 
   // Get initial rectangle from detected quad or use default
   const getInitialRectangle = useCallback((): CropperRectangle | undefined => {
@@ -66,7 +67,9 @@ export const CropEditor: React.FC<CropEditorProps> = ({
 
   const handleImageLoad = useCallback((event: any) => {
     const { width, height } = event.nativeEvent.source;
+    console.log('Image loaded with size:', { width, height });
     setImageSize({ width, height });
+    setIsImageLoading(false);
   }, []);
 
   const handleLayout = useCallback((event: any) => {
@@ -91,15 +94,20 @@ export const CropEditor: React.FC<CropEditorProps> = ({
   }, [imageSize, onCropChange]);
 
   // Wait for image to load to get dimensions
-  if (!imageSize) {
+  if (!imageSize || isImageLoading) {
     return (
-      <View style={styles.container} onLayout={handleLayout}>
+      <View style={[styles.container, styles.loadingContainer]} onLayout={handleLayout}>
         <Image
           source={{ uri: `file://${document.path}` }}
           style={styles.hiddenImage}
           onLoad={handleImageLoad}
+          onError={(error) => {
+            console.error('Image load error:', error);
+            setIsImageLoading(false);
+          }}
           resizeMode="contain"
         />
+        <ActivityIndicator size="large" color={handlerColor} />
       </View>
     );
   }
@@ -126,9 +134,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   hiddenImage: {
     width: 1,
     height: 1,
     opacity: 0,
+    position: 'absolute',
   },
 });
