@@ -131,4 +131,6 @@ declare module 'react-native-perspective-image-cropper' {
   };
 
   export const CustomImageCropper: ComponentType<CustomImageCropperProps>;
+  const CustomImageCropperDefault: ComponentType<CustomImageCropperProps>;
+  export default CustomImageCropperDefault;
 }

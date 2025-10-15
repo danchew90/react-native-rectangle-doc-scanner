@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, Image, Dimensions } from 'react-native';
-import { CustomImageCropper } from 'react-native-perspective-image-cropper';
+import CustomImageCropper from 'react-native-perspective-image-cropper';
 import type { Rectangle as CropperRectangle } from 'react-native-perspective-image-cropper';
 import type { Point, Rectangle, CapturedDocument } from './types';
 import { quadToRectangle, scaleRectangle } from './utils/coordinate';
