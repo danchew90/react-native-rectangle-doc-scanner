@@ -385,19 +385,22 @@ export const DocScanner: React.FC<Props> = ({
         0.06, 0.07, 0.08, 0.09, 0.1, 0.12,
       ];
 
-      let bestCandidate: DetectionCandidate | null = null;
+      let bestQuad: Point[] | null = null;
+      let bestArea = 0;
+      let convexHullWarned = false;
 
-      const considerCandidate = (candidate: DetectionCandidate | null) => {
+      const considerCandidate = (candidate: { quad: Point[]; area: number } | null) => {
         'worklet';
         if (!candidate) {
           return;
         }
-        if (!bestCandidate || candidate.area > bestCandidate.area) {
-          bestCandidate = candidate;
+        if (!bestQuad || candidate.area > bestArea) {
+          bestQuad = candidate.quad;
+          bestArea = candidate.area;
         }
       };
 
-      const evaluateContours = (inputMat: unknown, attemptLabel: string): DetectionCandidate | null => {
+      const evaluateContours = (inputMat: unknown, attemptLabel: string): { quad: Point[]; area: number } | null => {
         'worklet';
 
         step = `findContours_${attemptLabel}`;
@@ -408,7 +411,7 @@ export const DocScanner: React.FC<Props> = ({
         const contourVector = OpenCV.toJSValue(contours);
         const contourArray = Array.isArray(contourVector?.array) ? contourVector.array : [];
 
-        let bestLocal: DetectionCandidate | null = null;
+        let bestLocal: { quad: Point[]; area: number } | null = null;
 
         for (let i = 0; i < contourArray.length; i += 1) {
           step = `${attemptLabel}_contour_${i}_copy`;
@@ -433,8 +436,9 @@ export const DocScanner: React.FC<Props> = ({
             OpenCV.invoke('convexHull', contour, hull, false, true);
             contourToUse = hull;
           } catch (err) {
-            if (__DEV__) {
+            if (__DEV__ && !convexHullWarned) {
               console.warn('[DocScanner] convexHull failed, using original contour');
+              convexHullWarned = true;
             }
           }
 
@@ -502,10 +506,9 @@ export const DocScanner: React.FC<Props> = ({
             continue;
           }
 
-          const candidate: DetectionCandidate = {
+          const candidate = {
             quad: sanitized,
             area: quadAreaValue,
-            label: attemptLabel,
           };
 
           if (!bestLocal || candidate.area > bestLocal.area) {
@@ -559,11 +562,7 @@ export const DocScanner: React.FC<Props> = ({
       OpenCV.clearBuffers();
       step = 'updateQuad';
       reportStage(step);
-      if (bestCandidate) {
-        updateQuad(bestCandidate.quad);
-      } else {
-        updateQuad(null);
-      }
+      updateQuad(bestQuad);
     } catch (error) {
       reportError(step, error);
     }
