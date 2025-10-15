@@ -47,6 +47,25 @@ export const CropEditor: React.FC<CropEditorProps> = ({
     console.log('[CropEditor] Document path:', document.path);
     console.log('[CropEditor] Document dimensions:', document.width, 'x', document.height);
     console.log('[CropEditor] Document quad:', document.quad);
+
+    // Load image size using Image.getSize
+    const imageUri = `file://${document.path}`;
+    Image.getSize(
+      imageUri,
+      (width, height) => {
+        console.log('[CropEditor] Image.getSize success:', { width, height });
+        setImageSize({ width, height });
+        setIsImageLoading(false);
+        setLoadError(null);
+      },
+      (error) => {
+        console.error('[CropEditor] Image.getSize error:', error);
+        // Fallback to document dimensions
+        console.log('[CropEditor] Using fallback dimensions:', document.width, 'x', document.height);
+        setImageSize({ width: document.width, height: document.height });
+        setIsImageLoading(false);
+      }
+    );
   }, [document]);
 
   // Get initial rectangle from detected quad or use default
@@ -73,11 +92,8 @@ export const CropEditor: React.FC<CropEditorProps> = ({
   }, [document.quad, document.width, document.height, imageSize]);
 
   const handleImageLoad = useCallback((event: any) => {
-    const { width, height } = event.nativeEvent.source;
-    console.log('[CropEditor] Image loaded successfully with size:', { width, height });
-    setImageSize({ width, height });
-    setIsImageLoading(false);
-    setLoadError(null);
+    // This is just for debugging - actual size is loaded via Image.getSize in useEffect
+    console.log('[CropEditor] Image onLoad event triggered');
   }, []);
 
   const handleLayout = useCallback((event: any) => {
@@ -105,19 +121,6 @@ export const CropEditor: React.FC<CropEditorProps> = ({
 
   return (
     <View style={styles.container} onLayout={handleLayout}>
-      {/* Always load the hidden image to get dimensions */}
-      <Image
-        source={{ uri: imageUri }}
-        style={styles.hiddenImage}
-        onLoad={handleImageLoad}
-        onError={(error) => {
-          console.error('[CropEditor] Image load error:', error, 'Path:', imageUri);
-          setLoadError('Failed to load image');
-          setIsImageLoading(false);
-        }}
-        resizeMode="contain"
-      />
-
       {/* Show loading, error, or cropper */}
       {loadError ? (
         <View style={styles.errorContainer}>
