@@ -11,13 +11,8 @@ import {
 } from 'react-native';
 import { DocScanner } from './DocScanner';
 import { CropEditor } from './CropEditor';
-import type {
-  CapturedDocument,
-  DetectionConfig,
-  Point,
-  Quad,
-  Rectangle,
-} from './types';
+import type { CapturedDocument, Point, Quad, Rectangle } from './types';
+import type { DetectionConfig } from './DocScanner';
 import { quadToRectangle, scaleRectangle } from './utils/coordinate';
 
 type CustomCropManagerType = {
