@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, Image, Dimensions, ActivityIndicator } from 'react-native';
+import React, { useState, useCallback, useEffect } from 'react';
+import { View, StyleSheet, Image, Dimensions, ActivityIndicator, Text } from 'react-native';
 import CustomImageCropper from 'react-native-perspective-image-cropper';
 import type { Rectangle as CropperRectangle } from 'react-native-perspective-image-cropper';
 import type { Point, Rectangle, CapturedDocument } from './types';
@@ -41,6 +41,13 @@ export const CropEditor: React.FC<CropEditorProps> = ({
     height: Dimensions.get('window').height,
   });
   const [isImageLoading, setIsImageLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    console.log('[CropEditor] Document path:', document.path);
+    console.log('[CropEditor] Document dimensions:', document.width, 'x', document.height);
+    console.log('[CropEditor] Document quad:', document.quad);
+  }, [document]);
 
   // Get initial rectangle from detected quad or use default
   const getInitialRectangle = useCallback((): CropperRectangle | undefined => {
@@ -67,9 +74,10 @@ export const CropEditor: React.FC<CropEditorProps> = ({
 
   const handleImageLoad = useCallback((event: any) => {
     const { width, height } = event.nativeEvent.source;
-    console.log('Image loaded with size:', { width, height });
+    console.log('[CropEditor] Image loaded successfully with size:', { width, height });
     setImageSize({ width, height });
     setIsImageLoading(false);
+    setLoadError(null);
   }, []);
 
   const handleLayout = useCallback((event: any) => {
@@ -93,30 +101,39 @@ export const CropEditor: React.FC<CropEditorProps> = ({
     onCropChange?.(rect);
   }, [imageSize, onCropChange]);
 
+  const imageUri = `file://${document.path}`;
+
   return (
     <View style={styles.container} onLayout={handleLayout}>
       {/* Always load the hidden image to get dimensions */}
       <Image
-        source={{ uri: `file://${document.path}` }}
+        source={{ uri: imageUri }}
         style={styles.hiddenImage}
         onLoad={handleImageLoad}
         onError={(error) => {
-          console.error('Image load error:', error);
+          console.error('[CropEditor] Image load error:', error, 'Path:', imageUri);
+          setLoadError('Failed to load image');
           setIsImageLoading(false);
         }}
         resizeMode="contain"
       />
 
-      {/* Show loading or cropper */}
-      {!imageSize || isImageLoading ? (
+      {/* Show loading, error, or cropper */}
+      {loadError ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Failed to load image</Text>
+          <Text style={styles.errorPath}>{imageUri}</Text>
+        </View>
+      ) : !imageSize || isImageLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={handlerColor} />
+          <Text style={styles.loadingText}>Loading image...</Text>
         </View>
       ) : (
         <CustomImageCropper
           height={displaySize.height}
           width={displaySize.width}
-          image={`file://${document.path}`}
+          image={imageUri}
           rectangleCoordinates={getInitialRectangle()}
           overlayColor={overlayColor}
           overlayStrokeColor={overlayStrokeColor}
@@ -135,8 +152,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
   loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    color: '#fff',
+    marginTop: 16,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: '#ff4444',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  errorPath: {
+    color: '#999',
+    fontSize: 12,
+    textAlign: 'center',
   },
   hiddenImage: {
     width: 1,
