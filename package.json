@@ -19,8 +19,6 @@
     "@shopify/react-native-skia": "*",
     "react": "*",
     "react-native": "*",
-    "react-native-fast-opencv": "*",
-    "react-native-perspective-image-cropper": "*",
     "react-native-reanimated": "*",
     "react-native-vision-camera": "*",
     "react-native-worklets-core": "*",
@@ -32,6 +30,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "react-native-fast-opencv": "0.4.6",
+    "react-native-perspective-image-cropper": "^0.4.4",
     "react-native-worklets-core": "^1.6.2"
   }
 }
