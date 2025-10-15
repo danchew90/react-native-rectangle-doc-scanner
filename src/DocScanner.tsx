@@ -76,12 +76,6 @@ type CameraRef = {
 
 type CameraOverrides = Omit<React.ComponentProps<typeof Camera>, 'style' | 'ref' | 'frameProcessor'>;
 
-type DetectionCandidate = {
-  quad: Point[];
-  area: number;
-  label: string;
-};
-
 /**
  * Configuration for detection quality and behavior
  */
