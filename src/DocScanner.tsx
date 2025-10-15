@@ -76,6 +76,12 @@ type CameraRef = {
 
 type CameraOverrides = Omit<React.ComponentProps<typeof Camera>, 'style' | 'ref' | 'frameProcessor'>;
 
+type DetectionCandidate = {
+  quad: Point[];
+  area: number;
+  label: string;
+};
+
 /**
  * Configuration for detection quality and behavior
  */
@@ -385,22 +391,19 @@ export const DocScanner: React.FC<Props> = ({
         0.06, 0.07, 0.08, 0.09, 0.1, 0.12,
       ];
 
-      let bestQuad: Point[] | null = null;
-      let bestArea = 0;
-      let convexHullWarned = false;
+      let bestCandidate: DetectionCandidate | null = null;
 
-      const considerCandidate = (candidate: { quad: Point[]; area: number } | null) => {
+      const considerCandidate = (candidate: DetectionCandidate | null) => {
         'worklet';
         if (!candidate) {
           return;
         }
-        if (!bestQuad || candidate.area > bestArea) {
-          bestQuad = candidate.quad;
-          bestArea = candidate.area;
+        if (!bestCandidate || candidate.area > bestCandidate.area) {
+          bestCandidate = candidate;
         }
       };
 
-      const evaluateContours = (inputMat: unknown, attemptLabel: string): { quad: Point[]; area: number } | null => {
+      const evaluateContours = (inputMat: unknown, attemptLabel: string): DetectionCandidate | null => {
         'worklet';
 
         step = `findContours_${attemptLabel}`;
@@ -411,7 +414,7 @@ export const DocScanner: React.FC<Props> = ({
         const contourVector = OpenCV.toJSValue(contours);
         const contourArray = Array.isArray(contourVector?.array) ? contourVector.array : [];
 
-        let bestLocal: { quad: Point[]; area: number } | null = null;
+        let bestLocal: DetectionCandidate | null = null;
 
         for (let i = 0; i < contourArray.length; i += 1) {
           step = `${attemptLabel}_contour_${i}_copy`;
@@ -436,9 +439,8 @@ export const DocScanner: React.FC<Props> = ({
             OpenCV.invoke('convexHull', contour, hull, false, true);
             contourToUse = hull;
           } catch (err) {
-            if (__DEV__ && !convexHullWarned) {
+            if (__DEV__) {
               console.warn('[DocScanner] convexHull failed, using original contour');
-              convexHullWarned = true;
             }
           }
 
@@ -506,9 +508,10 @@ export const DocScanner: React.FC<Props> = ({
             continue;
           }
 
-          const candidate = {
+          const candidate: DetectionCandidate = {
             quad: sanitized,
             area: quadAreaValue,
+            label: attemptLabel,
           };
 
           if (!bestLocal || candidate.area > bestLocal.area) {
@@ -562,7 +565,11 @@ export const DocScanner: React.FC<Props> = ({
       OpenCV.clearBuffers();
       step = 'updateQuad';
       reportStage(step);
-      updateQuad(bestQuad);
+      if (bestCandidate) {
+        updateQuad(bestCandidate.quad);
+      } else {
+        updateQuad(null);
+      }
     } catch (error) {
       reportError(step, error);
     }
