@@ -20,3 +20,4 @@ export {
   scaleCoordinates,
   scaleRectangle,
 } from './utils/coordinate';
+export { DocumentDetector } from './utils/documentDetection';
