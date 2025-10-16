@@ -74,6 +74,8 @@ class RNRDocScannerView @JvmOverloads constructor(
   private var currentStableCounter: Int = 0
   private var lastQuad: QuadPoints? = null
   private var lastFrameSize: AndroidSize? = null
+  private var missedDetections: Int = 0
+  private val maxMissedDetections = 4
   private var capturePromise: Promise? = null
   private var captureInFlight: Boolean = false
 
@@ -199,25 +201,43 @@ class RNRDocScannerView @JvmOverloads constructor(
 
   private fun emitDetectionResult(quad: QuadPoints?, frameSize: AndroidSize) {
     val reactContext = context as? ReactContext ?: return
+
+    val effectiveQuad: QuadPoints? = when {
+      quad != null -> {
+        missedDetections = 0
+        lastQuad = quad
+        quad
+      }
+      lastQuad != null && missedDetections < maxMissedDetections -> {
+        missedDetections += 1
+        lastQuad
+      }
+      else -> {
+        missedDetections = 0
+        lastQuad = null
+        null
+      }
+    }
+
+    val sizeForEvent = if (effectiveQuad === quad) frameSize else lastFrameSize ?: frameSize
+
     val event: WritableMap = Arguments.createMap().apply {
-      if (quad != null) {
+      if (effectiveQuad != null) {
         val quadMap = Arguments.createMap().apply {
-          putMap("topLeft", quad.topLeft.toWritable())
-          putMap("topRight", quad.topRight.toWritable())
-          putMap("bottomRight", quad.bottomRight.toWritable())
-          putMap("bottomLeft", quad.bottomLeft.toWritable())
+          putMap("topLeft", effectiveQuad.topLeft.toWritable())
+          putMap("topRight", effectiveQuad.topRight.toWritable())
+          putMap("bottomRight", effectiveQuad.bottomRight.toWritable())
+          putMap("bottomLeft", effectiveQuad.bottomLeft.toWritable())
         }
         putMap("rectangleCoordinates", quadMap)
         currentStableCounter = (currentStableCounter + 1).coerceAtMost(detectionCountBeforeCapture)
-        lastQuad = quad
       } else {
         putNull("rectangleCoordinates")
         currentStableCounter = 0
-        lastQuad = null
       }
       putInt("stableCounter", currentStableCounter)
-      putDouble("frameWidth", frameSize.width.toDouble())
-      putDouble("frameHeight", frameSize.height.toDouble())
+      putDouble("frameWidth", sizeForEvent.width.toDouble())
+      putDouble("frameHeight", sizeForEvent.height.toDouble())
     }
 
     reactContext

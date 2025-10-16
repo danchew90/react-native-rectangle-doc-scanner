@@ -33,6 +33,8 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
   private var isProcessingFrame = false
   private var isCaptureInFlight = false
   private var lastObservation: VNRectangleObservation?
+  private var missedDetectionFrames: Int = 0
+  private let maxMissedDetections = 4
   private var lastFrameSize: CGSize = .zero
   private var photoCaptureCompletion: ((Result<RNRDocScannerCaptureResult, Error>) -> Void)?
 
@@ -173,15 +175,18 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
         return
       }
 
-      guard let observation = (request.results as? [VNRectangleObservation])?.first else {
-        self.lastObservation = nil
-        self.handleDetectedRectangle(nil, frameSize: frameSize)
-        return
-      }
+        guard let observations = request.results as? [VNRectangleObservation], let observation = observations.max(by: { lhs, rhs in
+          lhs.boundingBox.width * lhs.boundingBox.height < rhs.boundingBox.width * rhs.boundingBox.height
+        }) else {
+          self.lastObservation = nil
+          self.handleDetectedRectangle(nil, frameSize: frameSize)
+          return
+        }
 
-      self.lastObservation = observation
-      self.handleDetectedRectangle(observation, frameSize: frameSize)
-    }
+        self.lastObservation = observation
+        self.missedDetectionFrames = 0
+        self.handleDetectedRectangle(observation, frameSize: frameSize)
+      }
 
       request.maximumObservations = 1
       request.minimumConfidence = 0.5
@@ -205,13 +210,27 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
   func handleDetectedRectangle(_ rectangle: VNRectangleObservation?, frameSize: CGSize) {
     guard let onRectangleDetect else { return }
 
+    let effectiveObservation: VNRectangleObservation?
+    if let rect = rectangle {
+      effectiveObservation = rect
+      lastObservation = rect
+      missedDetectionFrames = 0
+    } else if missedDetectionFrames < maxMissedDetections, let cached = lastObservation {
+      missedDetectionFrames += 1
+      effectiveObservation = cached
+    } else {
+      lastObservation = nil
+      missedDetectionFrames = 0
+      effectiveObservation = nil
+    }
+
     let payload: [String: Any?]
-    if let rectangle {
+    if let observation = effectiveObservation {
       let points = [
-        pointForOverlay(from: rectangle.topLeft, frameSize: frameSize),
-        pointForOverlay(from: rectangle.topRight, frameSize: frameSize),
-        pointForOverlay(from: rectangle.bottomRight, frameSize: frameSize),
-        pointForOverlay(from: rectangle.bottomLeft, frameSize: frameSize),
+        pointForOverlay(from: observation.topLeft, frameSize: frameSize),
+        pointForOverlay(from: observation.topRight, frameSize: frameSize),
+        pointForOverlay(from: observation.bottomRight, frameSize: frameSize),
+        pointForOverlay(from: observation.bottomLeft, frameSize: frameSize),
       ]
 
       currentStableCounter = min(currentStableCounter + 1, Int(truncating: detectionCountBeforeCapture))

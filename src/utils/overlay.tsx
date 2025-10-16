@@ -47,6 +47,18 @@ const buildPath = (points: Point[]) => {
   return path;
 };
 
+const orderQuad = (points: Point[]): Point[] => {
+  if (points.length !== 4) {
+    return points;
+  }
+
+  const sorted = [...points].sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y));
+  const top = sorted.slice(0, 2).sort((a, b) => a.x - b.x);
+  const bottom = sorted.slice(2, 4).sort((a, b) => a.x - b.x);
+
+  return [top[0], top[1], bottom[1], bottom[0]];
+};
+
 export const Overlay: React.FC<OverlayProps> = ({
   quad,
   color = '#e7a649',
@@ -105,11 +117,12 @@ export const Overlay: React.FC<OverlayProps> = ({
       return { outlinePath: null, gridPaths: [] };
     }
 
-    const skPath = buildPath(transformedQuad);
+    const normalizedQuad = orderQuad(transformedQuad);
+    const skPath = buildPath(normalizedQuad);
     const grid: ReturnType<typeof Skia.Path.Make>[] = [];
 
     if (showGrid) {
-      const [topLeft, topRight, bottomRight, bottomLeft] = transformedQuad;
+      const [topLeft, topRight, bottomRight, bottomLeft] = normalizedQuad;
       const steps = [1 / 3, 2 / 3];
 
       steps.forEach((t) => {
