@@ -22,7 +22,7 @@ class RNRDocScannerViewManager: RCTViewManager {
         switch result {
         case let .success(payload):
           resolve([
-            "croppedImage": payload.croppedImage as Any,
+            "croppedImage": payload.croppedImage ?? NSNull(),
             "initialImage": payload.originalImage,
             "width": payload.width,
             "height": payload.height,

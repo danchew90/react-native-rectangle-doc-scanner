@@ -1,10 +1,12 @@
 import AVFoundation
+import CoreImage
 import Foundation
 import React
+import UIKit
 import Vision
 
 @objc(RNRDocScannerView)
-class RNRDocScannerView: UIView {
+class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate {
   @objc var detectionCountBeforeCapture: NSNumber = 8
   @objc var autoCapture: Bool = true
   @objc var enableTorch: Bool = false {
@@ -21,11 +23,18 @@ class RNRDocScannerView: UIView {
   private let session = AVCaptureSession()
   private let sessionQueue = DispatchQueue(label: "com.reactnative.rectangledocscanner.session")
   private let analysisQueue = DispatchQueue(label: "com.reactnative.rectangledocscanner.analysis")
+  private let ciContext = CIContext()
+
   private var previewLayer: AVCaptureVideoPreviewLayer?
-  private var photoOutput = AVCapturePhotoOutput()
+  private let videoOutput = AVCaptureVideoDataOutput()
+  private let photoOutput = AVCapturePhotoOutput()
 
   private var currentStableCounter: Int = 0
+  private var isProcessingFrame = false
   private var isCaptureInFlight = false
+  private var lastObservation: VNRectangleObservation?
+  private var lastFrameSize: CGSize = .zero
+  private var photoCaptureCompletion: ((Result<RNRDocScannerCaptureResult, Error>) -> Void)?
 
   override init(frame: CGRect) {
     super.init(frame: frame)
@@ -76,10 +85,19 @@ class RNRDocScannerView: UIView {
       session.addInput(videoInput)
 
       if session.canAddOutput(photoOutput) {
+        photoOutput.isHighResolutionCaptureEnabled = true
         session.addOutput(photoOutput)
       }
 
-      // TODO: Wire up AVCaptureVideoDataOutput + rectangle detection pipeline.
+      videoOutput.videoSettings = [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+      ]
+      videoOutput.alwaysDiscardsLateVideoFrames = true
+      videoOutput.setSampleBufferDelegate(self, queue: analysisQueue)
+
+      if session.canAddOutput(videoOutput) {
+        session.addOutput(videoOutput)
+      }
     }
   }
 
@@ -115,16 +133,73 @@ class RNRDocScannerView: UIView {
     return AVCaptureDevice.devices(for: .video).first(where: { $0.position == position })
   }
 
+  // MARK: - Detection
+
+  func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+    if isProcessingFrame {
+      return
+    }
+    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+      return
+    }
+
+    isProcessingFrame = true
+    CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+    let frameSize = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
+    lastFrameSize = frameSize
+    let orientation = currentExifOrientation()
+
+    defer {
+      CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+      isProcessingFrame = false
+    }
+
+    let request = VNDetectRectanglesRequest { [weak self] request, error in
+      guard let self else { return }
+
+      if let error {
+        NSLog("[RNRDocScanner] detection error: \(error)")
+        self.lastObservation = nil
+        self.handleDetectedRectangle(nil, frameSize: frameSize)
+        return
+      }
+
+      guard let observation = (request.results as? [VNRectangleObservation])?.first else {
+        self.lastObservation = nil
+        self.handleDetectedRectangle(nil, frameSize: frameSize)
+        return
+      }
+
+      self.lastObservation = observation
+      self.handleDetectedRectangle(observation, frameSize: frameSize)
+    }
+
+    request.maximumObservations = 1
+    request.minimumConfidence = 0.6
+    request.minimumAspectRatio = 0.3
+    request.maximumAspectRatio = 1.0
+    request.minimumSize = 0.15
+
+    let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
+    do {
+      try handler.perform([request])
+    } catch {
+      NSLog("[RNRDocScanner] Failed to run Vision request: \(error)")
+      lastObservation = nil
+      handleDetectedRectangle(nil, frameSize: frameSize)
+    }
+  }
+
   func handleDetectedRectangle(_ rectangle: VNRectangleObservation?, frameSize: CGSize) {
     guard let onRectangleDetect else { return }
 
     let payload: [String: Any?]
     if let rectangle {
       let points = [
-        point(from: rectangle.topLeft, frameSize: frameSize),
-        point(from: rectangle.topRight, frameSize: frameSize),
-        point(from: rectangle.bottomRight, frameSize: frameSize),
-        point(from: rectangle.bottomLeft, frameSize: frameSize),
+        pointForOverlay(from: rectangle.topLeft, frameSize: frameSize),
+        pointForOverlay(from: rectangle.topRight, frameSize: frameSize),
+        pointForOverlay(from: rectangle.bottomRight, frameSize: frameSize),
+        pointForOverlay(from: rectangle.bottomLeft, frameSize: frameSize),
       ]
 
       currentStableCounter = min(currentStableCounter + 1, Int(truncating: detectionCountBeforeCapture))
@@ -154,9 +229,11 @@ class RNRDocScannerView: UIView {
     }
   }
 
-  private func point(from normalizedPoint: CGPoint, frameSize: CGSize) -> CGPoint {
+  private func pointForOverlay(from normalizedPoint: CGPoint, frameSize: CGSize) -> CGPoint {
     CGPoint(x: normalizedPoint.x * frameSize.width, y: (1 - normalizedPoint.y) * frameSize.height)
   }
+
+  // MARK: - Capture
 
   func capture(completion: @escaping (Result<RNRDocScannerCaptureResult, Error>) -> Void) {
     sessionQueue.async { [weak self] in
@@ -167,23 +244,190 @@ class RNRDocScannerView: UIView {
         return
       }
 
-      guard photoOutput.connections.isEmpty == false else {
+      guard photoOutput.connection(with: .video) != nil else {
         completion(.failure(RNRDocScannerError.captureUnavailable))
         return
       }
 
       isCaptureInFlight = true
+      photoCaptureCompletion = completion
 
-      // TODO: Implement real capture logic; emit stub callback for now.
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-        self.isCaptureInFlight = false
-        completion(.failure(RNRDocScannerError.notImplemented))
+      let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+      settings.isHighResolutionPhotoEnabled = photoOutput.isHighResolutionCaptureEnabled
+      if photoOutput.supportedFlashModes.contains(.on) {
+        settings.flashMode = enableTorch ? .on : .off
       }
+
+      photoOutput.capturePhoto(with: settings, delegate: self)
     }
   }
 
   func resetStability() {
     currentStableCounter = 0
+    lastObservation = nil
+  }
+
+  // MARK: - AVCapturePhotoCaptureDelegate
+
+  func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+    guard let completion = photoCaptureCompletion else {
+      isCaptureInFlight = false
+      return
+    }
+
+    if let error {
+      finishCapture(result: .failure(error))
+      return
+    }
+
+    guard let data = photo.fileDataRepresentation() else {
+      finishCapture(result: .failure(RNRDocScannerError.imageCreationFailed))
+      return
+    }
+
+    let dimensions = photoDimensions(photo: photo)
+    do {
+      let original = try serializeImageData(data, suffix: "original")
+      let croppedString: String?
+
+      if let croppedData = generateCroppedImage(from: data) {
+        croppedString = try serializeImageData(croppedData, suffix: "cropped").string
+      } else {
+        croppedString = original.string
+      }
+
+      let result = RNRDocScannerCaptureResult(
+        croppedImage: croppedString,
+        originalImage: original.string,
+        width: dimensions.width,
+        height: dimensions.height
+      )
+
+      finishCapture(result: .success(result))
+    } catch {
+      finishCapture(result: .failure(error))
+    }
+  }
+
+  func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
+    if let error, isCaptureInFlight {
+      finishCapture(result: .failure(error))
+    }
+  }
+
+  private func finishCapture(result: Result<RNRDocScannerCaptureResult, Error>) {
+    let completion = photoCaptureCompletion
+    photoCaptureCompletion = nil
+    isCaptureInFlight = false
+
+    DispatchQueue.main.async {
+      switch result {
+      case let .success(payload):
+        completion?(.success(payload))
+        self.emitPictureTaken(payload)
+      case let .failure(error):
+        completion?(.failure(error))
+      }
+    }
+  }
+
+  private func emitPictureTaken(_ result: RNRDocScannerCaptureResult) {
+    guard let onPictureTaken else { return }
+    let payload: [String: Any] = [
+      "croppedImage": result.croppedImage ?? NSNull(),
+      "initialImage": result.originalImage,
+      "width": result.width,
+      "height": result.height,
+    ]
+    onPictureTaken(payload)
+  }
+
+  // MARK: - Helpers
+
+  private func currentExifOrientation() -> CGImagePropertyOrientation {
+    switch UIDevice.current.orientation {
+    case .landscapeLeft:
+      return .up
+    case .landscapeRight:
+      return .down
+    case .portraitUpsideDown:
+      return .left
+    default:
+      return .right
+    }
+  }
+
+  private func photoDimensions(photo: AVCapturePhoto) -> CGSize {
+    if let pixelBuffer = photo.pixelBuffer {
+      return CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
+    }
+
+    let width = photo.metadata[kCGImagePropertyPixelWidth as String] as? Int ?? Int(lastFrameSize.width)
+    let height = photo.metadata[kCGImagePropertyPixelHeight as String] as? Int ?? Int(lastFrameSize.height)
+    return CGSize(width: CGFloat(width), height: CGFloat(height))
+  }
+
+  private func serializeImageData(_ data: Data, suffix: String) throws -> (string: String, url: URL?) {
+    let filename = "docscan-\(UUID().uuidString)-\(suffix).jpg"
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+    do {
+      try data.write(to: url, options: .atomic)
+    } catch {
+      throw RNRDocScannerError.fileWriteFailed
+    }
+    return (url.absoluteString, url)
+  }
+
+  private func generateCroppedImage(from data: Data) -> Data? {
+    guard let ciImage = CIImage(data: data) else {
+      return nil
+    }
+
+    var observation: VNRectangleObservation? = nil
+    let request = VNDetectRectanglesRequest { request, _ in
+      observation = (request.results as? [VNRectangleObservation])?.first
+    }
+    request.maximumObservations = 1
+    request.minimumConfidence = 0.6
+
+    let handler = VNImageRequestHandler(ciImage: ciImage, options: [:])
+    try? handler.perform([request])
+
+    guard let targetObservation = observation ?? lastObservation else {
+      return nil
+    }
+
+    let size = ciImage.extent.size
+    let topLeft = normalizedPoint(targetObservation.topLeft, in: size, flipY: false)
+    let topRight = normalizedPoint(targetObservation.topRight, in: size, flipY: false)
+    let bottomLeft = normalizedPoint(targetObservation.bottomLeft, in: size, flipY: false)
+    let bottomRight = normalizedPoint(targetObservation.bottomRight, in: size, flipY: false)
+
+    guard let filter = CIFilter(name: "CIPerspectiveCorrection") else {
+      return nil
+    }
+
+    filter.setValue(ciImage, forKey: kCIInputImageKey)
+    filter.setValue(CIVector(cgPoint: topLeft), forKey: "inputTopLeft")
+    filter.setValue(CIVector(cgPoint: topRight), forKey: "inputTopRight")
+    filter.setValue(CIVector(cgPoint: bottomLeft), forKey: "inputBottomLeft")
+    filter.setValue(CIVector(cgPoint: bottomRight), forKey: "inputBottomRight")
+
+    guard let corrected = filter.outputImage else {
+      return nil
+    }
+
+    guard let cgImage = ciContext.createCGImage(corrected, from: corrected.extent) else {
+      return nil
+    }
+
+    let cropped = UIImage(cgImage: cgImage)
+    return cropped.jpegData(compressionQuality: CGFloat(max(0.05, min(1.0, quality.doubleValue / 100.0))))
+  }
+
+  private func normalizedPoint(_ point: CGPoint, in size: CGSize, flipY: Bool) -> CGPoint {
+    let yValue = flipY ? (1 - point.y) : point.y
+    return CGPoint(x: point.x * size.width, y: yValue * size.height)
   }
 }
 
@@ -197,7 +441,8 @@ struct RNRDocScannerCaptureResult {
 enum RNRDocScannerError: Error {
   case captureInProgress
   case captureUnavailable
-  case notImplemented
+  case imageCreationFailed
+  case fileWriteFailed
   case viewNotFound
 
   var code: String {
@@ -206,8 +451,10 @@ enum RNRDocScannerError: Error {
       return "capture_in_progress"
     case .captureUnavailable:
       return "capture_unavailable"
-    case .notImplemented:
-      return "not_implemented"
+    case .imageCreationFailed:
+      return "image_creation_failed"
+    case .fileWriteFailed:
+      return "file_write_failed"
     case .viewNotFound:
       return "view_not_found"
     }
@@ -219,8 +466,10 @@ enum RNRDocScannerError: Error {
       return "A capture request is already in flight."
     case .captureUnavailable:
       return "Photo output is not configured yet."
-    case .notImplemented:
-      return "Native capture is not implemented yet."
+    case .imageCreationFailed:
+      return "Unable to create image data from capture."
+    case .fileWriteFailed:
+      return "Failed to persist captured image to disk."
     case .viewNotFound:
       return "Unable to locate the native DocScanner view."
     }
