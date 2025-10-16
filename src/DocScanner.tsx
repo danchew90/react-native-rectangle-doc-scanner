@@ -1,5 +1,4 @@
 import React, {
-  ComponentType,
   ReactNode,
   forwardRef,
   useCallback,
@@ -70,6 +69,7 @@ type DocScannerHandle = {
 };
 
 const NativeDocScanner = requireNativeComponent<NativeDocScannerProps>(VIEW_NAME);
+type NativeDocScannerInstance = React.ElementRef<typeof NativeDocScanner>;
 
 export interface DetectionConfig {
   processingWidth?: number;
@@ -111,7 +111,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(({
   gridColor,
   gridLineWidth = 2,
 }, ref) => {
-  const viewRef = useRef<any>(null);
+  const viewRef = useRef<NativeDocScannerInstance | null>(null);
   const capturingRef = useRef(false);
   const [quad, setQuad] = useState<Point[] | null>(null);
   const [stable, setStable] = useState(0);
@@ -251,7 +251,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(({
   return (
     <View style={styles.container}>
       <NativeDocScanner
-        ref={viewRef as React.Ref<ComponentType<NativeDocScannerProps>>}
+        ref={viewRef}
         style={StyleSheet.absoluteFill}
         detectionCountBeforeCapture={minStableFrames}
         autoCapture={autoCapture}
