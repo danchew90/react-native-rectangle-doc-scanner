@@ -52,22 +52,33 @@ const orderQuad = (points: Point[]): Point[] => {
     return points;
   }
 
-  const sum = (p: Point) => p.x + p.y;
-  const diff = (p: Point) => p.x - p.y;
+  const center = points.reduce(
+    (acc, point) => ({ x: acc.x + point.x / 4, y: acc.y + point.y / 4 }),
+    { x: 0, y: 0 },
+  );
 
-  const topLeft = points.reduce((prev, curr) => (sum(curr) < sum(prev) ? curr : prev));
-  const bottomRight = points.reduce((prev, curr) => (sum(curr) > sum(prev) ? curr : prev));
+  const sorted = [...points].sort((a, b) => {
+    const angleA = Math.atan2(a.y - center.y, a.x - center.x);
+    const angleB = Math.atan2(b.y - center.y, b.x - center.x);
+    return angleA - angleB;
+  });
 
-  const remaining = points.filter((p) => p !== topLeft && p !== bottomRight);
-  if (remaining.length !== 2) {
-    return [topLeft, bottomRight, ...remaining];
+  // Ensure the first point is the top-left (smallest y, then smallest x)
+  let startIndex = 0;
+  for (let i = 1; i < sorted.length; i += 1) {
+    const current = sorted[i];
+    const candidate = sorted[startIndex];
+    if (current.y < candidate.y || (current.y === candidate.y && current.x < candidate.x)) {
+      startIndex = i;
+    }
   }
 
-  const [candidate1, candidate2] = remaining;
-  const topRight = diff(candidate1) > diff(candidate2) ? candidate1 : candidate2;
-  const bottomLeft = topRight === candidate1 ? candidate2 : candidate1;
-
-  return [topLeft, topRight, bottomRight, bottomLeft];
+  return [
+    sorted[startIndex % 4],
+    sorted[(startIndex + 1) % 4],
+    sorted[(startIndex + 2) % 4],
+    sorted[(startIndex + 3) % 4],
+  ];
 };
 
 export const Overlay: React.FC<OverlayProps> = ({
