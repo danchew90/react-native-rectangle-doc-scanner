@@ -262,7 +262,8 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       effectiveObservation = nil
     }
 
-    updateNativeOverlay(with: effectiveObservation)
+    let shouldDisplayOverlay = currentStableCounter > 0 && effectiveObservation != nil
+    updateNativeOverlay(with: shouldDisplayOverlay ? effectiveObservation : nil)
 
     let payload: [String: Any?]
     if let observation = effectiveObservation {
@@ -318,12 +319,23 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
         return
       }
 
-      let points = [
+      let rawPoints = [
         self.convertToLayerPoint(observation.topLeft, previewLayer: previewLayer),
         self.convertToLayerPoint(observation.topRight, previewLayer: previewLayer),
         self.convertToLayerPoint(observation.bottomRight, previewLayer: previewLayer),
         self.convertToLayerPoint(observation.bottomLeft, previewLayer: previewLayer),
       ]
+
+      let points: [CGPoint]
+      if let previous = self.smoothedOverlayPoints, previous.count == 4 {
+        points = zip(previous, rawPoints).map { prev, next in
+          CGPoint(x: prev.x * 0.7 + next.x * 0.3, y: prev.y * 0.7 + next.y * 0.3)
+        }
+      } else {
+        points = rawPoints
+      }
+
+      self.smoothedOverlayPoints = points
 
       let outline = UIBezierPath()
       outline.move(to: points[0])
