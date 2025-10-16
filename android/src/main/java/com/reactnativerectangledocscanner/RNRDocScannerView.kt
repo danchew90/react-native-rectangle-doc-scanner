@@ -35,6 +35,7 @@ import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size as MatSize
 import org.opencv.imgproc.Imgproc
+import org.opencv.photo.Photo
 import java.io.File
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
@@ -387,11 +388,20 @@ class RNRDocScannerView @JvmOverloads constructor(
     val gray = Mat()
     Imgproc.cvtColor(mat, gray, Imgproc.COLOR_BGR2GRAY)
 
+    // Improve contrast for low-light or glossy surfaces
+    val clahe = Photo.createCLAHE(2.0, MatSize(8.0, 8.0))
+    val enhanced = Mat()
+    clahe.apply(gray, enhanced)
+    clahe.collectGarbage()
+
     val blurred = Mat()
-    Imgproc.GaussianBlur(gray, blurred, MatSize(5.0, 5.0), 0.0)
+    Imgproc.GaussianBlur(enhanced, blurred, MatSize(5.0, 5.0), 0.0)
 
     val edges = Mat()
-    Imgproc.Canny(blurred, edges, 50.0, 150.0)
+    Imgproc.Canny(blurred, edges, 40.0, 140.0)
+
+    val morphKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, MatSize(5.0, 5.0))
+    Imgproc.morphologyEx(edges, edges, Imgproc.MORPH_CLOSE, morphKernel)
 
     val contours = ArrayList<MatOfPoint>()
     val hierarchy = Mat()
@@ -415,7 +425,7 @@ class RNRDocScannerView @JvmOverloads constructor(
       }
 
       val area = abs(Imgproc.contourArea(approxCurve))
-      if (area < frameArea * 0.10 || area > frameArea * 0.95) {
+      if (area < frameArea * 0.05 || area > frameArea * 0.98) {
         contour.release()
         contour2f.release()
         continue
@@ -437,8 +447,10 @@ class RNRDocScannerView @JvmOverloads constructor(
     }
 
     gray.release()
+    enhanced.release()
     blurred.release()
     edges.release()
+    morphKernel.release()
     hierarchy.release()
     approxCurve.release()
     mat.release()

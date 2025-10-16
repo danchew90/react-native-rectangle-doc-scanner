@@ -87,6 +87,9 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       if session.canAddOutput(photoOutput) {
         photoOutput.isHighResolutionCaptureEnabled = true
         session.addOutput(photoOutput)
+        if let connection = photoOutput.connection(with: .video), connection.isVideoOrientationSupported {
+          connection.videoOrientation = .portrait
+        }
       }
 
       videoOutput.videoSettings = [
@@ -97,6 +100,9 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
 
       if session.canAddOutput(videoOutput) {
         session.addOutput(videoOutput)
+        if let connection = videoOutput.connection(with: .video), connection.isVideoOrientationSupported {
+          connection.videoOrientation = .portrait
+        }
       }
     }
   }
@@ -104,6 +110,9 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
   override func layoutSubviews() {
     super.layoutSubviews()
     previewLayer?.frame = bounds
+    if let connection = previewLayer?.connection, connection.isVideoOrientationSupported {
+      connection.videoOrientation = .portrait
+    }
   }
 
   private func updateTorchMode() {
@@ -174,11 +183,14 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       self.handleDetectedRectangle(observation, frameSize: frameSize)
     }
 
-    request.maximumObservations = 1
-    request.minimumConfidence = 0.6
-    request.minimumAspectRatio = 0.3
-    request.maximumAspectRatio = 1.0
-    request.minimumSize = 0.15
+      request.maximumObservations = 1
+      request.minimumConfidence = 0.5
+      request.minimumAspectRatio = 0.15
+      request.maximumAspectRatio = 1.75
+      request.minimumSize = 0.08
+      if #available(iOS 13.0, *) {
+        request.quadratureTolerance = 45
+      }
 
     let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
     do {
