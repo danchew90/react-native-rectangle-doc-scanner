@@ -52,11 +52,22 @@ const orderQuad = (points: Point[]): Point[] => {
     return points;
   }
 
-  const sorted = [...points].sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y));
-  const top = sorted.slice(0, 2).sort((a, b) => a.x - b.x);
-  const bottom = sorted.slice(2, 4).sort((a, b) => a.x - b.x);
+  const sum = (p: Point) => p.x + p.y;
+  const diff = (p: Point) => p.x - p.y;
 
-  return [top[0], top[1], bottom[1], bottom[0]];
+  const topLeft = points.reduce((prev, curr) => (sum(curr) < sum(prev) ? curr : prev));
+  const bottomRight = points.reduce((prev, curr) => (sum(curr) > sum(prev) ? curr : prev));
+
+  const remaining = points.filter((p) => p !== topLeft && p !== bottomRight);
+  if (remaining.length !== 2) {
+    return [topLeft, bottomRight, ...remaining];
+  }
+
+  const [candidate1, candidate2] = remaining;
+  const topRight = diff(candidate1) > diff(candidate2) ? candidate1 : candidate2;
+  const bottomLeft = topRight === candidate1 ? candidate2 : candidate1;
+
+  return [topLeft, topRight, bottomRight, bottomLeft];
 };
 
 export const Overlay: React.FC<OverlayProps> = ({
