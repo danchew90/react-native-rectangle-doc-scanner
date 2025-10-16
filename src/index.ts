@@ -11,7 +11,7 @@ export type {
 
 // Types
 export type { Point, Quad, Rectangle, CapturedDocument } from './types';
-export type { DetectionConfig } from './DocScanner';
+export type { DetectionConfig, DocScannerHandle } from './DocScanner';
 
 // Utilities
 export {

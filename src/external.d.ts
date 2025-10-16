@@ -1,48 +1,3 @@
-declare module 'react-native-document-scanner-plugin' {
-  import type { ComponentType } from 'react';
-  import type { ViewStyle } from 'react-native';
-
-  export type RectangleCoordinates = {
-    topLeft: { x: number; y: number };
-    topRight: { x: number; y: number };
-    bottomRight: { x: number; y: number };
-    bottomLeft: { x: number; y: number };
-  };
-
-  export type RectangleEvent = {
-    rectangleCoordinates?: RectangleCoordinates;
-    stableCounter?: number;
-    lastDetectionType?: 'initial' | 'updated' | 'lost';
-  };
-
-  export type CaptureResult = {
-    croppedImage?: string;
-    initialImage?: string;
-    width?: number;
-    height?: number;
-  };
-
-  export type DocumentScannerProps = {
-    ref?: (value: DocumentScannerHandle | null) => void;
-    style?: ViewStyle;
-    overlayColor?: string;
-    detectionCountBeforeCapture?: number;
-    enableTorch?: boolean;
-    hideControls?: boolean;
-    useBase64?: boolean;
-    quality?: number;
-    onRectangleDetect?: (event: RectangleEvent) => void;
-    onPictureTaken?: (result: CaptureResult) => void;
-  };
-
-  export type DocumentScannerHandle = {
-    capture: () => Promise<CaptureResult>;
-  };
-
-  const DocumentScanner: ComponentType<DocumentScannerProps>;
-  export default DocumentScanner;
-}
-
 declare module '@shopify/react-native-skia' {
   import type { ComponentType, ReactNode } from 'react';
   import type { ViewStyle } from 'react-native';
@@ -74,6 +29,18 @@ declare module '@shopify/react-native-skia' {
   };
 
   export const Path: ComponentType<PathProps>;
+}
+
+declare module 'react-native-rectangle-doc-scanner/RNRDocScannerModule' {
+  export type NativeCaptureResult = {
+    croppedImage?: string | null;
+    initialImage?: string;
+    width?: number;
+    height?: number;
+  };
+
+  export function capture(viewTag: number): Promise<NativeCaptureResult>;
+  export function reset(viewTag: number): void;
 }
 
 declare module 'react-native-perspective-image-cropper' {

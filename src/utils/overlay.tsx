@@ -8,6 +8,23 @@ const lerp = (start: Point, end: Point, t: number): Point => ({
   y: start.y + (end.y - start.y) * t,
 });
 
+const withAlpha = (value: string, alpha: number): string => {
+  const hexMatch = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim());
+  if (!hexMatch) {
+    return `rgba(231, 166, 73, ${alpha})`;
+  }
+
+  const hex = hexMatch[1];
+  const normalize = hex.length === 3
+    ? hex.split('').map((ch) => ch + ch).join('')
+    : hex;
+
+  const r = parseInt(normalize.slice(0, 2), 16);
+  const g = parseInt(normalize.slice(2, 4), 16);
+  const b = parseInt(normalize.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 type OverlayProps = {
   quad: Point[] | null;
   color?: string;
@@ -22,6 +39,14 @@ type OverlayGeometry = {
   gridPaths: ReturnType<typeof Skia.Path.Make>[];
 };
 
+const buildPath = (points: Point[]) => {
+  const path = Skia.Path.Make();
+  path.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((p) => path.lineTo(p.x, p.y));
+  path.close();
+  return path;
+};
+
 export const Overlay: React.FC<OverlayProps> = ({
   quad,
   color = '#e7a649',
@@ -31,71 +56,75 @@ export const Overlay: React.FC<OverlayProps> = ({
   gridLineWidth = 2,
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const fillColor = useMemo(() => withAlpha(color, 0.2), [color]);
 
   const { outlinePath, gridPaths }: OverlayGeometry = useMemo(() => {
-    if (!quad || !frameSize) {
-      if (__DEV__) {
-        console.log('[Overlay] no quad or frameSize', { quad, frameSize });
+    let transformedQuad: Point[] | null = null;
+    let sourceQuad: Point[] | null = null;
+    let sourceFrameSize = frameSize;
+
+    if (quad && frameSize) {
+      sourceQuad = quad;
+    } else {
+      const marginRatio = 0.12;
+      const marginX = screenWidth * marginRatio;
+      const marginY = screenHeight * marginRatio;
+      const maxWidth = screenWidth - marginX * 2;
+      const maxHeight = screenHeight - marginY * 2;
+      const a4Ratio = Math.SQRT2; // ~1.414 height / width
+      let width = maxWidth;
+      let height = width * a4Ratio;
+      if (height > maxHeight) {
+        height = maxHeight;
+        width = height / a4Ratio;
       }
+      const left = (screenWidth - width) / 2;
+      const top = (screenHeight - height) / 2;
+      transformedQuad = [
+        { x: left, y: top },
+        { x: left + width, y: top },
+        { x: left + width, y: top + height },
+        { x: left, y: top + height },
+      ];
+      sourceFrameSize = null;
+    }
+
+    if (sourceQuad && sourceFrameSize) {
+      if (__DEV__) {
+        console.log('[Overlay] drawing quad:', sourceQuad);
+        console.log('[Overlay] color:', color);
+        console.log('[Overlay] screen dimensions:', screenWidth, 'x', screenHeight);
+        console.log('[Overlay] frame dimensions:', sourceFrameSize.width, 'x', sourceFrameSize.height);
+      }
+
+      const isFrameLandscape = sourceFrameSize.width > sourceFrameSize.height;
+      const isScreenPortrait = screenHeight > screenWidth;
+      const needsRotation = isFrameLandscape && isScreenPortrait;
+
+      if (needsRotation) {
+        const scaleX = screenWidth / sourceFrameSize.height;
+        const scaleY = screenHeight / sourceFrameSize.width;
+
+        transformedQuad = sourceQuad.map((p) => ({
+          x: p.y * scaleX,
+          y: (sourceFrameSize.width - p.x) * scaleY,
+        }));
+      } else {
+        const scaleX = screenWidth / sourceFrameSize.width;
+        const scaleY = screenHeight / sourceFrameSize.height;
+
+        transformedQuad = sourceQuad.map((p) => ({
+          x: p.x * scaleX,
+          y: p.y * scaleY,
+        }));
+      }
+    }
+
+    if (!transformedQuad) {
       return { outlinePath: null, gridPaths: [] };
     }
 
-    if (__DEV__) {
-      console.log('[Overlay] drawing quad:', quad);
-      console.log('[Overlay] color:', color);
-      console.log('[Overlay] screen dimensions:', screenWidth, 'x', screenHeight);
-      console.log('[Overlay] frame dimensions:', frameSize.width, 'x', frameSize.height);
-    }
-
-    // Check if camera is in landscape mode (width > height) but screen is portrait (height > width)
-    const isFrameLandscape = frameSize.width > frameSize.height;
-    const isScreenPortrait = screenHeight > screenWidth;
-    const needsRotation = isFrameLandscape && isScreenPortrait;
-
-    if (__DEV__) {
-      console.log('[Overlay] needs rotation:', needsRotation);
-    }
-
-    let transformedQuad: Point[];
-
-    if (needsRotation) {
-      // Camera is landscape, screen is portrait - need to rotate 90 degrees
-      // Transform: rotate 90° clockwise and scale
-      // New coordinates: x' = y * (screenWidth / frameHeight), y' = (frameWidth - x) * (screenHeight / frameWidth)
-      const scaleX = screenWidth / frameSize.height;
-      const scaleY = screenHeight / frameSize.width;
-
-      if (__DEV__) {
-        console.log('[Overlay] rotation scale factors:', scaleX, 'x', scaleY);
-      }
-
-      transformedQuad = quad.map((p) => ({
-        x: p.y * scaleX,
-        y: (frameSize.width - p.x) * scaleY,
-      }));
-    } else {
-      // Same orientation - just scale
-      const scaleX = screenWidth / frameSize.width;
-      const scaleY = screenHeight / frameSize.height;
-
-      if (__DEV__) {
-        console.log('[Overlay] scale factors:', scaleX, 'x', scaleY);
-      }
-
-      transformedQuad = quad.map((p) => ({
-        x: p.x * scaleX,
-        y: p.y * scaleY,
-      }));
-    }
-
-    if (__DEV__) {
-      console.log('[Overlay] transformed quad:', transformedQuad);
-    }
-
-    const skPath = Skia.Path.Make();
-    skPath.moveTo(transformedQuad[0].x, transformedQuad[0].y);
-    transformedQuad.slice(1).forEach((p) => skPath.lineTo(p.x, p.y));
-    skPath.close();
+    const skPath = buildPath(transformedQuad);
     const grid: ReturnType<typeof Skia.Path.Make>[] = [];
 
     if (showGrid) {
@@ -122,7 +151,7 @@ export const Overlay: React.FC<OverlayProps> = ({
     }
 
     return { outlinePath: skPath, gridPaths: grid };
-  }, [quad, screenWidth, screenHeight, frameSize, showGrid]);
+  }, [quad, screenWidth, screenHeight, frameSize, showGrid, color]);
 
   if (__DEV__) {
     console.log('[Overlay] rendering Canvas with dimensions:', screenWidth, 'x', screenHeight);
@@ -134,7 +163,7 @@ export const Overlay: React.FC<OverlayProps> = ({
         {outlinePath && (
           <>
             <Path path={outlinePath} color={color} style="stroke" strokeWidth={8} />
-            <Path path={outlinePath} color="rgba(231, 166, 73, 0.2)" style="fill" />
+            <Path path={outlinePath} color={fillColor} style="fill" />
             {gridPaths.map((gridPath, index) => (
               <Path
                 // eslint-disable-next-line react/no-array-index-key

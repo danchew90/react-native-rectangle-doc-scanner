@@ -56,6 +56,9 @@ export interface FullDocScannerProps {
   onClose?: () => void;
   detectionConfig?: DetectionConfig;
   overlayColor?: string;
+  gridColor?: string;
+  gridLineWidth?: number;
+  showGrid?: boolean;
   overlayStrokeColor?: string;
   handlerColor?: string;
   strings?: FullDocScannerStrings;
@@ -71,6 +74,9 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   onClose,
   detectionConfig,
   overlayColor = '#3170f3',
+  gridColor,
+  gridLineWidth,
+  showGrid,
   overlayStrokeColor = '#3170f3',
   handlerColor = '#3170f3',
   strings,
@@ -83,6 +89,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [cropRectangle, setCropRectangle] = useState<Rectangle | null>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const [processing, setProcessing] = useState(false);
+  const resolvedGridColor = gridColor ?? overlayColor;
 
   const mergedStrings = useMemo<Required<FullDocScannerStrings>>(
     () => ({
@@ -239,6 +246,9 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           <DocScanner
             autoCapture={!manualCapture}
             overlayColor={overlayColor}
+            showGrid={showGrid}
+            gridColor={resolvedGridColor}
+            gridLineWidth={gridLineWidth}
             minStableFrames={minStableFrames ?? 6}
             detectionConfig={detectionConfig}
             onCapture={handleCapture}

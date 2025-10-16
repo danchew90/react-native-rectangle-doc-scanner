@@ -1,6 +1,7 @@
 {
   "name": "react-native-rectangle-doc-scanner",
   "version": "0.66.0",
+  "description": "Native-backed document scanner for React Native with customizable overlays.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "repository": {
@@ -18,14 +19,13 @@
   "peerDependencies": {
     "@shopify/react-native-skia": "*",
     "react": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "react-native-perspective-image-cropper": "*"
   },
   "devDependencies": {
     "@types/react": "^18.2.41",
     "@types/react-native": "0.73.0",
     "typescript": "^5.3.3"
   },
-  "dependencies": {
-    "react-native-document-scanner-plugin": "^1.0.1"
-  }
+  "dependencies": {}
 }

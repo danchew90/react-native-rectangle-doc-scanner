@@ -1,20 +1,35 @@
 import React, {
-  ComponentType,
   ReactNode,
+  forwardRef,
   useCallback,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
 } from 'react';
 import {
-  LayoutChangeEvent,
+  findNodeHandle,
+  NativeModules,
+  requireNativeComponent,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
-import DocumentScanner from 'react-native-document-scanner-plugin';
+import type { NativeSyntheticEvent } from 'react-native';
 import { Overlay } from './utils/overlay';
 import type { Point } from './types';
+
+const MODULE_NAME = 'RNRDocScannerModule';
+const VIEW_NAME = 'RNRDocScannerView';
+
+const NativeDocScannerModule = NativeModules[MODULE_NAME];
+
+if (!NativeDocScannerModule) {
+  const fallbackMessage =
+    `The native module '${MODULE_NAME}' is not linked. Make sure you have run pod install, ` +
+    `synced Gradle, and rebuilt the app after installing 'react-native-rectangle-doc-scanner'.`;
+  throw new Error(fallbackMessage);
+}
 
 type NativeRectangle = {
   topLeft: Point;
@@ -23,43 +38,38 @@ type NativeRectangle = {
   bottomLeft: Point;
 };
 
-type NativeRectangleEvent = {
-  rectangleCoordinates?: NativeRectangle | null;
-  stableCounter?: number;
+type RectangleEvent = {
+  rectangleCoordinates: NativeRectangle | null;
+  stableCounter: number;
+  frameWidth: number;
+  frameHeight: number;
 };
 
-type NativeCaptureResult = {
-  croppedImage?: string;
+type PictureEvent = {
+  croppedImage?: string | null;
   initialImage?: string;
   width?: number;
   height?: number;
 };
 
-type DocumentScannerHandle = {
-  capture: () => Promise<NativeCaptureResult>;
-};
-
-type NativeDocumentScannerProps = {
+type NativeDocScannerProps = {
   style?: object;
-  overlayColor?: string;
   detectionCountBeforeCapture?: number;
+  autoCapture?: boolean;
   enableTorch?: boolean;
-  hideControls?: boolean;
-  useBase64?: boolean;
   quality?: number;
-  onRectangleDetect?: (event: NativeRectangleEvent) => void;
-  onPictureTaken?: (event: NativeCaptureResult) => void;
+  useBase64?: boolean;
+  onRectangleDetect?: (event: NativeSyntheticEvent<RectangleEvent>) => void;
+  onPictureTaken?: (event: NativeSyntheticEvent<PictureEvent>) => void;
 };
 
-const NativeDocumentScanner = DocumentScanner as unknown as ComponentType<
-  NativeDocumentScannerProps & { ref?: React.Ref<DocumentScannerHandle> }
->;
+type DocScannerHandle = {
+  capture: () => Promise<PictureEvent>;
+  reset: () => void;
+};
 
-/**
- * Detection configuration is no longer used now that the native
- * implementation handles edge detection. Keeping it for backwards
- * compatibility with existing consumer code.
- */
+const NativeDocScanner = requireNativeComponent<NativeDocScannerProps>(VIEW_NAME);
+
 export interface DetectionConfig {
   processingWidth?: number;
   cannyLowThreshold?: number;
@@ -87,22 +97,23 @@ interface Props {
 const DEFAULT_OVERLAY_COLOR = '#e7a649';
 const GRID_COLOR_FALLBACK = 'rgba(231, 166, 73, 0.35)';
 
-export const DocScanner: React.FC<Props> = ({
+export const DocScanner = forwardRef<DocScannerHandle, Props>(({
   onCapture,
   overlayColor = DEFAULT_OVERLAY_COLOR,
   autoCapture = true,
   minStableFrames = 8,
   enableTorch = false,
-  quality,
+  quality = 90,
   useBase64 = false,
   children,
   showGrid = true,
   gridColor,
   gridLineWidth = 2,
-}) => {
-  const scannerRef = useRef<DocumentScannerHandle | null>(null);
+}, ref) => {
+  const viewRef = useRef<any>(null);
   const capturingRef = useRef(false);
   const [quad, setQuad] = useState<Point[] | null>(null);
+  const [stable, setStable] = useState(0);
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
 
   const effectiveGridColor = useMemo(
@@ -110,80 +121,142 @@ export const DocScanner: React.FC<Props> = ({
     [gridColor],
   );
 
-  const handleLayout = useCallback((event: LayoutChangeEvent) => {
-    const { width, height } = event.nativeEvent.layout;
-    if (width > 0 && height > 0) {
-      setFrameSize({ width, height });
+  const ensureViewHandle = useCallback(() => {
+    const nodeHandle = findNodeHandle(viewRef.current);
+    if (!nodeHandle) {
+      throw new Error('Unable to obtain native view handle for DocScanner.');
     }
+    return nodeHandle;
   }, []);
 
-  const handleRectangleDetect = useCallback((event: NativeRectangleEvent) => {
-    const coordinates = event?.rectangleCoordinates;
-
-    if (!coordinates) {
-      setQuad(null);
-      return;
+  const resetNativeStability = useCallback(() => {
+    try {
+      const handle = ensureViewHandle();
+      NativeDocScannerModule.reset(handle);
+    } catch (error) {
+      console.warn('[DocScanner] unable to reset native stability', error);
     }
+  }, [ensureViewHandle]);
 
-    const nextQuad: Point[] = [
-      coordinates.topLeft,
-      coordinates.topRight,
-      coordinates.bottomRight,
-      coordinates.bottomLeft,
-    ];
-
-    setQuad(nextQuad);
-  }, []);
-
-  const handlePictureTaken = useCallback(
-    (event: NativeCaptureResult) => {
+  const emitCaptureResult = useCallback(
+    (payload: PictureEvent) => {
       capturingRef.current = false;
 
-      const path = event?.croppedImage ?? event?.initialImage;
+      const path = payload.croppedImage ?? payload.initialImage;
       if (!path) {
         return;
       }
 
-      const width = event?.width ?? frameSize?.width ?? 0;
-      const height = event?.height ?? frameSize?.height ?? 0;
-
+      const width = payload.width ?? frameSize?.width ?? 0;
+      const height = payload.height ?? frameSize?.height ?? 0;
       onCapture?.({
         path,
         quad,
         width,
         height,
       });
+      setStable(0);
+      resetNativeStability();
     },
-    [frameSize, onCapture, quad],
+    [frameSize, onCapture, quad, resetNativeStability],
   );
 
-  const handleManualCapture = useCallback(() => {
-    if (autoCapture || capturingRef.current || !scannerRef.current) {
+  const handleRectangleDetect = useCallback(
+    (event: NativeSyntheticEvent<RectangleEvent>) => {
+      const { rectangleCoordinates, stableCounter, frameWidth, frameHeight } = event.nativeEvent;
+      setStable(stableCounter);
+      setFrameSize({ width: frameWidth, height: frameHeight });
+
+      if (!rectangleCoordinates) {
+        setQuad(null);
+        return;
+      }
+
+      setQuad([
+        rectangleCoordinates.topLeft,
+        rectangleCoordinates.topRight,
+        rectangleCoordinates.bottomRight,
+        rectangleCoordinates.bottomLeft,
+      ]);
+
+      if (autoCapture && stableCounter >= minStableFrames) {
+        triggerCapture();
+      }
+    },
+    [autoCapture, minStableFrames],
+  );
+
+  const handlePictureTaken = useCallback(
+    (event: NativeSyntheticEvent<PictureEvent>) => {
+      emitCaptureResult(event.nativeEvent);
+    },
+    [emitCaptureResult],
+  );
+
+  const captureNative = useCallback((): Promise<PictureEvent> => {
+    if (capturingRef.current) {
+      return Promise.reject(new Error('capture_in_progress'));
+    }
+
+    try {
+      const handle = ensureViewHandle();
+      capturingRef.current = true;
+      return NativeDocScannerModule.capture(handle)
+        .then((result: PictureEvent) => {
+          emitCaptureResult(result);
+          return result;
+        })
+        .catch((error: Error) => {
+          capturingRef.current = false;
+          throw error;
+        });
+    } catch (error) {
+      capturingRef.current = false;
+      return Promise.reject(error);
+    }
+  }, [emitCaptureResult, ensureViewHandle]);
+
+  const triggerCapture = useCallback(() => {
+    if (capturingRef.current) {
       return;
     }
 
-    capturingRef.current = true;
-    scannerRef.current
-      .capture()
-      .catch((error) => {
-        console.warn('[DocScanner] manual capture failed', error);
-        capturingRef.current = false;
-      });
-  }, [autoCapture]);
+    captureNative().catch((error: Error) => {
+      console.warn('[DocScanner] capture failed', error);
+    });
+  }, [captureNative]);
+
+  const handleManualCapture = useCallback(() => {
+    if (autoCapture) {
+      return;
+    }
+    captureNative().catch((error: Error) => {
+      console.warn('[DocScanner] manual capture failed', error);
+    });
+  }, [autoCapture, captureNative]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      capture: captureNative,
+      reset: () => {
+        setStable(0);
+        resetNativeStability();
+      },
+    }),
+    [captureNative, resetNativeStability],
+  );
 
   return (
-    <View style={styles.container} onLayout={handleLayout}>
-      <NativeDocumentScanner
-        ref={(instance) => {
-          scannerRef.current = instance as DocumentScannerHandle | null;
-        }}
+    <View style={styles.container}>
+      <NativeDocScanner
+        ref={viewRef as React.Ref<ComponentType<NativeDocScannerProps>>}
         style={StyleSheet.absoluteFill}
-        overlayColor="transparent"
-        detectionCountBeforeCapture={autoCapture ? minStableFrames : 10000}
+        detectionCountBeforeCapture={minStableFrames}
+        autoCapture={autoCapture}
         enableTorch={enableTorch}
-        hideControls
-        useBase64={useBase64}
         quality={quality}
+        useBase64={useBase64}
         onRectangleDetect={handleRectangleDetect}
         onPictureTaken={handlePictureTaken}
       />
@@ -201,11 +274,12 @@ export const DocScanner: React.FC<Props> = ({
       {children}
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#000',
   },
   button: {
     position: 'absolute',
@@ -217,3 +291,5 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
 });
+
+export type { DocScannerHandle };
