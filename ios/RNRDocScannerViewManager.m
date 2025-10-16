@@ -2,7 +2,8 @@
 #import <React/RCTUIManager.h>
 #import <React/RCTViewManager.h>
 
-#import "react-native-rectangle-doc-scanner-Swift.h"
+// Swift bridging header not needed with @objc annotations in Swift files
+// #import "react-native-rectangle-doc-scanner-Swift.h"
 
 @interface RCT_EXTERN_MODULE(RNRDocScannerViewManager, RCTViewManager)
 RCT_EXPORT_VIEW_PROPERTY(detectionCountBeforeCapture, NSNumber)
