@@ -262,10 +262,9 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       effectiveObservation = nil
     }
 
-    let shouldDisplayOverlay = currentStableCounter > 0 && effectiveObservation != nil
-    updateNativeOverlay(with: shouldDisplayOverlay ? effectiveObservation : nil)
-
+    let overlayStableThreshold = max(2, Int(truncating: detectionCountBeforeCapture) / 2)
     let payload: [String: Any?]
+
     if let observation = effectiveObservation {
       let points = [
         pointForOverlay(from: observation.topLeft, frameSize: frameSize),
@@ -275,6 +274,13 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       ]
 
       currentStableCounter = min(currentStableCounter + 1, Int(truncating: detectionCountBeforeCapture))
+
+      let normalizedArea = observation.boundingBox.width * observation.boundingBox.height
+      let meetsArea = normalizedArea >= 0.06 && normalizedArea <= 0.95
+      let meetsConfidence = observation.confidence >= 0.65
+      let shouldDisplayOverlay = currentStableCounter >= overlayStableThreshold && meetsArea && meetsConfidence
+      updateNativeOverlay(with: shouldDisplayOverlay ? observation : nil)
+
       payload = [
         "rectangleCoordinates": [
           "topLeft": ["x": points[0].x, "y": points[0].y],
@@ -288,6 +294,7 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       ]
     } else {
       currentStableCounter = 0
+      updateNativeOverlay(with: nil)
       payload = [
         "rectangleCoordinates": NSNull(),
         "stableCounter": currentStableCounter,
@@ -312,6 +319,7 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
         self.gridLayer.path = nil
         self.outlineLayer.isHidden = true
         self.gridLayer.isHidden = true
+        self.smoothedOverlayPoints = nil
         return
       }
 
@@ -326,13 +334,15 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
         self.convertToLayerPoint(observation.bottomLeft, previewLayer: previewLayer),
       ]
 
+      let orderedPoints = self.orderPoints(rawPoints)
+
       let points: [CGPoint]
       if let previous = self.smoothedOverlayPoints, previous.count == 4 {
-        points = zip(previous, rawPoints).map { prev, next in
-          CGPoint(x: prev.x * 0.7 + next.x * 0.3, y: prev.y * 0.7 + next.y * 0.3)
+        points = zip(previous, orderedPoints).map { prev, next in
+          CGPoint(x: prev.x * 0.85 + next.x * 0.15, y: prev.y * 0.85 + next.y * 0.15)
         }
       } else {
-        points = rawPoints
+        points = orderedPoints
       }
 
       self.smoothedOverlayPoints = points
@@ -374,6 +384,37 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
 
   private func interpolate(_ start: CGPoint, _ end: CGPoint, t: CGFloat) -> CGPoint {
     CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
+  }
+
+  private func orderPoints(_ points: [CGPoint]) -> [CGPoint] {
+    guard points.count == 4 else { return points }
+
+    let center = points.reduce(CGPoint.zero) { partial, point in
+      CGPoint(x: partial.x + point.x / 4.0, y: partial.y + point.y / 4.0)
+    }
+
+    let angles = points.map { point -> (CGPoint, CGFloat) in
+      let angle = atan2(point.y - center.y, point.x - center.x)
+      return (point, angle)
+    }
+
+    let sorted = angles.sorted { $0.1 < $1.1 }.map { $0.0 }
+
+    var startIndex = 0
+    for index in 1..<sorted.count {
+      let candidate = sorted[index]
+      let current = sorted[startIndex]
+      if candidate.y < current.y || (candidate.y == current.y && candidate.x < current.x) {
+        startIndex = index
+      }
+    }
+
+    return [
+      sorted[startIndex % 4],
+      sorted[(startIndex + 1) % 4],
+      sorted[(startIndex + 2) % 4],
+      sorted[(startIndex + 3) % 4],
+    ]
   }
 
   // MARK: - Capture
