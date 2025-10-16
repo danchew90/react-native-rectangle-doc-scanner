@@ -389,32 +389,17 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
   private func orderPoints(_ points: [CGPoint]) -> [CGPoint] {
     guard points.count == 4 else { return points }
 
-    let center = points.reduce(CGPoint.zero) { partial, point in
-      CGPoint(x: partial.x + point.x / 4.0, y: partial.y + point.y / 4.0)
-    }
-
-    let angles = points.map { point -> (CGPoint, CGFloat) in
-      let angle = atan2(point.y - center.y, point.x - center.x)
-      return (point, angle)
-    }
-
-    let sorted = angles.sorted { $0.1 < $1.1 }.map { $0.0 }
-
-    var startIndex = 0
-    for index in 1..<sorted.count {
-      let candidate = sorted[index]
-      let current = sorted[startIndex]
-      if candidate.y < current.y || (candidate.y == current.y && candidate.x < current.x) {
-        startIndex = index
+    let sortedByY = points.sorted { a, b in
+      if a.y == b.y {
+        return a.x < b.x
       }
+      return a.y < b.y
     }
 
-    return [
-      sorted[startIndex % 4],
-      sorted[(startIndex + 1) % 4],
-      sorted[(startIndex + 2) % 4],
-      sorted[(startIndex + 3) % 4],
-    ]
+    let top = sortedByY.prefix(2).sorted { $0.x < $1.x }
+    let bottom = sortedByY.suffix(2).sorted { $0.x < $1.x }
+
+    return [top[0], top[1], bottom[1], bottom[0]]
   }
 
   // MARK: - Capture
