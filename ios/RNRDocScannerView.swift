@@ -28,6 +28,7 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
   private var previewLayer: AVCaptureVideoPreviewLayer?
   private let videoOutput = AVCaptureVideoDataOutput()
   private let photoOutput = AVCapturePhotoOutput()
+  private var smoothedOverlayPoints: [CGPoint]?
   private let outlineLayer = CAShapeLayer()
   private let gridLayer = CAShapeLayer()
 
@@ -36,7 +37,7 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
   private var isCaptureInFlight = false
   private var lastObservation: VNRectangleObservation?
   private var missedDetectionFrames: Int = 0
-  private let maxMissedDetections = 4
+  private let maxMissedDetections = 1
   private var lastFrameSize: CGSize = .zero
   private var photoCaptureCompletion: ((Result<RNRDocScannerCaptureResult, Error>) -> Void)?
 
@@ -203,7 +204,9 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
         return
       }
 
-      let weighted: [VNRectangleObservation] = observations.sorted { (lhs: VNRectangleObservation, rhs: VNRectangleObservation) -> Bool in
+      let filtered = observations.filter { $0.confidence >= 0.55 }
+      let candidates = filtered.isEmpty ? observations : filtered
+      let weighted: [VNRectangleObservation] = candidates.sorted { (lhs: VNRectangleObservation, rhs: VNRectangleObservation) -> Bool in
         let lhsScore: CGFloat = CGFloat(lhs.confidence) * lhs.boundingBox.area
         let rhsScore: CGFloat = CGFloat(rhs.confidence) * rhs.boundingBox.area
         return lhsScore > rhsScore
@@ -222,13 +225,13 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
 
     let request = VNDetectRectanglesRequest(completionHandler: requestHandler)
 
-      request.maximumObservations = 2
-      request.minimumConfidence = 0.4
-      request.minimumAspectRatio = 0.08
-      request.maximumAspectRatio = 2.2
+      request.maximumObservations = 3
+      request.minimumConfidence = 0.55
+      request.minimumAspectRatio = 0.1
+      request.maximumAspectRatio = 2.0
       request.minimumSize = 0.05
       if #available(iOS 13.0, *) {
-        request.quadratureTolerance = 45
+        request.quadratureTolerance = 20
       }
 
     let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
@@ -255,6 +258,7 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
     } else {
       lastObservation = nil
       missedDetectionFrames = 0
+      smoothedOverlayPoints = nil
       effectiveObservation = nil
     }
 
