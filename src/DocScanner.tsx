@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  Platform,
   findNodeHandle,
   NativeModules,
   requireNativeComponent,
@@ -93,6 +94,7 @@ interface Props {
   gridColor?: string;
   gridLineWidth?: number;
   detectionConfig?: DetectionConfig;
+  useNativeOverlay?: boolean;
 }
 
 const DEFAULT_OVERLAY_COLOR = '#e7a649';
@@ -110,12 +112,20 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(({
   showGrid = true,
   gridColor,
   gridLineWidth = 2,
+  useNativeOverlay,
 }, ref) => {
   const viewRef = useRef<NativeDocScannerInstance | null>(null);
   const capturingRef = useRef(false);
   const [quad, setQuad] = useState<Point[] | null>(null);
   const [stable, setStable] = useState(0);
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
+
+  const shouldUseNativeOverlay = useMemo(() => {
+    if (typeof useNativeOverlay === 'boolean') {
+      return useNativeOverlay;
+    }
+    return Platform.OS === 'ios';
+  }, [useNativeOverlay]);
 
   const effectiveGridColor = useMemo(
     () => gridColor ?? GRID_COLOR_FALLBACK,
@@ -261,14 +271,16 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(({
         onRectangleDetect={handleRectangleDetect}
         onPictureTaken={handlePictureTaken}
       />
-      <Overlay
-        quad={quad}
-        color={overlayColor}
-        frameSize={frameSize}
-        showGrid={showGrid}
-        gridColor={effectiveGridColor}
-        gridLineWidth={gridLineWidth}
-      />
+      {!shouldUseNativeOverlay && (
+        <Overlay
+          quad={quad}
+          color={overlayColor}
+          frameSize={frameSize}
+          showGrid={showGrid}
+          gridColor={effectiveGridColor}
+          gridLineWidth={gridLineWidth}
+        />
+      )}
       {!autoCapture && (
         <TouchableOpacity style={styles.button} onPress={handleManualCapture} />
       )}

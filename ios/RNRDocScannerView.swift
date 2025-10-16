@@ -28,6 +28,8 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
   private var previewLayer: AVCaptureVideoPreviewLayer?
   private let videoOutput = AVCaptureVideoDataOutput()
   private let photoOutput = AVCapturePhotoOutput()
+  private let outlineLayer = CAShapeLayer()
+  private let gridLayer = CAShapeLayer()
 
   private var currentStableCounter: Int = 0
   private var isProcessingFrame = false
@@ -51,6 +53,7 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
   private func commonInit() {
     backgroundColor = .black
     configurePreviewLayer()
+    configureOverlayLayers()
     configureSession()
   }
 
@@ -59,6 +62,23 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
     layer.videoGravity = .resizeAspectFill
     self.layer.insertSublayer(layer, at: 0)
     previewLayer = layer
+  }
+
+  private func configureOverlayLayers() {
+    outlineLayer.strokeColor = UIColor(red: 0.18, green: 0.6, blue: 0.95, alpha: 1.0).cgColor
+    outlineLayer.fillColor = UIColor(red: 0.18, green: 0.6, blue: 0.95, alpha: 0.2).cgColor
+    outlineLayer.lineWidth = 4
+    outlineLayer.lineJoin = .round
+    outlineLayer.isHidden = true
+    layer.addSublayer(outlineLayer)
+
+    gridLayer.strokeColor = UIColor(red: 0.18, green: 0.6, blue: 0.95, alpha: 0.35).cgColor
+    gridLayer.fillColor = UIColor.clear.cgColor
+    gridLayer.lineWidth = 1.5
+    gridLayer.lineJoin = .round
+    gridLayer.isHidden = true
+    gridLayer.zPosition = outlineLayer.zPosition + 1
+    layer.addSublayer(gridLayer)
   }
 
   private func configureSession() {
@@ -115,6 +135,8 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
     if let connection = previewLayer?.connection, connection.isVideoOrientationSupported {
       connection.videoOrientation = .portrait
     }
+    outlineLayer.frame = bounds
+    gridLayer.frame = bounds
   }
 
   private func updateTorchMode() {
@@ -236,6 +258,8 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       effectiveObservation = nil
     }
 
+    updateNativeOverlay(with: effectiveObservation)
+
     let payload: [String: Any?]
     if let observation = effectiveObservation {
       let points = [
@@ -274,6 +298,66 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
 
   private func pointForOverlay(from normalizedPoint: CGPoint, frameSize: CGSize) -> CGPoint {
     CGPoint(x: normalizedPoint.x * frameSize.width, y: (1 - normalizedPoint.y) * frameSize.height)
+  }
+
+  private func updateNativeOverlay(with observation: VNRectangleObservation?) {
+    DispatchQueue.main.async {
+      guard let observation else {
+        self.outlineLayer.path = nil
+        self.gridLayer.path = nil
+        self.outlineLayer.isHidden = true
+        self.gridLayer.isHidden = true
+        return
+      }
+
+      guard let previewLayer = self.previewLayer else {
+        return
+      }
+
+      let points = [
+        self.convertToLayerPoint(observation.topLeft, previewLayer: previewLayer),
+        self.convertToLayerPoint(observation.topRight, previewLayer: previewLayer),
+        self.convertToLayerPoint(observation.bottomRight, previewLayer: previewLayer),
+        self.convertToLayerPoint(observation.bottomLeft, previewLayer: previewLayer),
+      ]
+
+      let outline = UIBezierPath()
+      outline.move(to: points[0])
+      outline.addLine(to: points[1])
+      outline.addLine(to: points[2])
+      outline.addLine(to: points[3])
+      outline.close()
+
+      self.outlineLayer.path = outline.cgPath
+      self.outlineLayer.isHidden = false
+
+      let gridPath = UIBezierPath()
+      let steps: [CGFloat] = [1.0 / 3.0, 2.0 / 3.0]
+
+      for step in steps {
+        let startVertical = self.interpolate(points[0], points[1], t: step)
+        let endVertical = self.interpolate(points[3], points[2], t: step)
+        gridPath.move(to: startVertical)
+        gridPath.addLine(to: endVertical)
+
+        let startHorizontal = self.interpolate(points[0], points[3], t: step)
+        let endHorizontal = self.interpolate(points[1], points[2], t: step)
+        gridPath.move(to: startHorizontal)
+        gridPath.addLine(to: endHorizontal)
+      }
+
+      self.gridLayer.path = gridPath.cgPath
+      self.gridLayer.isHidden = false
+    }
+  }
+
+  private func convertToLayerPoint(_ normalizedPoint: CGPoint, previewLayer: AVCaptureVideoPreviewLayer) -> CGPoint {
+    let devicePoint = CGPoint(x: normalizedPoint.x, y: 1 - normalizedPoint.y)
+    return previewLayer.layerPointConverted(fromCaptureDevicePoint: devicePoint)
+  }
+
+  private func interpolate(_ start: CGPoint, _ end: CGPoint, t: CGFloat) -> CGPoint {
+    CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
   }
 
   // MARK: - Capture
