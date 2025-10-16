@@ -66,7 +66,7 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       guard let self else { return }
 
       session.beginConfiguration()
-      session.sessionPreset = .photo
+      session.sessionPreset = .high
 
       defer {
         session.commitConfiguration()
@@ -165,34 +165,41 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       isProcessingFrame = false
     }
 
-    let request = VNDetectRectanglesRequest { [weak self] request, error in
-      guard let self else { return }
+      let request = VNDetectRectanglesRequest { [weak self] request, error in
+        guard let self else { return }
 
-      if let error {
-        NSLog("[RNRDocScanner] detection error: \(error)")
-        self.lastObservation = nil
-        self.handleDetectedRectangle(nil, frameSize: frameSize)
-        return
-      }
-
-        guard let observations = request.results as? [VNRectangleObservation], let observation = observations.max(by: { lhs, rhs in
-          lhs.boundingBox.width * lhs.boundingBox.height < rhs.boundingBox.width * rhs.boundingBox.height
-        }) else {
+        if let error {
+          NSLog("[RNRDocScanner] detection error: \(error)")
           self.lastObservation = nil
           self.handleDetectedRectangle(nil, frameSize: frameSize)
           return
         }
 
-        self.lastObservation = observation
+        guard let observations = request.results as? [VNRectangleObservation], !observations.isEmpty else {
+          self.lastObservation = nil
+          self.handleDetectedRectangle(nil, frameSize: frameSize)
+          return
+        }
+
+        let weighted = observations.sorted { lhs, rhs in
+          lhs.confidence * lhs.boundingBox.area > rhs.confidence * rhs.boundingBox.area
+        }
+
+        guard let best = weighted.first else {
+          self.lastObservation = nil
+          self.handleDetectedRectangle(nil, frameSize: frameSize)
+          return
+        }
+        self.lastObservation = best
         self.missedDetectionFrames = 0
-        self.handleDetectedRectangle(observation, frameSize: frameSize)
+        self.handleDetectedRectangle(best, frameSize: frameSize)
       }
 
-      request.maximumObservations = 1
-      request.minimumConfidence = 0.5
-      request.minimumAspectRatio = 0.15
-      request.maximumAspectRatio = 1.75
-      request.minimumSize = 0.08
+      request.maximumObservations = 2
+      request.minimumConfidence = 0.4
+      request.minimumAspectRatio = 0.08
+      request.maximumAspectRatio = 2.2
+      request.minimumSize = 0.05
       if #available(iOS 13.0, *) {
         request.quadratureTolerance = 45
       }
@@ -504,5 +511,11 @@ enum RNRDocScannerError: Error {
     case .viewNotFound:
       return "Unable to locate the native DocScanner view."
     }
+  }
+}
+
+private extension CGRect {
+  var area: CGFloat {
+    width * height
   }
 }
