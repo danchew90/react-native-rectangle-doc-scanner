@@ -66,27 +66,8 @@ export const Overlay: React.FC<OverlayProps> = ({
     if (quad && frameSize) {
       sourceQuad = quad;
     } else {
-      const marginRatio = 0.12;
-      const marginX = screenWidth * marginRatio;
-      const marginY = screenHeight * marginRatio;
-      const maxWidth = screenWidth - marginX * 2;
-      const maxHeight = screenHeight - marginY * 2;
-      const a4Ratio = Math.SQRT2; // ~1.414 height / width
-      let width = maxWidth;
-      let height = width * a4Ratio;
-      if (height > maxHeight) {
-        height = maxHeight;
-        width = height / a4Ratio;
-      }
-      const left = (screenWidth - width) / 2;
-      const top = (screenHeight - height) / 2;
-      transformedQuad = [
-        { x: left, y: top },
-        { x: left + width, y: top },
-        { x: left + width, y: top + height },
-        { x: left, y: top + height },
-      ];
-      sourceFrameSize = null;
+      // No detection yet – skip drawing
+      return { outlinePath: null, gridPaths: [] };
     }
 
     if (sourceQuad && sourceFrameSize) {
