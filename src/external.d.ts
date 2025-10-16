@@ -1,78 +1,46 @@
-declare module 'react-native-vision-camera' {
+declare module 'react-native-document-scanner-plugin' {
   import type { ComponentType } from 'react';
   import type { ViewStyle } from 'react-native';
 
-  export type CameraDevice = {
-    id: string;
-    name: string;
-  } | null;
-
-  export type Frame = {
-    width: number;
-    height: number;
+  export type RectangleCoordinates = {
+    topLeft: { x: number; y: number };
+    topRight: { x: number; y: number };
+    bottomRight: { x: number; y: number };
+    bottomLeft: { x: number; y: number };
   };
 
-  export type TakePhotoOptions = {
-    qualityPrioritization?: 'balanced' | 'quality' | 'speed';
+  export type RectangleEvent = {
+    rectangleCoordinates?: RectangleCoordinates;
+    stableCounter?: number;
+    lastDetectionType?: 'initial' | 'updated' | 'lost';
   };
 
-  export type CameraRef = {
-    takePhoto: (options?: TakePhotoOptions) => Promise<{
-      path: string;
-    }>;
+  export type CaptureResult = {
+    croppedImage?: string;
+    initialImage?: string;
+    width?: number;
+    height?: number;
   };
 
-  export type CameraProps = {
-    ref?: (value: CameraRef | null) => void;
+  export type DocumentScannerProps = {
+    ref?: (value: DocumentScannerHandle | null) => void;
     style?: ViewStyle;
-    device: CameraDevice;
-    isActive?: boolean;
-    photo?: boolean;
-    frameProcessor?: (frame: Frame) => void;
-    frameProcessorFps?: number;
+    overlayColor?: string;
+    detectionCountBeforeCapture?: number;
+    enableTorch?: boolean;
+    hideControls?: boolean;
+    useBase64?: boolean;
+    quality?: number;
+    onRectangleDetect?: (event: RectangleEvent) => void;
+    onPictureTaken?: (result: CaptureResult) => void;
   };
 
-  export const Camera: ComponentType<CameraProps>;
-  export function useCameraDevice(position?: 'back' | 'front'): CameraDevice;
-  export function useCameraPermission(): {
-    hasPermission: boolean;
-    requestPermission: () => Promise<void>;
-  };
-  export function useFrameProcessor(
-    processor: (frame: Frame) => void,
-    deps?: ReadonlyArray<unknown>
-  ): (frame: Frame) => void;
-}
-
-declare module 'react-native-reanimated' {
-  export function runOnJS<T extends (...args: any[]) => any>(fn: T): T;
-}
-
-declare module 'vision-camera-resize-plugin' {
-  import type { Frame } from 'react-native-vision-camera';
-
-  type ResizeOptions = {
-    dataType: 'uint8';
-    pixelFormat: 'bgr';
-    scale: {
-      width: number;
-      height: number;
-    };
+  export type DocumentScannerHandle = {
+    capture: () => Promise<CaptureResult>;
   };
 
-  export function useResizePlugin(): {
-    resize: (frame: Frame, options: ResizeOptions) => ArrayBuffer;
-  };
-}
-
-declare module 'react-native-fast-opencv' {
-  export const OpenCV: any;
-  export const ColorConversionCodes: any;
-  export const MorphTypes: any;
-  export const MorphShapes: any;
-  export const RetrievalModes: any;
-  export const ContourApproximationModes: any;
-  export const ObjectType: any;
+  const DocumentScanner: ComponentType<DocumentScannerProps>;
+  export default DocumentScanner;
 }
 
 declare module '@shopify/react-native-skia' {

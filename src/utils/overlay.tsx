@@ -3,21 +3,41 @@ import { View, StyleSheet, useWindowDimensions } from 'react-native';
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import type { Point } from '../types';
 
+const lerp = (start: Point, end: Point, t: number): Point => ({
+  x: start.x + (end.x - start.x) * t,
+  y: start.y + (end.y - start.y) * t,
+});
+
 type OverlayProps = {
   quad: Point[] | null;
   color?: string;
   frameSize: { width: number; height: number } | null;
+  showGrid?: boolean;
+  gridColor?: string;
+  gridLineWidth?: number;
 };
 
-export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649', frameSize }) => {
+type OverlayGeometry = {
+  outlinePath: ReturnType<typeof Skia.Path.Make> | null;
+  gridPaths: ReturnType<typeof Skia.Path.Make>[];
+};
+
+export const Overlay: React.FC<OverlayProps> = ({
+  quad,
+  color = '#e7a649',
+  frameSize,
+  showGrid = true,
+  gridColor = 'rgba(231, 166, 73, 0.35)',
+  gridLineWidth = 2,
+}) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
-  const path = useMemo(() => {
+  const { outlinePath, gridPaths }: OverlayGeometry = useMemo(() => {
     if (!quad || !frameSize) {
       if (__DEV__) {
         console.log('[Overlay] no quad or frameSize', { quad, frameSize });
       }
-      return null;
+      return { outlinePath: null, gridPaths: [] };
     }
 
     if (__DEV__) {
@@ -76,8 +96,33 @@ export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649', frame
     skPath.moveTo(transformedQuad[0].x, transformedQuad[0].y);
     transformedQuad.slice(1).forEach((p) => skPath.lineTo(p.x, p.y));
     skPath.close();
-    return skPath;
-  }, [quad, color, screenWidth, screenHeight, frameSize]);
+    const grid: ReturnType<typeof Skia.Path.Make>[] = [];
+
+    if (showGrid) {
+      const [topLeft, topRight, bottomRight, bottomLeft] = transformedQuad;
+      const steps = [1 / 3, 2 / 3];
+
+      steps.forEach((t) => {
+        const start = lerp(topLeft, topRight, t);
+        const end = lerp(bottomLeft, bottomRight, t);
+        const verticalPath = Skia.Path.Make();
+        verticalPath.moveTo(start.x, start.y);
+        verticalPath.lineTo(end.x, end.y);
+        grid.push(verticalPath);
+      });
+
+      steps.forEach((t) => {
+        const start = lerp(topLeft, bottomLeft, t);
+        const end = lerp(topRight, bottomRight, t);
+        const horizontalPath = Skia.Path.Make();
+        horizontalPath.moveTo(start.x, start.y);
+        horizontalPath.lineTo(end.x, end.y);
+        grid.push(horizontalPath);
+      });
+    }
+
+    return { outlinePath: skPath, gridPaths: grid };
+  }, [quad, screenWidth, screenHeight, frameSize, showGrid]);
 
   if (__DEV__) {
     console.log('[Overlay] rendering Canvas with dimensions:', screenWidth, 'x', screenHeight);
@@ -86,10 +131,20 @@ export const Overlay: React.FC<OverlayProps> = ({ quad, color = '#e7a649', frame
   return (
     <View style={styles.container} pointerEvents="none">
       <Canvas style={{ width: screenWidth, height: screenHeight }}>
-        {path && (
+        {outlinePath && (
           <>
-            <Path path={path} color={color} style="stroke" strokeWidth={8} />
-            <Path path={path} color="rgba(231, 166, 73, 0.2)" style="fill" />
+            <Path path={outlinePath} color={color} style="stroke" strokeWidth={8} />
+            <Path path={outlinePath} color="rgba(231, 166, 73, 0.2)" style="fill" />
+            {gridPaths.map((gridPath, index) => (
+              <Path
+                // eslint-disable-next-line react/no-array-index-key
+                key={`grid-${index}`}
+                path={gridPath}
+                color={gridColor}
+                style="stroke"
+                strokeWidth={gridLineWidth}
+              />
+            ))}
           </>
         )}
       </Canvas>
