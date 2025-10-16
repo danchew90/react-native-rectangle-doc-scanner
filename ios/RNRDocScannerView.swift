@@ -165,35 +165,40 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       isProcessingFrame = false
     }
 
-      let request = VNDetectRectanglesRequest { [weak self] request, error in
-        guard let self else { return }
+    let requestHandler: VNRequestCompletionHandler = { [weak self] request, error in
+      guard let self = self else { return }
 
-        if let error {
-          NSLog("[RNRDocScanner] detection error: \(error)")
-          self.lastObservation = nil
-          self.handleDetectedRectangle(nil, frameSize: frameSize)
-          return
-        }
-
-        guard let observations = request.results as? [VNRectangleObservation], !observations.isEmpty else {
-          self.lastObservation = nil
-          self.handleDetectedRectangle(nil, frameSize: frameSize)
-          return
-        }
-
-        let weighted = observations.sorted { lhs, rhs in
-          lhs.confidence * lhs.boundingBox.area > rhs.confidence * rhs.boundingBox.area
-        }
-
-        guard let best = weighted.first else {
-          self.lastObservation = nil
-          self.handleDetectedRectangle(nil, frameSize: frameSize)
-          return
-        }
-        self.lastObservation = best
-        self.missedDetectionFrames = 0
-        self.handleDetectedRectangle(best, frameSize: frameSize)
+      if let error = error {
+        NSLog("[RNRDocScanner] detection error: \(error)")
+        self.lastObservation = nil
+        self.handleDetectedRectangle(nil, frameSize: frameSize)
+        return
       }
+
+      guard let observations = request.results as? [VNRectangleObservation], !observations.isEmpty else {
+        self.lastObservation = nil
+        self.handleDetectedRectangle(nil, frameSize: frameSize)
+        return
+      }
+
+      let weighted: [VNRectangleObservation] = observations.sorted { (lhs: VNRectangleObservation, rhs: VNRectangleObservation) -> Bool in
+        let lhsScore: CGFloat = CGFloat(lhs.confidence) * lhs.boundingBox.area
+        let rhsScore: CGFloat = CGFloat(rhs.confidence) * rhs.boundingBox.area
+        return lhsScore > rhsScore
+      }
+
+      guard let best = weighted.first else {
+        self.lastObservation = nil
+        self.handleDetectedRectangle(nil, frameSize: frameSize)
+        return
+      }
+
+      self.lastObservation = best
+      self.missedDetectionFrames = 0
+      self.handleDetectedRectangle(best, frameSize: frameSize)
+    }
+
+    let request = VNDetectRectanglesRequest(completionHandler: requestHandler)
 
       request.maximumObservations = 2
       request.minimumConfidence = 0.4
