@@ -313,7 +313,10 @@
 {
     _isStopped = NO;
 
-    [self.captureSession startRunning];
+    // Start camera session on background thread to avoid UI blocking
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        [self.captureSession startRunning];
+    });
 
     float detectionRefreshRate = _detectionRefreshRateInMS;
     CGFloat detectionRefreshRateInSec = detectionRefreshRate/100;
@@ -489,7 +492,6 @@
 
 - (CIImage *)filteredImageUsingEnhanceFilterOnImage:(CIImage *)image
 {
-    [self start];
     return [CIFilter filterWithName:@"CIColorControls" keysAndValues:kCIInputImageKey, image, @"inputBrightness", @(self.brightness), @"inputContrast", @(self.contrast), @"inputSaturation", @(self.saturation), nil].outputImage;
 }
 
