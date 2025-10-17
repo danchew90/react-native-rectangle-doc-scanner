@@ -4,7 +4,7 @@ React Native-friendly wrapper around [`react-native-document-scanner`](https://g
 
 > The native implementation lives inside the upstream library (Objective‑C/OpenCV on iOS, Kotlin/OpenCV on Android). This package simply re-exports a type-safe wrapper, optional crop editor helpers, and a full-screen scanner flow.
 
-## ✨ Professional Camera Quality (v3.0.0+)
+## ✨ Professional Camera Quality (v3.2+)
 
 **Major Update:** Upgraded to modern `AVCapturePhotoOutput` API for dramatically improved image quality!
 
@@ -12,14 +12,13 @@ React Native-friendly wrapper around [`react-native-document-scanner`](https://g
 - **Modern Camera API** - Uses `AVCapturePhotoOutput` (iOS 10+) instead of deprecated `AVCaptureStillImageOutput`
 - **iPhone Native Quality** - Same quality as the built-in Camera app
 - **Computational Photography** - Automatic HDR, Deep Fusion, and Smart HDR support
-- **HEIF/HEVC Support** - Higher quality at smaller file sizes (iOS 11+)
-- **12MP+ Resolution** - Full resolution capture on modern iPhones
+- **12MP+ Resolution** - Full resolution capture on modern iPhones (up to 48MP on iPhone 14 Pro+)
 - **Maximum Quality Priority** - iOS 13+ quality prioritization enabled
+- **95%+ JPEG Quality** - Enforced minimum compression quality to prevent quality loss
 
 ### 🎯 Automatic Optimizations:
-- **4K Resolution Support** - Highest available resolution (4K → Full HD → Photo)
-- **High-Resolution Capture** - Full sensor resolution enabled
-- **Retina Display** - Proper scale factor for crisp preview
+- **High-Resolution Capture** - Full sensor resolution enabled (`AVCaptureSessionPresetHigh`)
+- **Minimum 95% JPEG** - Prevents quality degradation from compression
 - **Advanced Features**:
   - Video stabilization for sharper images
   - Continuous autofocus for always-sharp captures
@@ -27,7 +26,11 @@ React Native-friendly wrapper around [`react-native-document-scanner`](https://g
   - Low-light boost in dark environments
 - **Hardware-Accelerated** - CIContext for efficient processing
 
-No configuration needed - professional quality automatically!
+### ⚡ Fully Automatic Installation:
+Just install with yarn/npm - **no manual configuration needed!**
+- Postinstall script automatically patches camera quality
+- Optimized iOS files copied during installation
+- Works immediately after `pod install`
 
 ## Installation
 
