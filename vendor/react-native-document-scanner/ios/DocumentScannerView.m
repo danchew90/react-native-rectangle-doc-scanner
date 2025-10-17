@@ -1,13 +1,16 @@
 #import "DocumentScannerView.h"
 #import "IPDFCameraViewController.h"
 
-@implementation DocumentScannerView
+@implementation DocumentScannerView {
+    BOOL _hasSetupCamera;
+}
 
 - (instancetype)init {
     self = [super init];
     if (self) {
         [self setEnableBorderDetection:YES];
         [self setDelegate: self];
+        _hasSetupCamera = NO;
     }
 
     return self;
@@ -15,11 +18,12 @@
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
-    if (self.window && !self.captureSession) {
+    if (self.window && !_hasSetupCamera) {
         // Only setup camera once when view is added to window
         [self setupCameraView];
         [self start];
-    } else if (!self.window && self.captureSession) {
+        _hasSetupCamera = YES;
+    } else if (!self.window && _hasSetupCamera) {
         // Stop camera when view is removed from window
         [self stop];
     }
