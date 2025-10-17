@@ -1,0 +1,22 @@
+diff --git a/node_modules/react-native-document-scanner/ios/IPDFCameraViewController.m b/node_modules/react-native-document-scanner/ios/IPDFCameraViewController.m
+index 1234567..abcdefg 100644
+--- a/node_modules/react-native-document-scanner/ios/IPDFCameraViewController.m
++++ b/node_modules/react-native-document-scanner/ios/IPDFCameraViewController.m
+@@ -115,7 +115,16 @@
+
+     NSError *error = nil;
+     AVCaptureDeviceInput* input = [AVCaptureDeviceInput deviceInputWithDevice:device error:&error];
+-    session.sessionPreset = AVCaptureSessionPresetPhoto;
++
++    // Try to use the highest quality preset available
++    if ([session canSetSessionPreset:AVCaptureSessionPreset3840x2160]) {
++        session.sessionPreset = AVCaptureSessionPreset3840x2160; // 4K
++    } else if ([session canSetSessionPreset:AVCaptureSessionPreset1920x1080]) {
++        session.sessionPreset = AVCaptureSessionPreset1920x1080; // Full HD
++    } else {
++        session.sessionPreset = AVCaptureSessionPresetPhoto; // Fallback
++    }
++
+     [session addInput:input];
+
+     AVCaptureVideoDataOutput *dataOutput = [[AVCaptureVideoDataOutput alloc] init];
