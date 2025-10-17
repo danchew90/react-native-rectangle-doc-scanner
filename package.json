@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc",
     "prepare": "yarn build",
-    "postinstall": "patch-package"
+    "postinstall": "node scripts/postinstall.js"
   },
   "peerDependencies": {
     "@shopify/react-native-skia": "*",
@@ -27,7 +27,6 @@
   "devDependencies": {
     "@types/react": "^18.2.41",
     "@types/react-native": "0.73.0",
-    "patch-package": "^8.0.0",
     "typescript": "^5.3.3"
   },
   "dependencies": {
