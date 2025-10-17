@@ -18,6 +18,17 @@
     "prepare": "yarn build",
     "postinstall": "node scripts/postinstall.js"
   },
+  "files": [
+    "dist",
+    "src",
+    "android",
+    "ios",
+    "scripts",
+    "vendor",
+    "*.md",
+    "*.js",
+    "*.json"
+  ],
   "peerDependencies": {
     "@shopify/react-native-skia": "*",
     "react": "*",
