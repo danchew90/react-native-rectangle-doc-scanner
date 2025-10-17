@@ -15,16 +15,18 @@
 #import <ImageIO/ImageIO.h>
 #import <GLKit/GLKit.h>
 
-@interface IPDFCameraViewController () <AVCaptureVideoDataOutputSampleBufferDelegate>
+@interface IPDFCameraViewController () <AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate>
 
 @property (nonatomic,strong) AVCaptureSession *captureSession;
 @property (nonatomic,strong) AVCaptureDevice *captureDevice;
 @property (nonatomic,strong) EAGLContext *context;
 
-@property (nonatomic, strong) AVCaptureStillImageOutput* stillImageOutput;
+@property (nonatomic, strong) AVCapturePhotoOutput* photoOutput;
 
 @property (nonatomic, assign) BOOL forceStop;
 @property (nonatomic, assign) float lastDetectionRate;
+
+@property (nonatomic, copy) void (^photoCaptureCompletionHandler)(UIImage *croppedImage, UIImage *initialImage, CIRectangleFeature *rectangleFeature);
 
 @end
 
