@@ -265,7 +265,30 @@
 
     if (self.context && _coreImageContext)
     {
-        [_coreImageContext drawImage:image inRect:self.bounds fromRect:image.extent];
+        // Calculate the rect to draw the image with aspect fill
+        CGRect drawRect = self.bounds;
+        CGRect imageExtent = image.extent;
+
+        // Calculate aspect ratios
+        CGFloat imageAspect = imageExtent.size.width / imageExtent.size.height;
+        CGFloat viewAspect = drawRect.size.width / drawRect.size.height;
+
+        CGRect fromRect = imageExtent;
+
+        // Aspect fill: crop the image to fill the view
+        if (imageAspect > viewAspect) {
+            // Image is wider, crop width
+            CGFloat newWidth = imageExtent.size.height * viewAspect;
+            CGFloat xOffset = (imageExtent.size.width - newWidth) / 2.0;
+            fromRect = CGRectMake(xOffset, 0, newWidth, imageExtent.size.height);
+        } else {
+            // Image is taller, crop height
+            CGFloat newHeight = imageExtent.size.width / viewAspect;
+            CGFloat yOffset = (imageExtent.size.height - newHeight) / 2.0;
+            fromRect = CGRectMake(0, yOffset, imageExtent.size.width, newHeight);
+        }
+
+        [_coreImageContext drawImage:image inRect:drawRect fromRect:fromRect];
         [self.context presentRenderbuffer:GL_RENDERBUFFER];
 
         [_glkView setNeedsDisplay];
