@@ -34,14 +34,15 @@ try {
   // Files to copy
   const filesToCopy = [
     'ios/IPDFCameraViewController.m',
-    'ios/DocumentScannerView.m'
+    'ios/DocumentScannerView.m',
+    'ios.js'
   ];
 
   let copiedCount = 0;
 
-  for (const iosFile of filesToCopy) {
-    const sourcePath = path.join(VENDOR_PATH, iosFile);
-    const targetPath = path.join(SCANNER_PATH, iosFile);
+  for (const file of filesToCopy) {
+    const sourcePath = path.join(VENDOR_PATH, file);
+    const targetPath = path.join(SCANNER_PATH, file);
 
     if (fs.existsSync(sourcePath)) {
       // Backup original if not already backed up

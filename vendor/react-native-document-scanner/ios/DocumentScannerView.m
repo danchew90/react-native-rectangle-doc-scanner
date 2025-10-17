@@ -13,6 +13,14 @@
     return self;
 }
 
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    if (self.window) {
+        [self setupCameraView];
+        [self start];
+    }
+}
+
 
 - (void) didDetectRectangle:(CIRectangleFeature *)rectangle withType:(IPDFRectangeType)type {
     switch (type) {
