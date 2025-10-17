@@ -79,7 +79,7 @@
     view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     view.translatesAutoresizingMaskIntoConstraints = YES;
     view.context = self.context;
-    view.contentScaleFactor = 1.0f;
+    view.contentScaleFactor = [UIScreen mainScreen].scale;
     view.drawableDepthFormat = GLKViewDrawableDepthFormat24;
     [self insertSubview:view atIndex:0];
     _glkView = view;
