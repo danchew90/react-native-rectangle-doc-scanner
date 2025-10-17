@@ -4,6 +4,23 @@ React Native-friendly wrapper around [`react-native-document-scanner`](https://g
 
 > The native implementation lives inside the upstream library (Objective‑C/OpenCV on iOS, Kotlin/OpenCV on Android). This package simply re-exports a type-safe wrapper, optional crop editor helpers, and a full-screen scanner flow.
 
+## ✨ Enhanced Image Quality (v2.1.0+)
+
+This package includes automatic camera quality optimizations:
+
+- **4K Resolution Support** - Automatically uses the highest available resolution (4K → Full HD → Photo)
+- **High-Resolution Still Capture** - Enables `highResolutionStillImageOutputEnabled` for maximum quality
+- **Retina Display Optimization** - Proper scale factor for crisp preview on all devices
+- **Advanced Camera Features**:
+  - Video stabilization for sharper images
+  - Continuous autofocus for always-sharp captures
+  - Auto exposure and white balance
+  - Low-light boost in dark environments
+- **Lossless Processing** - Direct pixel buffer access with 95% JPEG quality
+- **Hardware-Accelerated Rendering** - Uses CIContext for efficient, high-quality image conversion
+
+No configuration needed - these optimizations are applied automatically!
+
 ## Installation
 
 ```bash

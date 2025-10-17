@@ -30,16 +30,85 @@ index 1234567..abcdefg 100644
      [session addInput:input];
 
      AVCaptureVideoDataOutput *dataOutput = [[AVCaptureVideoDataOutput alloc] init];
-@@ -134,6 +143,8 @@
+@@ -134,23 +143,70 @@
      [session addOutput:dataOutput];
 
      self.stillImageOutput = [[AVCaptureStillImageOutput alloc] init];
-+    // Use maximum quality for still image capture
++    // Configure for maximum quality still image capture
 +    self.stillImageOutput.outputSettings = @{AVVideoCodecKey: AVVideoCodecJPEG};
++    self.stillImageOutput.highResolutionStillImageOutputEnabled = YES;
      [session addOutput:self.stillImageOutput];
 
      AVCaptureConnection *connection = [dataOutput.connections firstObject];
-@@ -381,10 +392,18 @@
+     [connection setVideoOrientation:AVCaptureVideoOrientationPortrait];
+
+-    if (device.isFlashAvailable)
++    // Enable video stabilization for better quality
++    if ([connection isVideoStabilizationSupported]) {
++        [connection setPreferredVideoStabilizationMode:AVCaptureVideoStabilizationModeAuto];
++    }
++
++    // Configure device for best quality
++    if ([device lockForConfiguration:nil])
+     {
+-        [device lockForConfiguration:nil];
+-        [device setFlashMode:AVCaptureFlashModeOff];
+-        [device unlockForConfiguration];
++        // Disable flash for better natural lighting
++        if (device.isFlashAvailable) {
++            [device setFlashMode:AVCaptureFlashModeOff];
++        }
+
+-        if ([device isFocusModeSupported:AVCaptureFocusModeContinuousAutoFocus])
+-        {
+-            [device lockForConfiguration:nil];
++        // Enable continuous autofocus for sharp images
++        if ([device isFocusModeSupported:AVCaptureFocusModeContinuousAutoFocus]) {
+             [device setFocusMode:AVCaptureFocusModeContinuousAutoFocus];
+-            [device unlockForConfiguration];
+         }
++
++        // Enable continuous auto exposure
++        if ([device isExposureModeSupported:AVCaptureExposureModeContinuousAutoExposure]) {
++            [device setExposureMode:AVCaptureExposureModeContinuousAutoExposure];
++        }
++
++        // Enable auto white balance
++        if ([device isWhiteBalanceModeSupported:AVCaptureWhiteBalanceModeContinuousAutoWhiteBalance]) {
++            [device setWhiteBalanceMode:AVCaptureWhiteBalanceModeContinuousAutoWhiteBalance];
++        }
++
++        // Enable low light boost if available
++        if (device.isLowLightBoostSupported) {
++            [device setAutomaticallyEnablesLowLightBoostWhenAvailable:YES];
++        }
++
++        // Set active video format to highest resolution
++        if (@available(iOS 13.0, *)) {
++            AVCaptureDeviceFormat *bestFormat = nil;
++            AVFrameRateRange *bestFrameRateRange = nil;
++            for (AVCaptureDeviceFormat *format in [device formats]) {
++                CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription);
++                // Prefer 4K resolution (3840x2160)
++                if (dimensions.width == 3840 && dimensions.height == 2160) {
++                    for (AVFrameRateRange *range in format.videoSupportedFrameRateRanges) {
++                        if (bestFormat == nil || range.maxFrameRate > bestFrameRateRange.maxFrameRate) {
++                            bestFormat = format;
++                            bestFrameRateRange = range;
++                        }
++                    }
++                }
++            }
++            if (bestFormat) {
++                [device setActiveFormat:bestFormat];
++            }
++        }
++
++        [device unlockForConfiguration];
+     }
+
+     [session commitConfiguration];
+@@ -381,10 +437,18 @@
 
      [self.stillImageOutput captureStillImageAsynchronouslyFromConnection:videoConnection completionHandler: ^(CMSampleBufferRef imageSampleBuffer, NSError *error)
       {
@@ -60,7 +129,7 @@ index 1234567..abcdefg 100644
 
               if (weakSelf.cameraViewType == IPDFCameraViewTypeBlackAndWhite)
               {
-@@ -405,10 +424,17 @@
+@@ -405,10 +469,17 @@
                   {
                       enhancedImage = [self correctPerspectiveForImage:enhancedImage withFeatures:rectangleFeature];
 
