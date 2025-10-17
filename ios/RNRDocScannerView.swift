@@ -282,12 +282,12 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       updateNativeOverlay(with: shouldDisplayOverlay ? observation : nil)
 
       payload = [
-        "rectangleCoordinates": [
+        "rectangleCoordinates": shouldDisplayOverlay ? [
           "topLeft": ["x": points[0].x, "y": points[0].y],
           "topRight": ["x": points[1].x, "y": points[1].y],
           "bottomRight": ["x": points[2].x, "y": points[2].y],
           "bottomLeft": ["x": points[3].x, "y": points[3].y],
-        ],
+        ] : NSNull(),
         "stableCounter": currentStableCounter,
         "frameWidth": frameSize.width,
         "frameHeight": frameSize.height,
@@ -339,7 +339,7 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       let points: [CGPoint]
       if let previous = self.smoothedOverlayPoints, previous.count == 4 {
         points = zip(previous, orderedPoints).map { prev, next in
-          CGPoint(x: prev.x * 0.85 + next.x * 0.15, y: prev.y * 0.85 + next.y * 0.15)
+          CGPoint(x: prev.x * 0.75 + next.x * 0.25, y: prev.y * 0.75 + next.y * 0.25)
         }
       } else {
         points = orderedPoints
@@ -389,17 +389,39 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
   private func orderPoints(_ points: [CGPoint]) -> [CGPoint] {
     guard points.count == 4 else { return points }
 
-    let sortedByY = points.sorted { a, b in
-      if a.y == b.y {
-        return a.x < b.x
+    var topLeft = points[0]
+    var topRight = points[0]
+    var bottomRight = points[0]
+    var bottomLeft = points[0]
+
+    var minSum = CGFloat.greatestFiniteMagnitude
+    var maxSum = -CGFloat.greatestFiniteMagnitude
+    var minDiff = CGFloat.greatestFiniteMagnitude
+    var maxDiff = -CGFloat.greatestFiniteMagnitude
+
+    for point in points {
+      let sum = point.x + point.y
+      if sum < minSum {
+        minSum = sum
+        topLeft = point
       }
-      return a.y < b.y
+      if sum > maxSum {
+        maxSum = sum
+        bottomRight = point
+      }
+
+      let diff = point.x - point.y
+      if diff < minDiff {
+        minDiff = diff
+        bottomLeft = point
+      }
+      if diff > maxDiff {
+        maxDiff = diff
+        topRight = point
+      }
     }
 
-    let top = sortedByY.prefix(2).sorted { $0.x < $1.x }
-    let bottom = sortedByY.suffix(2).sorted { $0.x < $1.x }
-
-    return [top[0], top[1], bottom[1], bottom[0]]
+    return [topLeft, topRight, bottomRight, bottomLeft]
   }
 
   // MARK: - Capture
