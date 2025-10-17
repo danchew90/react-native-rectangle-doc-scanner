@@ -31,18 +31,6 @@ declare module '@shopify/react-native-skia' {
   export const Path: ComponentType<PathProps>;
 }
 
-declare module 'react-native-rectangle-doc-scanner/RNRDocScannerModule' {
-  export type NativeCaptureResult = {
-    croppedImage?: string | null;
-    initialImage?: string;
-    width?: number;
-    height?: number;
-  };
-
-  export function capture(viewTag: number): Promise<NativeCaptureResult>;
-  export function reset(viewTag: number): void;
-}
-
 declare module 'react-native-perspective-image-cropper' {
   import type { ComponentType } from 'react';
 
@@ -68,4 +56,32 @@ declare module 'react-native-perspective-image-cropper' {
   export const CustomImageCropper: ComponentType<CustomImageCropperProps>;
   const CustomImageCropperDefault: ComponentType<CustomImageCropperProps>;
   export default CustomImageCropperDefault;
+}
+
+declare module 'react-native-document-scanner' {
+  import type { Component } from 'react';
+  import type { ViewStyle } from 'react-native';
+
+  export type DocumentScannerResult = {
+    croppedImage?: string | null;
+    initialImage?: string | null;
+    width?: number;
+    height?: number;
+  };
+
+  export interface DocumentScannerProps {
+    style?: ViewStyle;
+    detectionCountBeforeCapture?: number;
+    overlayColor?: string;
+    enableTorch?: boolean;
+    useBase64?: boolean;
+    quality?: number;
+    manualOnly?: boolean;
+    onPictureTaken?: (event: DocumentScannerResult) => void;
+    onError?: (error: Error) => void;
+  }
+
+  export default class DocumentScanner extends Component<DocumentScannerProps> {
+    capture(): Promise<DocumentScannerResult>;
+  }
 }
