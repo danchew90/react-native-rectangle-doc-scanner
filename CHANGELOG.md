@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.2.1] - 2025-10-17
+
+### 🔧 Auto-Install Improvements
+
+- Updated postinstall script to copy both camera files automatically
+- Now copies `IPDFCameraViewController.m` and `DocumentScannerView.m`
+- Complete automation - no manual steps required
+
+## [3.2.0] - 2025-10-17
+
+### 🔧 Camera Quality Fixes
+
+Fixed critical quality issues and app crashes:
+
+#### Fixed Issues
+- **Fixed app crash** from HEVC format compatibility issues
+- **Fixed JPEG compression quality** - now enforces minimum 95% quality
+  - Previously used user's quality setting which could be very low
+  - Now uses `MAX(self.quality, 0.95)` to prevent quality loss
+- **Improved session preset** - uses `AVCaptureSessionPresetHigh` for better quality
+- **Added nil checks** to prevent crashes when photoOutput is unavailable
+
+#### Quality Improvements
+- Minimum 95% JPEG quality ensures no visible compression artifacts
+- Simplified capture to use reliable JPEG format (removed HEVC compatibility issues)
+- Better error handling for edge cases
+
 ## [3.0.0] - 2025-10-17
 
 ### 🚀 BREAKING CHANGE - Modern Camera API
@@ -17,9 +44,6 @@ Complete camera system overhaul for professional-grade image quality!
 - **Computational Photography Support**
   - Automatic HDR, Deep Fusion, Smart HDR
   - These features were impossible with the old API
-- **HEIF/HEVC Format Support** (iOS 11+)
-  - Better quality at smaller file sizes
-  - Fallback to JPEG for compatibility
 - **Full Resolution Capture**
   - 12MP+ on modern iPhones (up to 48MP on iPhone 14 Pro+)
   - Old API was limited to lower resolutions
@@ -30,7 +54,6 @@ Complete camera system overhaul for professional-grade image quality!
 #### Technical Improvements
 - Delegate-based capture instead of callback-based
 - Better error handling and edge cases
-- Native file format support (HEIF)
 - Reduced memory usage
 - Faster capture times
 

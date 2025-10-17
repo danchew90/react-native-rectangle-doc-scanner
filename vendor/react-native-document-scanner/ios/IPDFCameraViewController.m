@@ -117,7 +117,14 @@
 
     NSError *error = nil;
     AVCaptureDeviceInput* input = [AVCaptureDeviceInput deviceInputWithDevice:device error:&error];
-    session.sessionPreset = AVCaptureSessionPresetPhoto;
+
+    // Set session preset to highest quality
+    if ([session canSetSessionPreset:AVCaptureSessionPresetHigh]) {
+        session.sessionPreset = AVCaptureSessionPresetHigh;
+    } else {
+        session.sessionPreset = AVCaptureSessionPresetPhoto;
+    }
+
     [session addInput:input];
 
     AVCaptureVideoDataOutput *dataOutput = [[AVCaptureVideoDataOutput alloc] init];
@@ -400,6 +407,15 @@
 {
     if (_isCapturing) return;
 
+    // Check if photoOutput is available
+    if (!self.photoOutput) {
+        NSLog(@"Error: photoOutput is nil");
+        if (completionHandler) {
+            completionHandler(nil, nil, nil);
+        }
+        return;
+    }
+
     __weak typeof(self) weakSelf = self;
 
     [weakSelf hideGLKView:YES completion:^
@@ -415,7 +431,7 @@
     // Store completion handler for delegate callback
     self.photoCaptureCompletionHandler = completionHandler;
 
-    // Create photo settings with maximum quality
+    // Create photo settings with maximum quality - use JPEG for compatibility
     AVCapturePhotoSettings *photoSettings = [AVCapturePhotoSettings photoSettings];
 
     // Enable high resolution photo capture
@@ -424,17 +440,6 @@
     // Set maximum quality prioritization (iOS 13+)
     if (@available(iOS 13.0, *)) {
         photoSettings.photoQualityPrioritization = AVCapturePhotoQualityPrioritizationQuality;
-    }
-
-    // Use HEIF format if available for better quality (iOS 11+)
-    if (@available(iOS 11.0, *)) {
-        if ([self.photoOutput.availablePhotoCodecTypes containsObject:AVVideoCodecTypeHEVC]) {
-            photoSettings = [AVCapturePhotoSettings photoSettingsWithFormat:@{AVVideoCodecKey: AVVideoCodecTypeHEVC}];
-            photoSettings.highResolutionPhotoEnabled = YES;
-            if (@available(iOS 13.0, *)) {
-                photoSettings.photoQualityPrioritization = AVCapturePhotoQualityPrioritizationQuality;
-            }
-        }
     }
 
     // Enable auto flash

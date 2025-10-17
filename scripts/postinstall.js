@@ -31,22 +31,37 @@ if (!SCANNER_PATH) {
 console.log('📸 Applying camera quality optimizations...');
 
 try {
-  // Copy optimized iOS file
-  const iosFile = 'ios/IPDFCameraViewController.m';
-  const sourcePath = path.join(VENDOR_PATH, iosFile);
-  const targetPath = path.join(SCANNER_PATH, iosFile);
+  // Files to copy
+  const filesToCopy = [
+    'ios/IPDFCameraViewController.m',
+    'ios/DocumentScannerView.m'
+  ];
 
-  if (fs.existsSync(sourcePath)) {
-    // Backup original if not already backed up
-    if (!fs.existsSync(targetPath + '.original')) {
-      fs.copyFileSync(targetPath, targetPath + '.original');
+  let copiedCount = 0;
+
+  for (const iosFile of filesToCopy) {
+    const sourcePath = path.join(VENDOR_PATH, iosFile);
+    const targetPath = path.join(SCANNER_PATH, iosFile);
+
+    if (fs.existsSync(sourcePath)) {
+      // Backup original if not already backed up
+      if (!fs.existsSync(targetPath + '.original')) {
+        fs.copyFileSync(targetPath, targetPath + '.original');
+      }
+
+      // Copy optimized version
+      fs.copyFileSync(sourcePath, targetPath);
+      copiedCount++;
     }
+  }
 
-    // Copy optimized version
-    fs.copyFileSync(sourcePath, targetPath);
+  if (copiedCount === filesToCopy.length) {
     console.log('✅ iOS camera quality optimizations applied!');
+    console.log('   - Modern AVCapturePhotoOutput API');
+    console.log('   - High quality JPEG compression (95%+)');
+    console.log('   - Quality prioritization enabled');
   } else {
-    console.log('⚠️  Optimized iOS file not found in vendor folder');
+    console.log('⚠️  Some optimized files not found in vendor folder');
   }
 
   console.log('✨ Setup complete!');
