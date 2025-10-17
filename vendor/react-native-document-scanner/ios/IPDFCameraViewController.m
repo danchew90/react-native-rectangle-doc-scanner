@@ -140,7 +140,9 @@
     AVCaptureVideoDataOutput *dataOutput = [[AVCaptureVideoDataOutput alloc] init];
     [dataOutput setAlwaysDiscardsLateVideoFrames:YES];
     [dataOutput setVideoSettings:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_32BGRA)}];
-    [dataOutput setSampleBufferDelegate:self queue:dispatch_get_main_queue()];
+    // Use background queue for video processing to avoid blocking UI
+    dispatch_queue_t videoQueue = dispatch_queue_create("com.scanner.videoQueue", DISPATCH_QUEUE_SERIAL);
+    [dataOutput setSampleBufferDelegate:self queue:videoQueue];
     [session addOutput:dataOutput];
 
     // Use modern AVCapturePhotoOutput for best quality
@@ -298,10 +300,15 @@
             fromRect = CGRectMake(0, yOffset, imageExtent.size.width, newHeight);
         }
 
-        [_coreImageContext drawImage:image inRect:drawRect fromRect:fromRect];
-        [self.context presentRenderbuffer:GL_RENDERBUFFER];
-
-        [_glkView setNeedsDisplay];
+        // Render on main thread for OpenGL operations
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (self.context && _coreImageContext && _glkView) {
+                [EAGLContext setCurrentContext:self.context];
+                [_coreImageContext drawImage:image inRect:drawRect fromRect:fromRect];
+                [self.context presentRenderbuffer:GL_RENDERBUFFER];
+                [_glkView setNeedsDisplay];
+            }
+        });
     }
 }
 
