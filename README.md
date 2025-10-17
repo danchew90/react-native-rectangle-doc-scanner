@@ -4,22 +4,30 @@ React Native-friendly wrapper around [`react-native-document-scanner`](https://g
 
 > The native implementation lives inside the upstream library (Objective‑C/OpenCV on iOS, Kotlin/OpenCV on Android). This package simply re-exports a type-safe wrapper, optional crop editor helpers, and a full-screen scanner flow.
 
-## ✨ Enhanced Image Quality (v2.1.0+)
+## ✨ Professional Camera Quality (v3.0.0+)
 
-This package includes automatic camera quality optimizations:
+**Major Update:** Upgraded to modern `AVCapturePhotoOutput` API for dramatically improved image quality!
 
-- **4K Resolution Support** - Automatically uses the highest available resolution (4K → Full HD → Photo)
-- **High-Resolution Still Capture** - Enables `highResolutionStillImageOutputEnabled` for maximum quality
-- **Retina Display Optimization** - Proper scale factor for crisp preview on all devices
-- **Advanced Camera Features**:
+### 🚀 What's New:
+- **Modern Camera API** - Uses `AVCapturePhotoOutput` (iOS 10+) instead of deprecated `AVCaptureStillImageOutput`
+- **iPhone Native Quality** - Same quality as the built-in Camera app
+- **Computational Photography** - Automatic HDR, Deep Fusion, and Smart HDR support
+- **HEIF/HEVC Support** - Higher quality at smaller file sizes (iOS 11+)
+- **12MP+ Resolution** - Full resolution capture on modern iPhones
+- **Maximum Quality Priority** - iOS 13+ quality prioritization enabled
+
+### 🎯 Automatic Optimizations:
+- **4K Resolution Support** - Highest available resolution (4K → Full HD → Photo)
+- **High-Resolution Capture** - Full sensor resolution enabled
+- **Retina Display** - Proper scale factor for crisp preview
+- **Advanced Features**:
   - Video stabilization for sharper images
   - Continuous autofocus for always-sharp captures
   - Auto exposure and white balance
   - Low-light boost in dark environments
-- **Lossless Processing** - Direct pixel buffer access with 95% JPEG quality
-- **Hardware-Accelerated Rendering** - Uses CIContext for efficient, high-quality image conversion
+- **Hardware-Accelerated** - CIContext for efficient processing
 
-No configuration needed - these optimizations are applied automatically!
+No configuration needed - professional quality automatically!
 
 ## Installation
 

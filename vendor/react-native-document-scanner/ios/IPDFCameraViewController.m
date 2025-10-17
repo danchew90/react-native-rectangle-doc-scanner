@@ -126,11 +126,18 @@
     [dataOutput setSampleBufferDelegate:self queue:dispatch_get_main_queue()];
     [session addOutput:dataOutput];
 
-    self.stillImageOutput = [[AVCaptureStillImageOutput alloc] init];
-    // Configure for maximum quality still image capture
-    self.stillImageOutput.outputSettings = @{AVVideoCodecKey: AVVideoCodecJPEG};
-    self.stillImageOutput.highResolutionStillImageOutputEnabled = YES;
-    [session addOutput:self.stillImageOutput];
+    // Use modern AVCapturePhotoOutput for best quality
+    self.photoOutput = [[AVCapturePhotoOutput alloc] init];
+
+    if ([session canAddOutput:self.photoOutput]) {
+        [session addOutput:self.photoOutput];
+
+        // Enable high quality photo capture
+        if (@available(iOS 13.0, *)) {
+            self.photoOutput.maxPhotoQualityPrioritization = AVCapturePhotoQualityPrioritizationQuality;
+            self.photoOutput.maxPhotoDimensions = CMVideoDimensionsMake(4032, 3024); // 12MP
+        }
+    }
 
     AVCaptureConnection *connection = [dataOutput.connections firstObject];
     [connection setVideoOrientation:AVCaptureVideoOrientationPortrait];
@@ -405,70 +412,38 @@
 
     _isCapturing = YES;
 
-    AVCaptureConnection *videoConnection = nil;
-    for (AVCaptureConnection *connection in self.stillImageOutput.connections)
-    {
-        for (AVCaptureInputPort *port in [connection inputPorts])
-        {
-            if ([[port mediaType] isEqual:AVMediaTypeVideo] )
-            {
-                videoConnection = connection;
-                break;
-            }
-        }
-        if (videoConnection) break;
+    // Store completion handler for delegate callback
+    self.photoCaptureCompletionHandler = completionHandler;
+
+    // Create photo settings with maximum quality
+    AVCapturePhotoSettings *photoSettings = [AVCapturePhotoSettings photoSettings];
+
+    // Enable high resolution photo capture
+    photoSettings.highResolutionPhotoEnabled = YES;
+
+    // Set maximum quality prioritization (iOS 13+)
+    if (@available(iOS 13.0, *)) {
+        photoSettings.photoQualityPrioritization = AVCapturePhotoQualityPrioritizationQuality;
     }
 
-    [self.stillImageOutput captureStillImageAsynchronouslyFromConnection:videoConnection completionHandler: ^(CMSampleBufferRef imageSampleBuffer, NSError *error)
-     {
-         NSData *imageData = [AVCaptureStillImageOutput jpegStillImageNSDataRepresentation:imageSampleBuffer];
+    // Use HEIF format if available for better quality (iOS 11+)
+    if (@available(iOS 11.0, *)) {
+        if ([self.photoOutput.availablePhotoCodecTypes containsObject:AVVideoCodecTypeHEVC]) {
+            photoSettings = [AVCapturePhotoSettings photoSettingsWithFormat:@{AVVideoCodecKey: AVVideoCodecTypeHEVC}];
+            photoSettings.highResolutionPhotoEnabled = YES;
+            if (@available(iOS 13.0, *)) {
+                photoSettings.photoQualityPrioritization = AVCapturePhotoQualityPrioritizationQuality;
+            }
+        }
+    }
 
-         if (weakSelf.cameraViewType == IPDFCameraViewTypeBlackAndWhite || weakSelf.isBorderDetectionEnabled)
-         {
-             CIImage *enhancedImage = [CIImage imageWithData:imageData];
+    // Enable auto flash
+    if (self.photoOutput.supportedFlashModes && [self.photoOutput.supportedFlashModes containsObject:@(AVCaptureFlashModeAuto)]) {
+        photoSettings.flashMode = AVCaptureFlashModeAuto;
+    }
 
-             if (weakSelf.cameraViewType == IPDFCameraViewTypeBlackAndWhite)
-             {
-                 enhancedImage = [self filteredImageUsingEnhanceFilterOnImage:enhancedImage];
-             }
-             else
-             {
-                 enhancedImage = [self filteredImageUsingContrastFilterOnImage:enhancedImage];
-             }
-
-             if (weakSelf.isBorderDetectionEnabled && rectangleDetectionConfidenceHighEnough(_imageDedectionConfidence))
-             {
-                 CIRectangleFeature *rectangleFeature = [self biggestRectangleInRectangles:[[self highAccuracyRectangleDetector] featuresInImage:enhancedImage]];
-
-                 if (rectangleFeature)
-                 {
-                     enhancedImage = [self correctPerspectiveForImage:enhancedImage withFeatures:rectangleFeature];
-
-                     UIGraphicsBeginImageContext(CGSizeMake(enhancedImage.extent.size.height, enhancedImage.extent.size.width));
-                     [[UIImage imageWithCIImage:enhancedImage scale:1.0 orientation:UIImageOrientationRight] drawInRect:CGRectMake(0,0, enhancedImage.extent.size.height, enhancedImage.extent.size.width)];
-                     UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-                     UIImage *initialImage = [UIImage imageWithData:imageData];
-                     UIGraphicsEndImageContext();
-
-                     [weakSelf hideGLKView:NO completion:nil];
-                     completionHandler(image, initialImage, rectangleFeature);
-                 }
-             } else {
-                 [weakSelf hideGLKView:NO completion:nil];
-                 UIImage *initialImage = [UIImage imageWithData:imageData];
-                 completionHandler(initialImage, initialImage, nil);
-             }
-
-         }
-         else
-         {
-             [weakSelf hideGLKView:NO completion:nil];
-             UIImage *initialImage = [UIImage imageWithData:imageData];
-             completionHandler(initialImage, initialImage, nil);
-         }
-
-         _isCapturing = NO;
-     }];
+    // Capture photo - delegate will be called
+    [self.photoOutput capturePhotoWithSettings:photoSettings delegate:self];
 }
 
 - (void)hideGLKView:(BOOL)hidden completion:(void(^)())completion
@@ -585,6 +560,105 @@
 BOOL rectangleDetectionConfidenceHighEnough(float confidence)
 {
     return (confidence > 1.0);
+}
+
+#pragma mark - AVCapturePhotoCaptureDelegate
+
+- (void)captureOutput:(AVCapturePhotoOutput *)output didFinishProcessingPhoto:(AVCapturePhoto *)photo error:(NSError *)error {
+    __weak typeof(self) weakSelf = self;
+
+    if (error) {
+        NSLog(@"Error capturing photo: %@", error);
+        _isCapturing = NO;
+        [weakSelf hideGLKView:NO completion:nil];
+        if (self.photoCaptureCompletionHandler) {
+            self.photoCaptureCompletionHandler(nil, nil, nil);
+            self.photoCaptureCompletionHandler = nil;
+        }
+        return;
+    }
+
+    // Get high quality image data
+    NSData *imageData = [photo fileDataRepresentation];
+
+    if (!imageData) {
+        NSLog(@"Failed to get image data from photo");
+        _isCapturing = NO;
+        [weakSelf hideGLKView:NO completion:nil];
+        if (self.photoCaptureCompletionHandler) {
+            self.photoCaptureCompletionHandler(nil, nil, nil);
+            self.photoCaptureCompletionHandler = nil;
+        }
+        return;
+    }
+
+    // Process image
+    if (weakSelf.cameraViewType == IPDFCameraViewTypeBlackAndWhite || weakSelf.isBorderDetectionEnabled)
+    {
+        CIImage *enhancedImage = [CIImage imageWithData:imageData];
+
+        if (weakSelf.cameraViewType == IPDFCameraViewTypeBlackAndWhite)
+        {
+            enhancedImage = [self filteredImageUsingEnhanceFilterOnImage:enhancedImage];
+        }
+        else
+        {
+            enhancedImage = [self filteredImageUsingContrastFilterOnImage:enhancedImage];
+        }
+
+        if (weakSelf.isBorderDetectionEnabled && rectangleDetectionConfidenceHighEnough(_imageDedectionConfidence))
+        {
+            CIRectangleFeature *rectangleFeature = [self biggestRectangleInRectangles:[[self highAccuracyRectangleDetector] featuresInImage:enhancedImage]];
+
+            if (rectangleFeature)
+            {
+                enhancedImage = [self correctPerspectiveForImage:enhancedImage withFeatures:rectangleFeature];
+
+                // Convert CIImage to UIImage with high quality using CIContext
+                CIContext *ciContext = [CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer: @(NO)}];
+
+                // Apply rotation to match device orientation
+                CGAffineTransform transform = CGAffineTransformMakeRotation(-M_PI_2);
+                enhancedImage = [enhancedImage imageByApplyingTransform:transform];
+
+                // Convert to CGImage first for better quality
+                CGImageRef cgImage = [ciContext createCGImage:enhancedImage fromRect:enhancedImage.extent];
+                UIImage *image = [UIImage imageWithCGImage:cgImage scale:1.0 orientation:UIImageOrientationUp];
+                CGImageRelease(cgImage);
+
+                UIImage *initialImage = [UIImage imageWithData:imageData];
+
+                [weakSelf hideGLKView:NO completion:nil];
+                _isCapturing = NO;
+
+                if (self.photoCaptureCompletionHandler) {
+                    self.photoCaptureCompletionHandler(image, initialImage, rectangleFeature);
+                    self.photoCaptureCompletionHandler = nil;
+                }
+            }
+        } else {
+            [weakSelf hideGLKView:NO completion:nil];
+            _isCapturing = NO;
+            UIImage *initialImage = [UIImage imageWithData:imageData];
+
+            if (self.photoCaptureCompletionHandler) {
+                self.photoCaptureCompletionHandler(initialImage, initialImage, nil);
+                self.photoCaptureCompletionHandler = nil;
+            }
+        }
+
+    }
+    else
+    {
+        [weakSelf hideGLKView:NO completion:nil];
+        _isCapturing = NO;
+        UIImage *initialImage = [UIImage imageWithData:imageData];
+
+        if (self.photoCaptureCompletionHandler) {
+            self.photoCaptureCompletionHandler(initialImage, initialImage, nil);
+            self.photoCaptureCompletionHandler = nil;
+        }
+    }
 }
 
 @end

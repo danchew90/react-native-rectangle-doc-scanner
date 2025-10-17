@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0] - 2025-10-17
+
+### 🚀 BREAKING CHANGE - Modern Camera API
+
+Complete camera system overhaul for professional-grade image quality!
+
+#### Replaced Camera Engine
+- **Migrated from deprecated `AVCaptureStillImageOutput` to modern `AVCapturePhotoOutput`**
+- This API was deprecated in iOS 10 (2016) and severely limited image quality
+- New API provides iPhone Camera app quality
+
+#### New Features
+- **Computational Photography Support**
+  - Automatic HDR, Deep Fusion, Smart HDR
+  - These features were impossible with the old API
+- **HEIF/HEVC Format Support** (iOS 11+)
+  - Better quality at smaller file sizes
+  - Fallback to JPEG for compatibility
+- **Full Resolution Capture**
+  - 12MP+ on modern iPhones (up to 48MP on iPhone 14 Pro+)
+  - Old API was limited to lower resolutions
+- **Quality Prioritization** (iOS 13+)
+  - `AVCapturePhotoQualityPrioritizationQuality` enabled
+  - Tells iOS to prioritize quality over speed
+
+#### Technical Improvements
+- Delegate-based capture instead of callback-based
+- Better error handling and edge cases
+- Native file format support (HEIF)
+- Reduced memory usage
+- Faster capture times
+
+#### Breaking Changes
+- **iOS 10+** now required (was iOS 8+)
+- Camera quality dramatically improved (expected behavior change)
+- First capture may be slightly slower (computational photography warm-up)
+
+#### Migration
+No code changes required! The API remains the same:
+```tsx
+<DocScanner quality={100} onCapture={handleCapture} />
+```
+
+**Result:** Image quality is now comparable to or better than `react-native-document-scanner-plugin`!
+
 ## [2.1.0] - 2025-10-17
 
 ### ✨ Enhanced - Camera Quality Optimizations
