@@ -226,15 +226,23 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
     let request = VNDetectRectanglesRequest(completionHandler: requestHandler)
 
       request.maximumObservations = 3
-      request.minimumConfidence = 0.55
-      request.minimumAspectRatio = 0.1
-      request.maximumAspectRatio = 2.0
+      request.minimumConfidence = 0.65
+      request.minimumAspectRatio = 0.12
+      request.maximumAspectRatio = 1.9
       request.minimumSize = 0.05
       if #available(iOS 13.0, *) {
-        request.quadratureTolerance = 20
+        request.quadratureTolerance = 18
       }
 
-    let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
+    var processedImage = CIImage(cvPixelBuffer: pixelBuffer)
+    processedImage = processedImage.applyingFilter("CIColorControls", parameters: [
+      kCIInputContrastKey: 1.35,
+      kCIInputBrightnessKey: 0.02,
+      kCIInputSaturationKey: 1.05,
+    ])
+    processedImage = processedImage.applyingFilter("CISharpenLuminance", parameters: [kCIInputSharpnessKey: 0.5])
+
+    let handler = VNImageRequestHandler(ciImage: processedImage, orientation: orientation, options: [:])
     do {
       try handler.perform([request])
     } catch {
@@ -339,7 +347,7 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       let points: [CGPoint]
       if let previous = self.smoothedOverlayPoints, previous.count == 4 {
         points = zip(previous, orderedPoints).map { prev, next in
-          CGPoint(x: prev.x * 0.75 + next.x * 0.25, y: prev.y * 0.75 + next.y * 0.25)
+          CGPoint(x: prev.x * 0.7 + next.x * 0.3, y: prev.y * 0.7 + next.y * 0.3)
         }
       } else {
         points = orderedPoints
@@ -421,7 +429,19 @@ class RNRDocScannerView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate, A
       }
     }
 
-    return [topLeft, topRight, bottomRight, bottomLeft]
+    var ordered = [topLeft, topRight, bottomRight, bottomLeft]
+    if cross(ordered[0], ordered[1], ordered[2]) < 0 {
+      ordered = [topLeft, bottomLeft, bottomRight, topRight]
+    }
+    return ordered
+  }
+
+  private func cross(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint) -> CGFloat {
+    let abx = b.x - a.x
+    let aby = b.y - a.y
+    let acx = c.x - a.x
+    let acy = c.y - a.y
+    return abx * acy - aby * acx
   }
 
   // MARK: - Capture
