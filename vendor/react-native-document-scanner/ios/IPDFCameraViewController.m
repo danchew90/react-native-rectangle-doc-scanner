@@ -135,7 +135,7 @@
         // Enable high quality photo capture
         if (@available(iOS 13.0, *)) {
             self.photoOutput.maxPhotoQualityPrioritization = AVCapturePhotoQualityPrioritizationQuality;
-            self.photoOutput.maxPhotoDimensions = CMVideoDimensionsMake(4032, 3024); // 12MP
+            self.photoOutput.maxPhotoDimensions = (CMVideoDimensions){4032, 3024}; // 12MP
         }
     }
 
