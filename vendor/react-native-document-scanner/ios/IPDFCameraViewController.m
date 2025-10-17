@@ -70,6 +70,16 @@
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+
+    // Update GLKView frame to match parent bounds
+    if (_glkView) {
+        _glkView.frame = self.bounds;
+    }
+}
+
 - (void)createGLKView
 {
     if (self.context) return;

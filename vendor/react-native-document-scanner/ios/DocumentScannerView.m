@@ -15,9 +15,13 @@
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
-    if (self.window) {
+    if (self.window && !self.captureSession) {
+        // Only setup camera once when view is added to window
         [self setupCameraView];
         [self start];
+    } else if (!self.window && self.captureSession) {
+        // Stop camera when view is removed from window
+        [self stop];
     }
 }
 
