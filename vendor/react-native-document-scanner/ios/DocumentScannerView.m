@@ -53,17 +53,22 @@
 }
 
 - (void) didDetectRectangle:(CIRectangleFeature *)rectangle withType:(IPDFRectangeType)type {
+    // Handle case where no rectangle is detected
+    if (!rectangle) {
+        NSLog(@"[DocumentScanner] Rectangle not found, resetting counter");
+        self.stableCounter = 0;
+        _lastDetectionType = type;
+        return;
+    }
+
     switch (type) {
         case IPDFRectangeTypeGood:
             self.stableCounter ++;
             NSLog(@"[DocumentScanner] Good rectangle detected, stableCounter: %ld/%ld", (long)self.stableCounter, (long)self.detectionCountBeforeCapture);
             break;
-        case IPDFRectangeTypeNotFound:
-            NSLog(@"[DocumentScanner] Rectangle not found, resetting counter");
-            self.stableCounter = 0;
-            break;
-        default:
-            // For other types (bad rectangle), reduce counter slowly instead of resetting
+        case IPDFRectangeTypeBadAngle:
+        case IPDFRectangeTypeTooFar:
+            // For bad rectangles, reduce counter slowly instead of resetting
             if (self.stableCounter > 0) {
                 self.stableCounter--;
             }
