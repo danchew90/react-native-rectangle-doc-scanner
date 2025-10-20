@@ -136,7 +136,8 @@ declare module 'react-native-svg' {
     children?: ReactNode;
   };
 
-  export const default: ComponentType<SvgProps>;
+  declare const Svg: ComponentType<SvgProps>;
+  export default Svg;
   export const Polygon: ComponentType<PolygonProps>;
   export const Line: ComponentType<LineProps>;
   export const Rect: ComponentType<RectProps>;
