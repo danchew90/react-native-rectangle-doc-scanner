@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import { processColor, StyleSheet } from 'react-native';
+import { View, processColor, StyleSheet } from 'react-native';
 import {
   Canvas,
   LinearGradient,
@@ -177,20 +177,22 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
   const gridColor = withAlpha(color, 0.35);
 
   return (
-    <Canvas style={StyleSheet.absoluteFillObject} pointerEvents="none">
-      <Path path={path} color={fillColor} style="fill" />
-      {gridPaths.map((gridPath, index) => (
-        <Path key={`grid-${index}`} path={gridPath} color={gridColor} style="stroke" strokeWidth={lineWidth} />
-      ))}
-      <Path path={path} color={strokeColor} style="stroke" strokeWidth={lineWidth} />
-      <Path path={path}>
-        <LinearGradient
-          start={gradientStart}
-          end={gradientEnd}
-          colors={gradientColors}
-          positions={gradientPositions}
-        />
-      </Path>
-    </Canvas>
+    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+      <Canvas style={StyleSheet.absoluteFillObject}>
+        <Path path={path} color={fillColor} style="fill" />
+        {gridPaths.map((gridPath, index) => (
+          <Path key={`grid-${index}`} path={gridPath} color={gridColor} style="stroke" strokeWidth={lineWidth} />
+        ))}
+        <Path path={path} color={strokeColor} style="stroke" strokeWidth={lineWidth} />
+        <Path path={path}>
+          <LinearGradient
+            start={gradientStart}
+            end={gradientEnd}
+            colors={gradientColors}
+            positions={gradientPositions}
+          />
+        </Path>
+      </Canvas>
+    </View>
   );
 };
