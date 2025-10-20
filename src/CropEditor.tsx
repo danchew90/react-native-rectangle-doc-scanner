@@ -151,7 +151,16 @@ export const CropEditor: React.FC<CropEditorProps> = ({
         </View>
       ) : (
         <>
-          <CustomImageCropper
+          {/* Full screen image */}
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.fullImage}
+            resizeMode="contain"
+            onLoad={() => console.log('[CropEditor] Image loaded successfully')}
+            onError={(e) => console.error('[CropEditor] Image load error:', e.nativeEvent.error)}
+          />
+          {/* Temporarily disabled CustomImageCropper - showing image only */}
+          {/* <CustomImageCropper
             height={displaySize.height}
             width={displaySize.width}
             image={imageUri}
@@ -161,14 +170,7 @@ export const CropEditor: React.FC<CropEditorProps> = ({
             handlerColor={handlerColor}
             enablePanStrict={enablePanStrict}
             onDragEnd={handleDragEnd}
-          />
-          {/* Debug: Show image in background to verify it loads */}
-          <Image
-            source={{ uri: imageUri }}
-            style={styles.debugImage}
-            onLoad={() => console.log('[CropEditor] Debug image loaded')}
-            onError={(e) => console.error('[CropEditor] Debug image error:', e.nativeEvent.error)}
-          />
+          /> */}
         </>
       )}
     </View>
@@ -207,14 +209,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
   },
-  debugImage: {
-    position: 'absolute',
-    width: 100,
-    height: 100,
-    top: 10,
-    right: 10,
-    opacity: 0.5,
-    borderWidth: 2,
-    borderColor: 'red',
+  fullImage: {
+    width: '100%',
+    height: '100%',
   },
 });

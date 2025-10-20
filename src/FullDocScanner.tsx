@@ -347,19 +347,27 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       console.log('[FullDocScanner] Already processing, skipping manual capture');
       return;
     }
+
+    // Reset DocScanner state before capturing
+    docScannerRef.current?.reset();
+
     console.log('[FullDocScanner] Setting manualCapturePending to true');
     manualCapturePending.current = true;
-    const capturePromise = docScannerRef.current?.capture();
-    console.log('[FullDocScanner] capturePromise:', !!capturePromise);
-    if (capturePromise && typeof capturePromise.catch === 'function') {
-      capturePromise.catch((error: unknown) => {
+
+    // Small delay to ensure reset completes
+    setTimeout(() => {
+      const capturePromise = docScannerRef.current?.capture();
+      console.log('[FullDocScanner] capturePromise:', !!capturePromise);
+      if (capturePromise && typeof capturePromise.catch === 'function') {
+        capturePromise.catch((error: unknown) => {
+          manualCapturePending.current = false;
+          console.warn('[FullDocScanner] manual capture failed', error);
+        });
+      } else if (!capturePromise) {
+        console.warn('[FullDocScanner] No capture promise returned');
         manualCapturePending.current = false;
-        console.warn('[FullDocScanner] manual capture failed', error);
-      });
-    } else if (!capturePromise) {
-      console.warn('[FullDocScanner] No capture promise returned');
-      manualCapturePending.current = false;
-    }
+      }
+    }, 100);
   }, []);
 
   const performCrop = useCallback(async (): Promise<{ base64: string; rectangle: Rectangle }> => {

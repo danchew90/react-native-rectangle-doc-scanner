@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/danchew90/react-native-rectangle-doc-scanner.git"
+    "url": "git+https://github.com/danchew90/react-native-rectangle-doc-scanner.git"
   },
   "homepage": "https://github.com/danchew90/react-native-rectangle-doc-scanner",
   "bugs": {
