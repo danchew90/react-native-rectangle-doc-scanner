@@ -124,13 +124,13 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   const mergedStrings = useMemo(
     () => ({
-      captureHint: strings?.captureHint ?? '',
-      manualHint: strings?.manualHint ?? '',
-      cancel: strings?.cancel ?? '',
-      confirm: strings?.confirm ?? '',
-      retake: strings?.retake ?? '',
-      cropTitle: strings?.cropTitle ?? '',
-      processing: strings?.processing ?? '',
+      captureHint: strings?.captureHint,
+      manualHint: strings?.manualHint,
+      cancel: strings?.cancel,
+      confirm: strings?.confirm,
+      retake: strings?.retake,
+      cropTitle: strings?.cropTitle,
+      processing: strings?.processing,
     }),
     [strings],
   );
