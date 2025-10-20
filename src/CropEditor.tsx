@@ -84,7 +84,7 @@ export const CropEditor: React.FC<CropEditorProps> = ({
       : createFullImageRectangle(baseWidth, baseHeight);
 
     const scaled = scaleRectangle(
-      sourceRectangle,
+      sourceRectangle ?? createFullImageRectangle(baseWidth, baseHeight),
       baseWidth,
       baseHeight,
       imageSize.width,

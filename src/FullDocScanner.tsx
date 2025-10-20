@@ -34,13 +34,6 @@ const stripFileUri = (value: string) => value.replace(/^file:\/\//, '');
 
 const ensureFileUri = (value: string) => (value.startsWith('file://') ? value : `file://${value}`);
 
-const createFullImageRectangle = (width: number, height: number): Rectangle => ({
-  topLeft: { x: 0, y: 0 },
-  topRight: { x: width, y: 0 },
-  bottomRight: { x: width, y: height },
-  bottomLeft: { x: 0, y: height },
-});
-
 const resolveImageSize = (
   path: string,
   fallbackWidth: number,
