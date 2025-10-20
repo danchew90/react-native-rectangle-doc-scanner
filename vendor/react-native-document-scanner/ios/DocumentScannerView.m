@@ -16,14 +16,21 @@
     return self;
 }
 
-- (void)didMoveToWindow {
-    [super didMoveToWindow];
-    if (self.window && !_hasSetupCamera) {
-        // Only setup camera once when view is added to window
+- (void)layoutSubviews {
+    [super layoutSubviews];
+
+    // Setup camera after layout is complete and bounds are valid
+    if (!_hasSetupCamera && self.window && !CGRectIsEmpty(self.bounds)) {
+        NSLog(@"[DocumentScanner] Setting up camera with bounds: %@", NSStringFromCGRect(self.bounds));
         [self setupCameraView];
         [self start];
         _hasSetupCamera = YES;
-    } else if (!self.window && _hasSetupCamera) {
+    }
+}
+
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    if (!self.window && _hasSetupCamera) {
         // Stop camera when view is removed from window
         [self stop];
     }
