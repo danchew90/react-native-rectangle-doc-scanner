@@ -220,15 +220,15 @@
         }
     }
 
-    if (self.context && _coreImageContext)
+    if (self.context && _coreImageContext && _glkView)
     {
         // Calculate the rect to draw the image with aspect fill
-        CGRect drawRect = self.bounds;
+        CGRect viewBounds = _glkView.bounds;
         CGRect imageExtent = image.extent;
 
         // Calculate aspect ratios
         CGFloat imageAspect = imageExtent.size.width / imageExtent.size.height;
-        CGFloat viewAspect = drawRect.size.width / drawRect.size.height;
+        CGFloat viewAspect = viewBounds.size.width / viewBounds.size.height;
 
         CGRect fromRect = imageExtent;
 
@@ -244,6 +244,12 @@
             CGFloat yOffset = (imageExtent.size.height - newHeight) / 2.0;
             fromRect = CGRectMake(0, yOffset, imageExtent.size.width, newHeight);
         }
+
+        // GLKView renderbuffer expects pixel dimensions, not point-based bounds
+        CGRect drawRect = CGRectMake(0,
+                                     0,
+                                     (CGFloat)_glkView.drawableWidth,
+                                     (CGFloat)_glkView.drawableHeight);
 
         [_coreImageContext drawImage:image inRect:drawRect fromRect:fromRect];
         [self.context presentRenderbuffer:GL_RENDERBUFFER];
