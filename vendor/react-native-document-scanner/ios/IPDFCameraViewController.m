@@ -82,6 +82,7 @@
 {
     if (self.context) return;
 
+    NSLog(@"[IPDFCamera] createGLKView - self.bounds: %@", NSStringFromCGRect(self.bounds));
     self.context = [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES2];
     GLKView *view = [[GLKView alloc] initWithFrame:self.bounds];
     view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -91,6 +92,7 @@
     view.drawableDepthFormat = GLKViewDrawableDepthFormat24;
     [self insertSubview:view atIndex:0];
     _glkView = view;
+    NSLog(@"[IPDFCamera] createGLKView - created GLKView with frame: %@", NSStringFromCGRect(view.frame));
     glGenRenderbuffers(1, &_renderBuffer);
     glBindRenderbuffer(GL_RENDERBUFFER, _renderBuffer);
     _coreImageContext = [CIContext contextWithEAGLContext:self.context];
@@ -100,6 +102,13 @@
 - (void)setupCameraView
 {
     [self createGLKView];
+
+    // Explicitly set GLKView frame to match current bounds
+    if (_glkView) {
+        NSLog(@"[IPDFCamera] setupCameraView - setting _glkView.frame to self.bounds: %@", NSStringFromCGRect(self.bounds));
+        _glkView.frame = self.bounds;
+        NSLog(@"[IPDFCamera] setupCameraView - _glkView.frame is now: %@", NSStringFromCGRect(_glkView.frame));
+    }
 
     AVCaptureDevice *device = nil;
     NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
