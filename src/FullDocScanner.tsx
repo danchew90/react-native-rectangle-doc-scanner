@@ -208,15 +208,18 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   const processAutoCapture = useCallback(
     async (document: DocScannerCapture) => {
+      console.log('[FullDocScanner] processAutoCapture started');
       manualCapturePending.current = false;
       const normalizedDoc = normalizeCapturedDocument(document);
       const cropManager = NativeModules.CustomCropManager as CustomCropManagerType | undefined;
 
       if (!cropManager?.crop) {
+        console.error('[FullDocScanner] CustomCropManager.crop is not available');
         emitError(new Error('CustomCropManager.crop is not available'));
         return;
       }
 
+      console.log('[FullDocScanner] Setting processing to true');
       setProcessing(true);
 
       try {
@@ -250,6 +253,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
         const rectangleToUse = scaledRectangle ?? createFullImageRectangle(targetWidth, targetHeight);
 
+        console.log('[FullDocScanner] Calling CustomCropManager.crop with:', {
+          rectangle: rectangleToUse,
+          imageUri: ensureFileUri(normalizedDoc.path),
+          targetSize: { width: targetWidth, height: targetHeight },
+        });
+
         const base64 = await new Promise<string>((resolve, reject) => {
           cropManager.crop(
             {
@@ -263,9 +272,11 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             ensureFileUri(normalizedDoc.path),
             (error: unknown, result: { image: string }) => {
               if (error) {
+                console.error('[FullDocScanner] CustomCropManager.crop error:', error);
                 reject(error instanceof Error ? error : new Error('Crop failed'));
                 return;
               }
+              console.log('[FullDocScanner] CustomCropManager.crop success, base64 length:', result.image?.length);
               resolve(result.image);
             },
           );
@@ -276,12 +287,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           rectangle: rectangleToUse,
         };
 
+        console.log('[FullDocScanner] Calling onResult with base64 length:', base64?.length);
         onResult({
           original: finalDoc,
           rectangle: rectangleToUse,
           base64,
         });
 
+        console.log('[FullDocScanner] Resetting state');
         resetState();
       } catch (error) {
         setProcessing(false);
@@ -295,7 +308,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   const handleCapture = useCallback(
     (document: DocScannerCapture) => {
+      console.log('[FullDocScanner] handleCapture called:', {
+        origin: document.origin,
+        path: document.path,
+        width: document.width,
+        height: document.height,
+        hasQuad: !!document.quad,
+        hasRectangle: !!document.rectangle,
+      });
+
       if (processingCaptureRef.current) {
+        console.log('[FullDocScanner] Already processing, skipping');
         return;
       }
 
@@ -303,7 +326,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       const wantsManualFlow =
         manualCapture || manualCapturePending.current || document.origin === 'manual';
 
+      console.log('[FullDocScanner] wantsManualFlow:', wantsManualFlow, {
+        manualCapture,
+        manualCapturePending: manualCapturePending.current,
+        origin: document.origin,
+      });
+
       if (wantsManualFlow) {
+        console.log('[FullDocScanner] Starting manual flow - showing crop editor');
         manualCapturePending.current = false;
         processingCaptureRef.current = false;
         cropInitializedRef.current = false;
@@ -314,6 +344,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         return;
       }
 
+      console.log('[FullDocScanner] Starting auto flow - processing capture');
       processingCaptureRef.current = true;
       processAutoCapture(document);
     },
@@ -325,17 +356,22 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   }, []);
 
   const triggerManualCapture = useCallback(() => {
+    console.log('[FullDocScanner] triggerManualCapture called');
     if (processingCaptureRef.current) {
+      console.log('[FullDocScanner] Already processing, skipping manual capture');
       return;
     }
+    console.log('[FullDocScanner] Setting manualCapturePending to true');
     manualCapturePending.current = true;
     const capturePromise = docScannerRef.current?.capture();
+    console.log('[FullDocScanner] capturePromise:', !!capturePromise);
     if (capturePromise && typeof capturePromise.catch === 'function') {
       capturePromise.catch((error: unknown) => {
         manualCapturePending.current = false;
         console.warn('[FullDocScanner] manual capture failed', error);
       });
     } else if (!capturePromise) {
+      console.warn('[FullDocScanner] No capture promise returned');
       manualCapturePending.current = false;
     }
   }, []);

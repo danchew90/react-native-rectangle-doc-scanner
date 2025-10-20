@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(node:*)",
-      "Read(//Users/tt-mac-03/Documents/workspace/tdb/**)"
+      "Read(//Users/tt-mac-03/Documents/workspace/tdb/**)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []
