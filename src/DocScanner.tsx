@@ -94,7 +94,7 @@ interface Props {
   onRectangleDetect?: (event: RectangleDetectEvent) => void;
 }
 
-type DocScannerHandle = {
+export type DocScannerHandle = {
   capture: () => Promise<PictureEvent>;
   reset: () => void;
 };
@@ -310,5 +310,3 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
 });
-
-export type { DocScannerHandle, RectangleDetectEvent, DocScannerCapture };

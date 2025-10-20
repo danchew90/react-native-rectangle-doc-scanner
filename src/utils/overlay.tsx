@@ -23,12 +23,7 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 
 const withAlpha = (inputColor: string, alpha: number): string => {
   const parsed = processColor(inputColor);
-  const normalized =
-    typeof parsed === 'number'
-      ? parsed >>> 0
-      : parsed && typeof parsed === 'object' && 'argb' in parsed && typeof parsed.argb === 'number'
-      ? parsed.argb >>> 0
-      : null;
+  const normalized = typeof parsed === 'number' ? parsed >>> 0 : null;
 
   if (normalized == null) {
     return inputColor;
@@ -182,7 +177,7 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
   const gridColor = withAlpha(color, 0.35);
 
   return (
-    <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
+    <Canvas style={StyleSheet.absoluteFillObject} pointerEvents="none">
       <Path path={path} color={fillColor} style="fill" />
       {gridPaths.map((gridPath, index) => (
         <Path key={`grid-${index}`} path={gridPath} color={gridColor} style="stroke" strokeWidth={lineWidth} />

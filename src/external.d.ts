@@ -27,6 +27,7 @@ declare module '@shopify/react-native-skia' {
     style?: 'stroke' | 'fill';
     strokeWidth?: number;
     color?: string;
+    children?: ReactNode;
   };
 
   export const Path: ComponentType<PathProps>;
