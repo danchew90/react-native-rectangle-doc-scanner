@@ -83,3 +83,64 @@ declare module 'react-native-document-scanner' {
     capture(): Promise<DocumentScannerResult>;
   }
 }
+
+declare module 'react-native-svg' {
+  import type { ComponentType, ReactNode } from 'react';
+
+  export type SvgProps = {
+    children?: ReactNode;
+    style?: any;
+    width?: number | string;
+    height?: number | string;
+    viewBox?: string;
+  };
+
+  export type PolygonProps = {
+    points: string;
+    fill?: string;
+    stroke?: string;
+    strokeWidth?: number;
+    opacity?: number;
+  };
+
+  export type LineProps = {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    stroke?: string;
+    strokeWidth?: number;
+    opacity?: number;
+  };
+
+  export type RectProps = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    fill?: string;
+  };
+
+  export type StopProps = {
+    offset: string;
+    stopColor: string;
+    stopOpacity?: number;
+  };
+
+  export type LinearGradientProps = {
+    id: string;
+    x1?: string;
+    y1?: string;
+    x2?: string;
+    y2?: string;
+    children?: ReactNode;
+  };
+
+  export const default: ComponentType<SvgProps>;
+  export const Polygon: ComponentType<PolygonProps>;
+  export const Line: ComponentType<LineProps>;
+  export const Rect: ComponentType<RectProps>;
+  export const Defs: ComponentType<{ children?: ReactNode }>;
+  export const LinearGradient: ComponentType<LinearGradientProps>;
+  export const Stop: ComponentType<StopProps>;
+}
