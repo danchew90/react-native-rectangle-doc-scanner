@@ -33,6 +33,7 @@ export type DocScannerCapture = {
   initialPath: string | null;
   croppedPath: string | null;
   quad: Point[] | null;
+  rectangle: Rectangle | null;
   width: number;
   height: number;
 };
@@ -127,6 +128,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
     } | null>(null);
     const [isAutoCapturing, setIsAutoCapturing] = useState(false);
     const [detectedRectangle, setDetectedRectangle] = useState<RectangleDetectEvent | null>(null);
+    const lastRectangleRef = useRef<Rectangle | null>(null);
 
     useEffect(() => {
       if (!autoCapture) {
@@ -146,19 +148,21 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       (event: PictureEvent) => {
         setIsAutoCapturing(false);
 
-        const normalizedRectangle = normalizeRectangle(event.rectangleCoordinates ?? null);
+        const normalizedRectangle =
+          normalizeRectangle(event.rectangleCoordinates ?? null) ?? lastRectangleRef.current;
         const quad = normalizedRectangle ? rectangleToQuad(normalizedRectangle) : null;
 
         const initialPath = event.initialImage ?? null;
         const croppedPath = event.croppedImage ?? null;
-        const bestPath = croppedPath ?? initialPath;
+        const editablePath = initialPath ?? croppedPath;
 
-        if (bestPath) {
+        if (editablePath) {
           onCapture?.({
-            path: bestPath,
+            path: editablePath,
             initialPath,
             croppedPath,
             quad,
+            rectangle: normalizedRectangle,
             width: event.width ?? 0,
             height: event.height ?? 0,
           });
@@ -224,11 +228,15 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
         };
 
         if (autoCapture) {
-          if (payload.stableCounter >= Math.max(minStableFrames - 1, 0)) {
+        if (payload.stableCounter >= Math.max(minStableFrames - 1, 0)) {
             setIsAutoCapturing(true);
           } else if (payload.stableCounter === 0) {
             setIsAutoCapturing(false);
           }
+        }
+
+        if (payload.rectangleCoordinates) {
+          lastRectangleRef.current = payload.rectangleCoordinates;
         }
 
         const isGoodRectangle = payload.lastDetectionType === 0;
@@ -252,7 +260,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       [capture],
     );
 
-    const overlayPolygon = detectedRectangle?.rectangleOnScreen ?? null;
+    const overlayPolygon = detectedRectangle?.rectangleOnScreen ?? detectedRectangle?.rectangleCoordinates ?? null;
     const overlayIsActive = autoCapture ? isAutoCapturing : (detectedRectangle?.stableCounter ?? 0) > 0;
 
     return (

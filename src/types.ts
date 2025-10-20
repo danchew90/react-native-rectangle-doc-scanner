@@ -14,6 +14,7 @@ export type CapturedDocument = {
   initialPath?: string | null;
   croppedPath?: string | null;
   quad: Point[] | null;
+  rectangle?: Rectangle | null;
   width: number;
   height: number;
 };

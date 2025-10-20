@@ -70,26 +70,33 @@ export const CropEditor: React.FC<CropEditorProps> = ({
 
   // Get initial rectangle from detected quad or use default
   const getInitialRectangle = useCallback((): CropperRectangle | undefined => {
-    if (!document.quad || !imageSize) {
+    if (!imageSize) {
       return undefined;
     }
 
-    const rect = quadToRectangle(document.quad);
-    if (!rect) {
+    const baseWidth = document.width > 0 ? document.width : imageSize.width;
+    const baseHeight = document.height > 0 ? document.height : imageSize.height;
+
+    const sourceRectangle = document.rectangle
+      ? document.rectangle
+      : document.quad && document.quad.length === 4
+      ? quadToRectangle(document.quad)
+      : null;
+
+    if (!sourceRectangle) {
       return undefined;
     }
 
-    // Scale from original detection coordinates to image coordinates
     const scaled = scaleRectangle(
-      rect,
-      document.width,
-      document.height,
+      sourceRectangle,
+      baseWidth,
+      baseHeight,
       imageSize.width,
       imageSize.height
     );
 
     return scaled as CropperRectangle;
-  }, [document.quad, document.width, document.height, imageSize]);
+  }, [document.rectangle, document.quad, document.width, document.height, imageSize]);
 
   const handleImageLoad = useCallback((event: any) => {
     // This is just for debugging - actual size is loaded via Image.getSize in useEffect
