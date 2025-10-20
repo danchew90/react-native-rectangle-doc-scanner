@@ -323,32 +323,18 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       }
 
       const normalizedDoc = normalizeCapturedDocument(document);
-      const wantsManualFlow =
-        manualCapture || manualCapturePending.current || document.origin === 'manual';
 
-      console.log('[FullDocScanner] wantsManualFlow:', wantsManualFlow, {
-        manualCapture,
-        manualCapturePending: manualCapturePending.current,
-        origin: document.origin,
-      });
-
-      if (wantsManualFlow) {
-        console.log('[FullDocScanner] Starting manual flow - showing crop editor');
-        manualCapturePending.current = false;
-        processingCaptureRef.current = false;
-        cropInitializedRef.current = false;
-        setCapturedDoc(normalizedDoc);
-        setImageSize(null);
-        setCropRectangle(null);
-        setScreen('crop');
-        return;
-      }
-
-      console.log('[FullDocScanner] Starting auto flow - processing capture');
-      processingCaptureRef.current = true;
-      processAutoCapture(document);
+      // 자동 촬영이든 수동 촬영이든 모두 crop 화면으로 이동
+      console.log('[FullDocScanner] Moving to crop/preview screen');
+      manualCapturePending.current = false;
+      processingCaptureRef.current = false;
+      cropInitializedRef.current = false;
+      setCapturedDoc(normalizedDoc);
+      setImageSize(null);
+      setCropRectangle(null);
+      setScreen('crop');
     },
-    [manualCapture, processAutoCapture],
+    [],
   );
 
   const handleCropChange = useCallback((rectangle: Rectangle) => {
@@ -491,7 +477,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             minStableFrames={minStableFrames ?? 6}
             detectionConfig={detectionConfig}
             onCapture={handleCapture}
-            showManualCaptureButton
+            showManualCaptureButton={false}
           >
             <View style={styles.overlay} pointerEvents="box-none">
               <TouchableOpacity
