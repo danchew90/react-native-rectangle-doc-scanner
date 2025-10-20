@@ -128,10 +128,16 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     (document: CapturedDocument) => {
       const normalizedPath = stripFileUri(document.path);
       const nextQuad = document.quad && document.quad.length === 4 ? (document.quad as Quad) : null;
+      const normalizedInitial =
+        document.initialPath != null ? stripFileUri(document.initialPath) : normalizedPath;
+      const normalizedCropped =
+        document.croppedPath != null ? stripFileUri(document.croppedPath) : null;
 
       setCapturedDoc({
         ...document,
         path: normalizedPath,
+        initialPath: normalizedInitial,
+        croppedPath: normalizedCropped,
         quad: nextQuad,
       });
       setCropRectangle(nextQuad ? quadToRectangle(nextQuad) : null);

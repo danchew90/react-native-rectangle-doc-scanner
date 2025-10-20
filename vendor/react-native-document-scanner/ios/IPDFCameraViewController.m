@@ -251,6 +251,25 @@
                                      (CGFloat)_glkView.drawableWidth,
                                      (CGFloat)_glkView.drawableHeight);
 
+        if (self.delegate && _borderDetectLastRectangleFeature) {
+            IPDFRectangeType detectionType = [self typeForRectangle:_borderDetectLastRectangleFeature];
+
+            if ([self.delegate respondsToSelector:@selector(didDetectRectangle:withType:)]) {
+                [self.delegate didDetectRectangle:_borderDetectLastRectangleFeature withType:detectionType];
+            }
+
+            if ([self.delegate respondsToSelector:@selector(cameraViewController:didDetectRectangle:withType:viewCoordinates:imageSize:)]) {
+                NSDictionary *viewCoordinates = [self viewCoordinateDictionaryForRectangleFeature:_borderDetectLastRectangleFeature
+                                                                                          fromRect:fromRect
+                                                                                          drawRect:drawRect];
+                [self.delegate cameraViewController:self
+                               didDetectRectangle:_borderDetectLastRectangleFeature
+                                         withType:detectionType
+                                  viewCoordinates:viewCoordinates
+                                        imageSize:imageExtent.size];
+            }
+        }
+
         [_coreImageContext drawImage:image inRect:drawRect fromRect:fromRect];
         [self.context presentRenderbuffer:GL_RENDERBUFFER];
 
@@ -562,10 +581,6 @@
         }
     }
 
-    if (self.delegate) {
-        [self.delegate didDetectRectangle:biggestRectangle withType:[self typeForRectangle:biggestRectangle]];
-    }
-
     return biggestRectangle;
 }
 
@@ -582,6 +597,50 @@
         return IPDFRectangeTypeTooFar;
     }
     return IPDFRectangeTypeGood;
+}
+
+- (NSDictionary *)viewCoordinateDictionaryForRectangleFeature:(CIRectangleFeature *)rectangle
+                                                     fromRect:(CGRect)fromRect
+                                                     drawRect:(CGRect)drawRect
+{
+    if (!rectangle || !_glkView) {
+        return nil;
+    }
+
+    if (CGRectIsEmpty(fromRect) || CGRectIsEmpty(drawRect)) {
+        return nil;
+    }
+
+    CGFloat scaleFactor = _glkView.contentScaleFactor;
+    if (scaleFactor <= 0.0) {
+        scaleFactor = [UIScreen mainScreen].scale;
+    }
+    if (scaleFactor <= 0.0) {
+        scaleFactor = 1.0;
+    }
+
+    CGFloat scaleX = drawRect.size.width / fromRect.size.width;
+    CGFloat scaleY = drawRect.size.height / fromRect.size.height;
+
+    CGPoint (^convertPoint)(CGPoint) = ^CGPoint(CGPoint point) {
+        CGFloat translatedX = (point.x - fromRect.origin.x) * scaleX;
+        CGFloat translatedY = (point.y - fromRect.origin.y) * scaleY;
+        CGFloat flippedY = drawRect.size.height - translatedY;
+
+        return CGPointMake(translatedX / scaleFactor, flippedY / scaleFactor);
+    };
+
+    CGPoint topLeft = convertPoint(rectangle.topLeft);
+    CGPoint topRight = convertPoint(rectangle.topRight);
+    CGPoint bottomLeft = convertPoint(rectangle.bottomLeft);
+    CGPoint bottomRight = convertPoint(rectangle.bottomRight);
+
+    return @{
+        @"topLeft": @{@"x": @(topLeft.x), @"y": @(topLeft.y)},
+        @"topRight": @{@"x": @(topRight.x), @"y": @(topRight.y)},
+        @"bottomLeft": @{@"x": @(bottomLeft.x), @"y": @(bottomLeft.y)},
+        @"bottomRight": @{@"x": @(bottomRight.x), @"y": @(bottomRight.y)}
+    };
 }
 
 BOOL rectangleDetectionConfidenceHighEnough(float confidence)

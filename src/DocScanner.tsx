@@ -10,6 +10,9 @@ import React, {
 } from 'react';
 import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import DocumentScanner from 'react-native-document-scanner';
+import type { Rectangle as NativeRectangle, RectangleEventPayload } from 'react-native-document-scanner';
+import { rectangleToQuad } from './utils/coordinate';
+import type { Point, Rectangle } from './types';
 import { ScannerOverlay } from './utils/overlay';
 
 type PictureEvent = {
@@ -17,11 +20,53 @@ type PictureEvent = {
   initialImage?: string | null;
   width?: number;
   height?: number;
+  rectangleCoordinates?: NativeRectangle | null;
 };
 
-export type RectangleDetectEvent = {
-  stableCounter: number;
-  lastDetectionType: number;
+export type RectangleDetectEvent = Omit<RectangleEventPayload, 'rectangleCoordinates' | 'rectangleOnScreen'> & {
+  rectangleCoordinates?: Rectangle | null;
+  rectangleOnScreen?: Rectangle | null;
+};
+
+export type DocScannerCapture = {
+  path: string;
+  initialPath: string | null;
+  croppedPath: string | null;
+  quad: Point[] | null;
+  width: number;
+  height: number;
+};
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const normalizePoint = (point?: { x?: number; y?: number } | null): Point | null => {
+  if (!point || !isFiniteNumber(point.x) || !isFiniteNumber(point.y)) {
+    return null;
+  }
+  return { x: point.x, y: point.y };
+};
+
+const normalizeRectangle = (rectangle?: NativeRectangle | null): Rectangle | null => {
+  if (!rectangle) {
+    return null;
+  }
+
+  const topLeft = normalizePoint(rectangle.topLeft);
+  const topRight = normalizePoint(rectangle.topRight);
+  const bottomRight = normalizePoint(rectangle.bottomRight);
+  const bottomLeft = normalizePoint(rectangle.bottomLeft);
+
+  if (!topLeft || !topRight || !bottomRight || !bottomLeft) {
+    return null;
+  }
+
+  return {
+    topLeft,
+    topRight,
+    bottomRight,
+    bottomLeft,
+  };
 };
 
 export interface DetectionConfig {
@@ -34,7 +79,7 @@ export interface DetectionConfig {
 }
 
 interface Props {
-  onCapture?: (photo: { path: string; quad: null; width: number; height: number }) => void;
+  onCapture?: (photo: DocScannerCapture) => void;
   overlayColor?: string;
   autoCapture?: boolean;
   minStableFrames?: number;
@@ -81,6 +126,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       reject: (reason?: unknown) => void;
     } | null>(null);
     const [isAutoCapturing, setIsAutoCapturing] = useState(false);
+    const [detectedRectangle, setDetectedRectangle] = useState<RectangleDetectEvent | null>(null);
 
     useEffect(() => {
       if (!autoCapture) {
@@ -100,15 +146,25 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       (event: PictureEvent) => {
         setIsAutoCapturing(false);
 
-        const path = event.croppedImage ?? event.initialImage;
-        if (path) {
+        const normalizedRectangle = normalizeRectangle(event.rectangleCoordinates ?? null);
+        const quad = normalizedRectangle ? rectangleToQuad(normalizedRectangle) : null;
+
+        const initialPath = event.initialImage ?? null;
+        const croppedPath = event.croppedImage ?? null;
+        const bestPath = croppedPath ?? initialPath;
+
+        if (bestPath) {
           onCapture?.({
-            path,
-            quad: null,
+            path: bestPath,
+            initialPath,
+            croppedPath,
+            quad,
             width: event.width ?? 0,
             height: event.height ?? 0,
           });
         }
+
+        setDetectedRectangle(null);
 
         if (captureResolvers.current) {
           captureResolvers.current.resolve(event);
@@ -157,16 +213,27 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
     }, [autoCapture, capture]);
 
     const handleRectangleDetect = useCallback(
-      (event: RectangleDetectEvent) => {
+      (event: RectangleEventPayload) => {
+        const rectangleCoordinates = normalizeRectangle(event.rectangleCoordinates ?? null);
+        const rectangleOnScreen = normalizeRectangle(event.rectangleOnScreen ?? null);
+
+        const payload: RectangleDetectEvent = {
+          ...event,
+          rectangleCoordinates,
+          rectangleOnScreen,
+        };
+
         if (autoCapture) {
-          if (event.stableCounter >= Math.max(minStableFrames - 1, 0)) {
+          if (payload.stableCounter >= Math.max(minStableFrames - 1, 0)) {
             setIsAutoCapturing(true);
-          } else if (event.stableCounter === 0) {
+          } else if (payload.stableCounter === 0) {
             setIsAutoCapturing(false);
           }
         }
 
-        onRectangleDetect?.(event);
+        const isGoodRectangle = payload.lastDetectionType === 0;
+        setDetectedRectangle(isGoodRectangle && rectangleOnScreen ? payload : null);
+        onRectangleDetect?.(payload);
       },
       [autoCapture, minStableFrames, onRectangleDetect],
     );
@@ -185,6 +252,9 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       [capture],
     );
 
+    const overlayPolygon = detectedRectangle?.rectangleOnScreen ?? null;
+    const overlayIsActive = autoCapture ? isAutoCapturing : (detectedRectangle?.stableCounter ?? 0) > 0;
+
     return (
       <View style={styles.container}>
         <DocumentScanner
@@ -201,11 +271,12 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
           onError={handleError}
           onRectangleDetect={handleRectangleDetect}
         />
-        {showGrid && (
+        {showGrid && overlayPolygon && (
           <ScannerOverlay
-            active={autoCapture && isAutoCapturing}
+            active={overlayIsActive}
             color={gridColor ?? overlayColor}
             lineWidth={gridLineWidth}
+            polygon={overlayPolygon}
           />
         )}
         {!autoCapture && <TouchableOpacity style={styles.button} onPress={handleManualCapture} />}
@@ -240,4 +311,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export type { DocScannerHandle };
+export type { DocScannerHandle, RectangleDetectEvent, DocScannerCapture };

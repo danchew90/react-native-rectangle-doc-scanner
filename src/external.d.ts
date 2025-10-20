@@ -12,6 +12,7 @@ declare module '@shopify/react-native-skia' {
     Path: {
       Make: () => SkPath;
     };
+    Color: (color: string | number) => number;
   };
 
   export type CanvasProps = {
@@ -29,6 +30,23 @@ declare module '@shopify/react-native-skia' {
   };
 
   export const Path: ComponentType<PathProps>;
+
+  export type SkiaValue<T> = {
+    current: T;
+  };
+
+  export const useValue: <T>(initialValue: T) => SkiaValue<T>;
+
+  export const vec: (x: number, y: number) => { x: number; y: number };
+
+  export type LinearGradientProps = {
+    start: SkiaValue<{ x: number; y: number }> | { x: number; y: number };
+    end: SkiaValue<{ x: number; y: number }> | { x: number; y: number };
+    colors: SkiaValue<number[]> | number[];
+    positions?: SkiaValue<number[]> | number[];
+  };
+
+  export const LinearGradient: ComponentType<LinearGradientProps>;
 }
 
 declare module 'react-native-perspective-image-cropper' {
@@ -62,11 +80,33 @@ declare module 'react-native-document-scanner' {
   import type { Component } from 'react';
   import type { ViewStyle } from 'react-native';
 
+  export type RectanglePoint = {
+    x: number;
+    y: number;
+  };
+
+  export type Rectangle = {
+    topLeft: RectanglePoint;
+    topRight: RectanglePoint;
+    bottomLeft: RectanglePoint;
+    bottomRight: RectanglePoint;
+  };
+
+  export type RectangleEventPayload = {
+    stableCounter: number;
+    lastDetectionType: number;
+    rectangleCoordinates?: Rectangle | null;
+    rectangleOnScreen?: Rectangle | null;
+    previewSize?: { width: number; height: number };
+    imageSize?: { width: number; height: number };
+  };
+
   export type DocumentScannerResult = {
     croppedImage?: string | null;
     initialImage?: string | null;
     width?: number;
     height?: number;
+    rectangleCoordinates?: Rectangle | null;
   };
 
   export interface DocumentScannerProps {
@@ -87,7 +127,7 @@ declare module 'react-native-document-scanner' {
     };
     onPictureTaken?: (event: DocumentScannerResult) => void;
     onError?: (error: Error) => void;
-    onRectangleDetect?: (event: { stableCounter: number; lastDetectionType: number }) => void;
+    onRectangleDetect?: (event: RectangleEventPayload) => void;
   }
 
   export default class DocumentScanner extends Component<DocumentScannerProps> {

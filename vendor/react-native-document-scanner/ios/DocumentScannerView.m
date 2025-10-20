@@ -3,6 +3,7 @@
 
 @implementation DocumentScannerView {
     BOOL _hasSetupCamera;
+    IPDFRectangeType _lastDetectionType;
 }
 
 - (instancetype)init {
@@ -37,6 +38,20 @@
 }
 
 
+- (NSDictionary *)dictionaryForRectangleFeature:(CIRectangleFeature *)rectangleFeature
+{
+    if (!rectangleFeature) {
+        return nil;
+    }
+
+    return @{
+        @"topLeft": @{ @"y": @(rectangleFeature.bottomLeft.x + 30), @"x": @(rectangleFeature.bottomLeft.y)},
+        @"topRight": @{ @"y": @(rectangleFeature.topLeft.x + 30), @"x": @(rectangleFeature.topLeft.y)},
+        @"bottomLeft": @{ @"y": @(rectangleFeature.bottomRight.x), @"x": @(rectangleFeature.bottomRight.y)},
+        @"bottomRight": @{ @"y": @(rectangleFeature.topRight.x), @"x": @(rectangleFeature.topRight.y)},
+    };
+}
+
 - (void) didDetectRectangle:(CIRectangleFeature *)rectangle withType:(IPDFRectangeType)type {
     switch (type) {
         case IPDFRectangeTypeGood:
@@ -46,13 +61,43 @@
             self.stableCounter = 0;
             break;
     }
-    if (self.onRectangleDetect) {
-        self.onRectangleDetect(@{@"stableCounter": @(self.stableCounter), @"lastDetectionType": @(type)});
-    }
+
+    _lastDetectionType = type;
 
     if (self.stableCounter > self.detectionCountBeforeCapture){
         [self capture];
     }
+}
+
+- (void)cameraViewController:(IPDFCameraViewController *)controller
+          didDetectRectangle:(CIRectangleFeature *)rectangle
+                    withType:(IPDFRectangeType)type
+             viewCoordinates:(NSDictionary *)viewCoordinates
+                   imageSize:(CGSize)imageSize
+{
+    _lastDetectionType = type;
+
+    if (!self.onRectangleDetect) {
+        return;
+    }
+
+    NSDictionary *rectangleCoordinates = [self dictionaryForRectangleFeature:rectangle];
+    NSMutableDictionary *payload = [@{
+        @"stableCounter": @(self.stableCounter),
+        @"lastDetectionType": @(_lastDetectionType),
+        @"rectangleCoordinates": rectangleCoordinates ? rectangleCoordinates : [NSNull null],
+        @"rectangleOnScreen": viewCoordinates ? viewCoordinates : [NSNull null],
+        @"previewSize": @{
+            @"width": @(self.bounds.size.width),
+            @"height": @(self.bounds.size.height)
+        },
+        @"imageSize": @{
+            @"width": @(imageSize.width),
+            @"height": @(imageSize.height)
+        }
+    } mutableCopy];
+
+    self.onRectangleDetect(payload);
 }
 
 - (void) capture {
@@ -77,12 +122,8 @@
              while rectangleFeature returns a rectangle viewed from landscape, which explains the nonsense of the mapping below.
              Sorry about that.
              */
-            NSDictionary *rectangleCoordinates = rectangleFeature ? @{
-                                     @"topLeft": @{ @"y": @(rectangleFeature.bottomLeft.x + 30), @"x": @(rectangleFeature.bottomLeft.y)},
-                                     @"topRight": @{ @"y": @(rectangleFeature.topLeft.x + 30), @"x": @(rectangleFeature.topLeft.y)},
-                                     @"bottomLeft": @{ @"y": @(rectangleFeature.bottomRight.x), @"x": @(rectangleFeature.bottomRight.y)},
-                                     @"bottomRight": @{ @"y": @(rectangleFeature.topRight.x), @"x": @(rectangleFeature.topRight.y)},
-                                     } : [NSNull null];
+            NSDictionary *rectangleCoordinatesDict = [self dictionaryForRectangleFeature:rectangleFeature];
+            id rectangleCoordinates = rectangleCoordinatesDict ? rectangleCoordinatesDict : [NSNull null];
             if (self.useBase64) {
               self.onPictureTaken(@{
                                     @"croppedImage": [croppedImageData base64EncodedStringWithOptions:NSDataBase64Encoding64CharacterLineLength],
