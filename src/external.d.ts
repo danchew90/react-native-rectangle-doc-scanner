@@ -77,8 +77,17 @@ declare module 'react-native-document-scanner' {
     useBase64?: boolean;
     quality?: number;
     manualOnly?: boolean;
+    detectionConfig?: {
+      processingWidth?: number;
+      cannyLowThreshold?: number;
+      cannyHighThreshold?: number;
+      snapDistance?: number;
+      maxAnchorMisses?: number;
+      maxCenterDelta?: number;
+    };
     onPictureTaken?: (event: DocumentScannerResult) => void;
     onError?: (error: Error) => void;
+    onRectangleDetect?: (event: { stableCounter: number; lastDetectionType: number }) => void;
   }
 
   export default class DocumentScanner extends Component<DocumentScannerProps> {

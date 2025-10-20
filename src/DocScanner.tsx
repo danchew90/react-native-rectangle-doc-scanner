@@ -2,18 +2,26 @@ import React, {
   ReactNode,
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from 'react';
 import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import DocumentScanner from 'react-native-document-scanner';
+import { ScannerOverlay } from './utils/overlay';
 
 type PictureEvent = {
   croppedImage?: string | null;
   initialImage?: string | null;
   width?: number;
   height?: number;
+};
+
+export type RectangleDetectEvent = {
+  stableCounter: number;
+  lastDetectionType: number;
 };
 
 export interface DetectionConfig {
@@ -38,6 +46,7 @@ interface Props {
   gridColor?: string;
   gridLineWidth?: number;
   detectionConfig?: DetectionConfig;
+  onRectangleDetect?: (event: RectangleDetectEvent) => void;
 }
 
 type DocScannerHandle = {
@@ -59,6 +68,10 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       useBase64 = false,
       children,
       showGrid = true,
+      gridColor,
+      gridLineWidth,
+      detectionConfig,
+      onRectangleDetect,
     },
     ref,
   ) => {
@@ -67,6 +80,13 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       resolve: (value: PictureEvent) => void;
       reject: (reason?: unknown) => void;
     } | null>(null);
+    const [isAutoCapturing, setIsAutoCapturing] = useState(false);
+
+    useEffect(() => {
+      if (!autoCapture) {
+        setIsAutoCapturing(false);
+      }
+    }, [autoCapture]);
 
     const normalizedQuality = useMemo(() => {
       if (Platform.OS === 'ios') {
@@ -78,6 +98,8 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
 
     const handlePictureTaken = useCallback(
       (event: PictureEvent) => {
+        setIsAutoCapturing(false);
+
         const path = event.croppedImage ?? event.initialImage;
         if (path) {
           onCapture?.({
@@ -134,6 +156,21 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       });
     }, [autoCapture, capture]);
 
+    const handleRectangleDetect = useCallback(
+      (event: RectangleDetectEvent) => {
+        if (autoCapture) {
+          if (event.stableCounter >= Math.max(minStableFrames - 1, 0)) {
+            setIsAutoCapturing(true);
+          } else if (event.stableCounter === 0) {
+            setIsAutoCapturing(false);
+          }
+        }
+
+        onRectangleDetect?.(event);
+      },
+      [autoCapture, minStableFrames, onRectangleDetect],
+    );
+
     useImperativeHandle(
       ref,
       () => ({
@@ -159,9 +196,18 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
           quality={normalizedQuality}
           useBase64={useBase64}
           manualOnly={!autoCapture}
+          detectionConfig={detectionConfig}
           onPictureTaken={handlePictureTaken}
           onError={handleError}
+          onRectangleDetect={handleRectangleDetect}
         />
+        {showGrid && (
+          <ScannerOverlay
+            active={autoCapture && isAutoCapturing}
+            color={gridColor ?? overlayColor}
+            lineWidth={gridLineWidth}
+          />
+        )}
         {!autoCapture && <TouchableOpacity style={styles.button} onPress={handleManualCapture} />}
         {children}
       </View>
@@ -194,4 +240,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export type { DocScannerHandle };
+export type { DocScannerHandle, RectangleDetectEvent };
