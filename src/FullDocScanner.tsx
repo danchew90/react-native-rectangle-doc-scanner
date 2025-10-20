@@ -201,38 +201,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     cropInitializedRef.current = false;
   }, []);
 
-  const handleCapture = useCallback(
-    (document: DocScannerCapture) => {
-      if (processingCaptureRef.current) {
-        return;
-      }
-
-      const isManualCapture =
-        manualCapture || manualCapturePending.current || document.origin === 'manual';
-
-      const normalizedDoc = normalizeCapturedDocument(document);
-
-      if (isManualCapture) {
-        manualCapturePending.current = false;
-        processingCaptureRef.current = false;
-        cropInitializedRef.current = false;
-        setCapturedDoc(normalizedDoc);
-        setImageSize(null);
-        setCropRectangle(null);
-        setScreen('crop');
-        return;
-      }
-
-      processingCaptureRef.current = true;
-      processAutoCapture(document);
-    },
-    [manualCapture, processAutoCapture],
-  );
-
-  const handleCropChange = useCallback((rectangle: Rectangle) => {
-    setCropRectangle(rectangle);
-  }, []);
-
   const emitError = useCallback(
     (error: Error, fallbackMessage?: string) => {
       console.error('[FullDocScanner] error', error);
@@ -330,6 +298,38 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     },
     [emitError, onResult, resetState],
   );
+
+  const handleCapture = useCallback(
+    (document: DocScannerCapture) => {
+      if (processingCaptureRef.current) {
+        return;
+      }
+
+      const isManualCapture =
+        manualCapture || manualCapturePending.current || document.origin === 'manual';
+
+      const normalizedDoc = normalizeCapturedDocument(document);
+
+      if (isManualCapture) {
+        manualCapturePending.current = false;
+        processingCaptureRef.current = false;
+        cropInitializedRef.current = false;
+        setCapturedDoc(normalizedDoc);
+        setImageSize(null);
+        setCropRectangle(null);
+        setScreen('crop');
+        return;
+      }
+
+      processingCaptureRef.current = true;
+      processAutoCapture(document);
+    },
+    [manualCapture, processAutoCapture],
+  );
+
+  const handleCropChange = useCallback((rectangle: Rectangle) => {
+    setCropRectangle(rectangle);
+  }, []);
 
   const triggerManualCapture = useCallback(() => {
     if (processingCaptureRef.current) {
