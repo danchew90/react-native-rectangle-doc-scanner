@@ -56,15 +56,26 @@
     switch (type) {
         case IPDFRectangeTypeGood:
             self.stableCounter ++;
+            NSLog(@"[DocumentScanner] Good rectangle detected, stableCounter: %ld/%ld", (long)self.stableCounter, (long)self.detectionCountBeforeCapture);
+            break;
+        case IPDFRectangeTypeNotFound:
+            NSLog(@"[DocumentScanner] Rectangle not found, resetting counter");
+            self.stableCounter = 0;
             break;
         default:
-            self.stableCounter = 0;
+            // For other types (bad rectangle), reduce counter slowly instead of resetting
+            if (self.stableCounter > 0) {
+                self.stableCounter--;
+            }
+            NSLog(@"[DocumentScanner] Bad rectangle detected (type: %ld), stableCounter: %ld", (long)type, (long)self.stableCounter);
             break;
     }
 
     _lastDetectionType = type;
 
-    if (self.stableCounter > self.detectionCountBeforeCapture){
+    if (self.stableCounter >= self.detectionCountBeforeCapture){
+        NSLog(@"[DocumentScanner] Auto-capture triggered! stableCounter: %ld >= threshold: %ld", (long)self.stableCounter, (long)self.detectionCountBeforeCapture);
+        self.stableCounter = 0; // Reset to prevent multiple captures
         [self capture];
     }
 }
@@ -101,8 +112,11 @@
 }
 
 - (void) capture {
+    NSLog(@"[DocumentScanner] capture called");
     [self captureImageWithCompletionHander:^(UIImage *croppedImage, UIImage *initialImage, CIRectangleFeature *rectangleFeature) {
+      NSLog(@"[DocumentScanner] captureImageWithCompletionHander callback - croppedImage: %@, initialImage: %@", croppedImage ? @"YES" : @"NO", initialImage ? @"YES" : @"NO");
       if (self.onPictureTaken) {
+            NSLog(@"[DocumentScanner] Calling onPictureTaken");
             // Use maximum JPEG quality (1.0) or user's quality setting, whichever is higher
             // This ensures no quality loss during compression
             CGFloat imageQuality = MAX(self.quality, 0.95);

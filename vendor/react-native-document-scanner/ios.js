@@ -26,7 +26,8 @@ class PdfScanner extends React.Component {
   }
 
   capture() {
-    NativeModules.RNPdfScannerManager.capture();
+    console.log('[PdfScanner/ios.js] capture called');
+    return NativeModules.RNPdfScannerManager.capture();
   }
 
   render() {

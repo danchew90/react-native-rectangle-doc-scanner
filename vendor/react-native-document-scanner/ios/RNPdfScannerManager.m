@@ -33,7 +33,7 @@ RCT_EXPORT_VIEW_PROPERTY(brightness, float)
 RCT_EXPORT_VIEW_PROPERTY(contrast, float)
 
 RCT_EXPORT_METHOD(capture) {
-
+    NSLog(@"[RNPdfScannerManager] capture called, scannerView: %@", _scannerView ? @"YES" : @"NO");
     [_scannerView capture];
 }
 
