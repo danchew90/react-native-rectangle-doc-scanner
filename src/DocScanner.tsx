@@ -240,4 +240,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export type { DocScannerHandle, RectangleDetectEvent };
+export type { DocScannerHandle };
