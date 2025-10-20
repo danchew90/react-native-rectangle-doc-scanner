@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import type { Rectangle } from '../types';
 
@@ -21,7 +21,6 @@ type PolygonMetrics = {
   maxY: number;
   width: number;
   height: number;
-  centerX: number;
 };
 
 const calculateMetrics = (polygon: Rectangle): PolygonMetrics => {
@@ -57,7 +56,6 @@ const calculateMetrics = (polygon: Rectangle): PolygonMetrics => {
     maxY,
     width: maxX - minX,
     height: maxY - minY,
-    centerX: minX + (maxX - minX) / 2,
   };
 };
 
@@ -102,6 +100,7 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
 }) => {
   const scanProgress = useRef(new Animated.Value(0)).current;
   const fallbackBase = useRef(new Animated.Value(0)).current;
+  const [scanY, setScanY] = useState<number | null>(null);
 
   const metrics = useMemo(() => (polygon ? calculateMetrics(polygon) : null), [polygon]);
 
@@ -110,21 +109,19 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
     return Math.max(metrics.height * 0.2, 16);
   }, [metrics]);
 
-  const scanTranslate = useMemo(() => {
-    if (!metrics || scanBarHeight === 0) {
-      return null;
+  const travelDistance = useMemo(() => {
+    if (!metrics) {
+      return 0;
     }
-
-    return scanProgress.interpolate({
-      inputRange: [0, 1],
-      outputRange: [metrics.minY, Math.max(metrics.minY, metrics.maxY - scanBarHeight)],
-    });
-  }, [metrics, scanBarHeight, scanProgress]);
+    return Math.max(metrics.height - scanBarHeight, 0);
+  }, [metrics, scanBarHeight]);
 
   useEffect(() => {
-    if (!active || !metrics || metrics.height <= 1) {
-      scanProgress.stopAnimation();
-      scanProgress.setValue(0);
+    scanProgress.stopAnimation();
+    scanProgress.setValue(0);
+    setScanY(null);
+
+    if (!active || !metrics || travelDistance <= 0) {
       return undefined;
     }
 
@@ -148,8 +145,27 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
     loop.start();
     return () => {
       loop.stop();
+      scanProgress.stopAnimation();
     };
-  }, [active, metrics, scanProgress]);
+  }, [active, metrics, scanProgress, travelDistance]);
+
+  useEffect(() => {
+    if (!metrics || travelDistance <= 0) {
+      setScanY(null);
+      return undefined;
+    }
+
+    const listenerId = scanProgress.addListener(({ value }) => {
+      const nextValue = metrics.minY + travelDistance * value;
+      if (Number.isFinite(nextValue)) {
+        setScanY(nextValue);
+      }
+    });
+
+    return () => {
+      scanProgress.removeListener(listenerId);
+    };
+  }, [metrics, scanProgress, travelDistance]);
 
   if (!polygon || !metrics || metrics.width <= 0 || metrics.height <= 0) {
     return null;
@@ -157,10 +173,9 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
 
   if (SvgModule) {
     const { default: Svg, Polygon, Line, Defs, LinearGradient, Stop, Rect } = SvgModule;
-    const AnimatedRect = Animated.createAnimatedComponent(Rect);
-
     const gridLines = createGridLines(polygon);
     const points = createPointsString(polygon);
+    const scanRectY = scanY ?? metrics.minY;
 
     return (
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -186,13 +201,13 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
               <Stop offset="100%" stopColor="rgba(255,255,255,0)" />
             </LinearGradient>
           </Defs>
-          {active && scanTranslate && (
-            <AnimatedRect
+          {active && travelDistance > 0 && Number.isFinite(scanRectY) && (
+            <Rect
               x={metrics.minX}
               width={metrics.width}
               height={scanBarHeight}
               fill="url(#scanGradient)"
-              y={scanTranslate}
+              y={scanRectY}
             />
           )}
         </Svg>
@@ -200,9 +215,10 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
     );
   }
 
-  // Fallback rendering without react-native-svg
   const relativeTranslate =
-    scanTranslate != null ? Animated.subtract(scanTranslate, metrics.minY) : fallbackBase;
+    metrics && travelDistance > 0
+      ? Animated.multiply(scanProgress, travelDistance)
+      : fallbackBase;
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -219,7 +235,7 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
           },
         ]}
       >
-        {active && (
+        {active && travelDistance > 0 && (
           <Animated.View
             style={[
               styles.fallbackScanBar,
