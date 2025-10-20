@@ -30,7 +30,6 @@
     "*.json"
   ],
   "peerDependencies": {
-    "@shopify/react-native-skia": "*",
     "react": "*",
     "react-native": "*",
     "react-native-perspective-image-cropper": "*"

@@ -1,94 +1,54 @@
-import React, { useEffect, useMemo } from 'react';
-import { View, processColor, StyleSheet } from 'react-native';
-import {
-  Canvas,
-  LinearGradient,
-  Path,
-  Skia,
-  SkPath,
-  useValue,
-  vec,
-} from '@shopify/react-native-skia';
-import type { Point, Rectangle } from '../types';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
+import type { Rectangle } from '../types';
 
-export interface ScannerOverlayProps {
-  /** 자동 캡처 중임을 표시할 때 true로 설정합니다. */
-  active: boolean;
-  color?: string;
-  lineWidth?: number;
-  polygon?: Rectangle | null;
+let SvgModule: typeof import('react-native-svg') | null = null;
+
+try {
+  // eslint-disable-next-line global-require, @typescript-eslint/no-var-requires
+  SvgModule = require('react-native-svg');
+} catch (error) {
+  SvgModule = null;
 }
 
-const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const SCAN_DURATION_MS = 2200;
+const GRID_STEPS = [1 / 3, 2 / 3];
 
-const withAlpha = (inputColor: string, alpha: number): string => {
-  const parsed = processColor(inputColor);
-  const normalized = typeof parsed === 'number' ? parsed >>> 0 : null;
-
-  if (normalized == null) {
-    return inputColor;
-  }
-
-  const r = (normalized >> 16) & 0xff;
-  const g = (normalized >> 8) & 0xff;
-  const b = normalized & 0xff;
-  const clampedAlpha = clamp(alpha, 0, 1);
-
-  return `rgba(${r}, ${g}, ${b}, ${clampedAlpha})`;
+type PolygonMetrics = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  width: number;
+  height: number;
+  centerX: number;
 };
 
-const createPolygonPath = (polygon: Rectangle | null): SkPath | null => {
-  if (!polygon) {
-    return null;
-  }
-
-  const path = Skia.Path.Make();
-  path.moveTo(polygon.topLeft.x, polygon.topLeft.y);
-  path.lineTo(polygon.topRight.x, polygon.topRight.y);
-  path.lineTo(polygon.bottomRight.x, polygon.bottomRight.y);
-  path.lineTo(polygon.bottomLeft.x, polygon.bottomLeft.y);
-  path.close();
-  return path;
-};
-
-const interpolate = (a: Point, b: Point, t: number): Point => ({
-  x: a.x + (b.x - a.x) * t,
-  y: a.y + (b.y - a.y) * t,
-});
-
-const createLinePath = (start: Point, end: Point): SkPath => {
-  const path = Skia.Path.Make();
-  path.moveTo(start.x, start.y);
-  path.lineTo(end.x, end.y);
-  return path;
-};
-
-const createGridPaths = (polygon: Rectangle | null): SkPath[] => {
-  if (!polygon) {
-    return [];
-  }
-
-  const lines: SkPath[] = [];
-  const steps = [1 / 3, 2 / 3];
-
-  steps.forEach((t) => {
-    const horizontalStart = interpolate(polygon.topLeft, polygon.bottomLeft, t);
-    const horizontalEnd = interpolate(polygon.topRight, polygon.bottomRight, t);
-    lines.push(createLinePath(horizontalStart, horizontalEnd));
-
-    const verticalStart = interpolate(polygon.topLeft, polygon.topRight, t);
-    const verticalEnd = interpolate(polygon.bottomLeft, polygon.bottomRight, t);
-    lines.push(createLinePath(verticalStart, verticalEnd));
-  });
-
-  return lines;
-};
-
-const getPolygonMetrics = (polygon: Rectangle) => {
-  const minX = Math.min(polygon.topLeft.x, polygon.bottomLeft.x, polygon.topRight.x, polygon.bottomRight.x);
-  const maxX = Math.max(polygon.topLeft.x, polygon.bottomLeft.x, polygon.topRight.x, polygon.bottomRight.x);
-  const minY = Math.min(polygon.topLeft.y, polygon.topRight.y, polygon.bottomLeft.y, polygon.bottomRight.y);
-  const maxY = Math.max(polygon.topLeft.y, polygon.topRight.y, polygon.bottomLeft.y, polygon.bottomRight.y);
+const calculateMetrics = (polygon: Rectangle): PolygonMetrics => {
+  const minX = Math.min(
+    polygon.topLeft.x,
+    polygon.bottomLeft.x,
+    polygon.topRight.x,
+    polygon.bottomRight.x,
+  );
+  const maxX = Math.max(
+    polygon.topLeft.x,
+    polygon.bottomLeft.x,
+    polygon.topRight.x,
+    polygon.bottomRight.x,
+  );
+  const minY = Math.min(
+    polygon.topLeft.y,
+    polygon.topRight.y,
+    polygon.bottomLeft.y,
+    polygon.bottomRight.y,
+  );
+  const maxY = Math.max(
+    polygon.topLeft.y,
+    polygon.topRight.y,
+    polygon.bottomLeft.y,
+    polygon.bottomRight.y,
+  );
 
   return {
     minX,
@@ -101,7 +61,38 @@ const getPolygonMetrics = (polygon: Rectangle) => {
   };
 };
 
-const SCAN_DURATION_MS = 2200;
+const createPointsString = (polygon: Rectangle): string =>
+  [
+    `${polygon.topLeft.x},${polygon.topLeft.y}`,
+    `${polygon.topRight.x},${polygon.topRight.y}`,
+    `${polygon.bottomRight.x},${polygon.bottomRight.y}`,
+    `${polygon.bottomLeft.x},${polygon.bottomLeft.y}`,
+  ].join(' ');
+
+const interpolatePoint = (a: { x: number; y: number }, b: { x: number; y: number }, t: number) => ({
+  x: a.x + (b.x - a.x) * t,
+  y: a.y + (b.y - a.y) * t,
+});
+
+const createGridLines = (polygon: Rectangle) =>
+  GRID_STEPS.flatMap((step) => {
+    const horizontalStart = interpolatePoint(polygon.topLeft, polygon.bottomLeft, step);
+    const horizontalEnd = interpolatePoint(polygon.topRight, polygon.bottomRight, step);
+    const verticalStart = interpolatePoint(polygon.topLeft, polygon.topRight, step);
+    const verticalEnd = interpolatePoint(polygon.bottomLeft, polygon.bottomRight, step);
+
+    return [
+      { x1: horizontalStart.x, y1: horizontalStart.y, x2: horizontalEnd.x, y2: horizontalEnd.y },
+      { x1: verticalStart.x, y1: verticalStart.y, x2: verticalEnd.x, y2: verticalEnd.y },
+    ];
+  });
+
+export interface ScannerOverlayProps {
+  active: boolean;
+  color?: string;
+  lineWidth?: number;
+  polygon?: Rectangle | null;
+}
 
 export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
   active,
@@ -109,90 +100,150 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
   lineWidth = StyleSheet.hairlineWidth,
   polygon,
 }) => {
-  const path = useMemo(() => createPolygonPath(polygon ?? null), [polygon]);
-  const gridPaths = useMemo(() => createGridPaths(polygon ?? null), [polygon]);
-  const metrics = useMemo(() => (polygon ? getPolygonMetrics(polygon) : null), [polygon]);
+  const scanProgress = useRef(new Animated.Value(0)).current;
+  const fallbackBase = useRef(new Animated.Value(0)).current;
 
-  const gradientStart = useValue(vec(0, 0));
-  const gradientEnd = useValue(vec(0, 0));
-  const gradientColors = useValue<number[]>([
-    Skia.Color(withAlpha(color, 0)),
-    Skia.Color(withAlpha(color, 0.85)),
-    Skia.Color(withAlpha(color, 0)),
-  ]);
-  const gradientPositions = useValue<number[]>([0, 0.5, 1]);
+  const metrics = useMemo(() => (polygon ? calculateMetrics(polygon) : null), [polygon]);
+
+  const scanBarHeight = useMemo(() => {
+    if (!metrics) return 0;
+    return Math.max(metrics.height * 0.2, 16);
+  }, [metrics]);
+
+  const scanTranslate = useMemo(() => {
+    if (!metrics || scanBarHeight === 0) {
+      return null;
+    }
+
+    return scanProgress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [metrics.minY, Math.max(metrics.minY, metrics.maxY - scanBarHeight)],
+    });
+  }, [metrics, scanBarHeight, scanProgress]);
 
   useEffect(() => {
-    if (!metrics) {
-      return;
+    if (!active || !metrics || metrics.height <= 1) {
+      scanProgress.stopAnimation();
+      scanProgress.setValue(0);
+      return undefined;
     }
 
-    let frame: number | null = null;
-    const transparentColor = Skia.Color(withAlpha(color, 0));
-    const highlightColor = Skia.Color(withAlpha(color, 0.9));
-    const bandSize = Math.max(metrics.height * 0.25, 20);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanProgress, {
+          toValue: 1,
+          duration: SCAN_DURATION_MS,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: false,
+        }),
+        Animated.timing(scanProgress, {
+          toValue: 0,
+          duration: SCAN_DURATION_MS,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: false,
+        }),
+      ]),
+    );
 
-    const animate = () => {
-      const now = Date.now() % SCAN_DURATION_MS;
-      const progress = now / SCAN_DURATION_MS;
-      const travel = metrics.height + bandSize * 2;
-      const start = metrics.minY - bandSize + travel * progress;
-      const end = start + bandSize;
-
-      const clampedStart = clamp(start, metrics.minY, metrics.maxY);
-      const clampedEnd = clamp(end, metrics.minY, metrics.maxY);
-
-      gradientStart.current = vec(metrics.centerX, clampedStart);
-      gradientEnd.current = vec(
-        metrics.centerX,
-        clampedEnd <= clampedStart ? clampedStart + 1 : clampedEnd,
-      );
-      gradientColors.current = [transparentColor, highlightColor, transparentColor];
-
-      frame = requestAnimationFrame(animate);
-    };
-
-    gradientStart.current = vec(metrics.centerX, metrics.minY);
-    gradientEnd.current = vec(metrics.centerX, metrics.maxY);
-
-    if (active) {
-      animate();
-    } else {
-      gradientColors.current = [transparentColor, transparentColor, transparentColor];
-    }
-
+    loop.start();
     return () => {
-      if (frame !== null) {
-        cancelAnimationFrame(frame);
-      }
+      loop.stop();
     };
-  }, [active, color, gradientColors, gradientEnd, gradientStart, metrics]);
+  }, [active, metrics, scanProgress]);
 
-  if (!polygon || !path || !metrics) {
+  if (!polygon || !metrics || metrics.width <= 0 || metrics.height <= 0) {
     return null;
   }
 
-  const strokeColor = withAlpha(color, 0.9);
-  const fillColor = withAlpha(color, 0.18);
-  const gridColor = withAlpha(color, 0.35);
+  if (SvgModule) {
+    const { default: Svg, Polygon, Line, Defs, LinearGradient, Stop, Rect } = SvgModule;
+    const AnimatedRect = Animated.createAnimatedComponent(Rect);
+
+    const gridLines = createGridLines(polygon);
+    const points = createPointsString(polygon);
+
+    return (
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <Svg style={StyleSheet.absoluteFill}>
+          <Polygon points={points} fill={color} opacity={0.15} />
+          {gridLines.map((line, index) => (
+            <Line
+              key={`grid-${index}`}
+              x1={line.x1}
+              y1={line.y1}
+              x2={line.x2}
+              y2={line.y2}
+              stroke={color}
+              strokeWidth={lineWidth}
+              opacity={0.5}
+            />
+          ))}
+          <Polygon points={points} stroke={color} strokeWidth={lineWidth} fill="none" />
+          <Defs>
+            <LinearGradient id="scanGradient" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="rgba(255,255,255,0)" />
+              <Stop offset="50%" stopColor={color} stopOpacity={0.8} />
+              <Stop offset="100%" stopColor="rgba(255,255,255,0)" />
+            </LinearGradient>
+          </Defs>
+          {active && scanTranslate && (
+            <AnimatedRect
+              x={metrics.minX}
+              width={metrics.width}
+              height={scanBarHeight}
+              fill="url(#scanGradient)"
+              y={scanTranslate}
+            />
+          )}
+        </Svg>
+      </View>
+    );
+  }
+
+  // Fallback rendering without react-native-svg
+  const relativeTranslate =
+    scanTranslate != null ? Animated.subtract(scanTranslate, metrics.minY) : fallbackBase;
 
   return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
-      <Canvas style={StyleSheet.absoluteFillObject}>
-        <Path path={path} color={fillColor} style="fill" />
-        {gridPaths.map((gridPath, index) => (
-          <Path key={`grid-${index}`} path={gridPath} color={gridColor} style="stroke" strokeWidth={lineWidth} />
-        ))}
-        <Path path={path} color={strokeColor} style="stroke" strokeWidth={lineWidth} />
-        <Path path={path}>
-          <LinearGradient
-            start={gradientStart}
-            end={gradientEnd}
-            colors={gradientColors}
-            positions={gradientPositions}
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <View
+        style={[
+          styles.fallbackBox,
+          {
+            left: metrics.minX,
+            top: metrics.minY,
+            width: metrics.width,
+            height: metrics.height,
+            borderColor: color,
+            borderWidth: lineWidth,
+          },
+        ]}
+      >
+        {active && (
+          <Animated.View
+            style={[
+              styles.fallbackScanBar,
+              {
+                backgroundColor: color,
+                height: scanBarHeight,
+                transform: [{ translateY: relativeTranslate }],
+              },
+            ]}
           />
-        </Path>
-      </Canvas>
+        )}
+      </View>
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  fallbackBox: {
+    position: 'absolute',
+    backgroundColor: 'rgba(11, 126, 244, 0.1)',
+    overflow: 'hidden',
+  },
+  fallbackScanBar: {
+    width: '100%',
+    opacity: 0.4,
+  },
+});
