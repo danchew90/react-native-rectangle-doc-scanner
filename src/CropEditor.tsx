@@ -120,7 +120,21 @@ export const CropEditor: React.FC<CropEditorProps> = ({
     onCropChange?.(rect);
   }, [imageSize, onCropChange]);
 
-  const imageUri = `file://${document.path}`;
+  // Ensure proper file URI format
+  const imageUri = document.path.startsWith('file://')
+    ? document.path
+    : `file://${document.path}`;
+
+  const initialRect = getInitialRectangle();
+
+  console.log('[CropEditor] Rendering with:', {
+    imageUri,
+    imageSize,
+    displaySize,
+    initialRect,
+    isLoading: isImageLoading,
+    hasError: !!loadError,
+  });
 
   return (
     <View style={styles.container} onLayout={handleLayout}>
@@ -136,17 +150,26 @@ export const CropEditor: React.FC<CropEditorProps> = ({
           <Text style={styles.loadingText}>Loading image...</Text>
         </View>
       ) : (
-        <CustomImageCropper
-          height={displaySize.height}
-          width={displaySize.width}
-          image={imageUri}
-          rectangleCoordinates={getInitialRectangle()}
-          overlayColor={overlayColor}
-          overlayStrokeColor={overlayStrokeColor}
-          handlerColor={handlerColor}
-          enablePanStrict={enablePanStrict}
-          onDragEnd={handleDragEnd}
-        />
+        <>
+          <CustomImageCropper
+            height={displaySize.height}
+            width={displaySize.width}
+            image={imageUri}
+            rectangleCoordinates={initialRect}
+            overlayColor={overlayColor}
+            overlayStrokeColor={overlayStrokeColor}
+            handlerColor={handlerColor}
+            enablePanStrict={enablePanStrict}
+            onDragEnd={handleDragEnd}
+          />
+          {/* Debug: Show image in background to verify it loads */}
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.debugImage}
+            onLoad={() => console.log('[CropEditor] Debug image loaded')}
+            onError={(e) => console.error('[CropEditor] Debug image error:', e.nativeEvent.error)}
+          />
+        </>
       )}
     </View>
   );
@@ -184,10 +207,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
   },
-  hiddenImage: {
-    width: 1,
-    height: 1,
-    opacity: 0,
+  debugImage: {
     position: 'absolute',
+    width: 100,
+    height: 100,
+    top: 10,
+    right: 10,
+    opacity: 0.5,
+    borderWidth: 2,
+    borderColor: 'red',
   },
 });

@@ -122,15 +122,15 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const processingCaptureRef = useRef(false);
   const cropInitializedRef = useRef(false);
 
-  const mergedStrings = useMemo<Required<FullDocScannerStrings>>(
+  const mergedStrings = useMemo(
     () => ({
-      captureHint: strings?.captureHint ?? 'Align the document within the frame.',
-      manualHint: strings?.manualHint ?? 'Tap the button below to capture.',
-      cancel: strings?.cancel ?? 'Cancel',
-      confirm: strings?.confirm ?? 'Use photo',
-      retake: strings?.retake ?? 'Retake',
-      cropTitle: strings?.cropTitle ?? 'Adjust the corners',
-      processing: strings?.processing ?? 'Processing…',
+      captureHint: strings?.captureHint ?? '',
+      manualHint: strings?.manualHint ?? '',
+      cancel: strings?.cancel ?? '',
+      confirm: strings?.confirm ?? '',
+      retake: strings?.retake ?? '',
+      cropTitle: strings?.cropTitle ?? '',
+      processing: strings?.processing ?? '',
     }),
     [strings],
   );
@@ -479,7 +479,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             onCapture={handleCapture}
             showManualCaptureButton={false}
           >
-            <View style={styles.overlay} pointerEvents="box-none">
+            <View style={styles.overlayTop} pointerEvents="box-none">
               <TouchableOpacity
                 style={styles.closeButton}
                 onPress={handleClose}
@@ -488,10 +488,20 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               >
                 <Text style={styles.closeButtonLabel}>×</Text>
               </TouchableOpacity>
-              <View style={styles.instructions} pointerEvents="none">
-                <Text style={styles.captureText}>{mergedStrings.captureHint}</Text>
-                <Text style={styles.captureText}>{mergedStrings.manualHint}</Text>
+            </View>
+            {(mergedStrings.captureHint || mergedStrings.manualHint) && (
+              <View style={styles.instructionsContainer} pointerEvents="none">
+                <View style={styles.instructions}>
+                  {mergedStrings.captureHint && (
+                    <Text style={styles.captureText}>{mergedStrings.captureHint}</Text>
+                  )}
+                  {mergedStrings.manualHint && (
+                    <Text style={styles.captureText}>{mergedStrings.manualHint}</Text>
+                  )}
+                </View>
               </View>
+            )}
+            <View style={styles.shutterContainer} pointerEvents="box-none">
               <TouchableOpacity
                 style={[styles.shutterButton, processing && styles.shutterButtonDisabled]}
                 onPress={triggerManualCapture}
@@ -517,10 +527,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           />
           <View style={styles.cropFooter}>
             <TouchableOpacity style={[styles.actionButton, styles.secondaryButton]} onPress={handleRetake}>
-              <Text style={styles.buttonText}>{mergedStrings.retake}</Text>
+              {mergedStrings.retake && <Text style={styles.buttonText}>{mergedStrings.retake}</Text>}
             </TouchableOpacity>
             <TouchableOpacity style={[styles.actionButton, styles.primaryButton]} onPress={handleConfirm}>
-              <Text style={styles.buttonText}>{mergedStrings.confirm}</Text>
+              {mergedStrings.confirm && <Text style={styles.buttonText}>{mergedStrings.confirm}</Text>}
             </TouchableOpacity>
           </View>
         </View>
@@ -529,7 +539,9 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       {processing && (
         <View style={styles.processingOverlay}>
           <ActivityIndicator size="large" color={overlayStrokeColor} />
-          <Text style={styles.processingText}>{mergedStrings.processing}</Text>
+          {mergedStrings.processing && (
+            <Text style={styles.processingText}>{mergedStrings.processing}</Text>
+          )}
         </View>
       )}
     </View>
@@ -544,12 +556,27 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'space-between',
-    paddingTop: 48,
-    paddingBottom: 64,
-    paddingHorizontal: 24,
+  overlayTop: {
+    position: 'absolute',
+    top: 48,
+    right: 24,
+    zIndex: 10,
+  },
+  instructionsContainer: {
+    position: 'absolute',
+    top: '40%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  shutterContainer: {
+    position: 'absolute',
+    bottom: 64,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 10,
   },
   closeButton: {
     width: 40,
@@ -558,7 +585,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    alignSelf: 'flex-end',
   },
   closeButtonLabel: {
     color: '#fff',
@@ -567,7 +593,6 @@ const styles = StyleSheet.create({
     marginTop: -3,
   },
   instructions: {
-    alignSelf: 'center',
     backgroundColor: 'rgba(0,0,0,0.55)',
     borderRadius: 16,
     paddingHorizontal: 20,
@@ -579,7 +604,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   shutterButton: {
-    alignSelf: 'center',
     width: 80,
     height: 80,
     borderRadius: 40,
