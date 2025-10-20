@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,7 +12,7 @@ import {
 import { DocScanner } from './DocScanner';
 import { CropEditor } from './CropEditor';
 import type { CapturedDocument, Point, Quad, Rectangle } from './types';
-import type { DetectionConfig } from './DocScanner';
+import type { DetectionConfig, DocScannerHandle, DocScannerCapture } from './DocScanner';
 import { quadToRectangle, scaleRectangle } from './utils/coordinate';
 
 type CustomCropManagerType = {
@@ -33,6 +33,39 @@ type CustomCropManagerType = {
 const stripFileUri = (value: string) => value.replace(/^file:\/\//, '');
 
 const ensureFileUri = (value: string) => (value.startsWith('file://') ? value : `file://${value}`);
+
+const createFullImageRectangle = (width: number, height: number): Rectangle => ({
+  topLeft: { x: 0, y: 0 },
+  topRight: { x: width, y: 0 },
+  bottomRight: { x: width, y: height },
+  bottomLeft: { x: 0, y: height },
+});
+
+const resolveImageSize = (
+  path: string,
+  fallbackWidth: number,
+  fallbackHeight: number,
+): Promise<{ width: number; height: number }> =>
+  new Promise((resolve) => {
+    Image.getSize(
+      ensureFileUri(path),
+      (width, height) => resolve({ width, height }),
+      () => resolve({
+        width: fallbackWidth > 0 ? fallbackWidth : 0,
+        height: fallbackHeight > 0 ? fallbackHeight : 0,
+      }),
+    );
+  });
+
+const normalizeCapturedDocument = (document: DocScannerCapture): CapturedDocument => {
+  const normalizedPath = stripFileUri(document.initialPath ?? document.path);
+  return {
+    ...document,
+    path: normalizedPath,
+    initialPath: document.initialPath ? stripFileUri(document.initialPath) : normalizedPath,
+    croppedPath: document.croppedPath ? stripFileUri(document.croppedPath) : null,
+  };
+};
 
 export interface FullDocScannerResult {
   original: CapturedDocument;
@@ -90,6 +123,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const [processing, setProcessing] = useState(false);
   const resolvedGridColor = gridColor ?? overlayColor;
+  const docScannerRef = useRef<DocScannerHandle | null>(null);
+  const manualCapturePending = useRef(false);
+  const processingCaptureRef = useRef(false);
+  const cropInitializedRef = useRef(false);
 
   const mergedStrings = useMemo<Required<FullDocScannerStrings>>(
     () => ({
@@ -117,7 +154,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   }, [capturedDoc]);
 
   useEffect(() => {
-    if (!capturedDoc || !imageSize || cropRectangle) {
+    if (!capturedDoc || !imageSize || cropInitializedRef.current) {
       return;
     }
 
@@ -148,9 +185,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     }
 
     if (initialRectangle) {
+      cropInitializedRef.current = true;
       setCropRectangle(initialRectangle);
     }
-  }, [capturedDoc, imageSize, cropRectangle]);
+  }, [capturedDoc, imageSize]);
 
   const resetState = useCallback(() => {
     setScreen('scanner');
@@ -158,31 +196,37 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setCropRectangle(null);
     setImageSize(null);
     setProcessing(false);
+    manualCapturePending.current = false;
+    processingCaptureRef.current = false;
+    cropInitializedRef.current = false;
   }, []);
 
   const handleCapture = useCallback(
-    (document: CapturedDocument) => {
-      const normalizedPath = stripFileUri(document.path);
-      const nextQuad = document.quad && document.quad.length === 4 ? (document.quad as Quad) : null;
-      const quadRectangle = nextQuad ? quadToRectangle(nextQuad) : null;
-      const nextRectangle = document.rectangle ?? quadRectangle ?? null;
-      const normalizedInitial =
-        document.initialPath != null ? stripFileUri(document.initialPath) : normalizedPath;
-      const normalizedCropped =
-        document.croppedPath != null ? stripFileUri(document.croppedPath) : null;
+    (document: DocScannerCapture) => {
+      if (processingCaptureRef.current) {
+        return;
+      }
 
-      setCapturedDoc({
-        ...document,
-        path: normalizedPath,
-        initialPath: normalizedInitial,
-        croppedPath: normalizedCropped,
-        quad: nextQuad,
-        rectangle: nextRectangle,
-      });
-      setCropRectangle(null);
-      setScreen('crop');
+      const isManualCapture =
+        manualCapture || manualCapturePending.current || document.origin === 'manual';
+
+      const normalizedDoc = normalizeCapturedDocument(document);
+
+      if (isManualCapture) {
+        manualCapturePending.current = false;
+        processingCaptureRef.current = false;
+        cropInitializedRef.current = false;
+        setCapturedDoc(normalizedDoc);
+        setImageSize(null);
+        setCropRectangle(null);
+        setScreen('crop');
+        return;
+      }
+
+      processingCaptureRef.current = true;
+      processAutoCapture(document);
     },
-    [],
+    [manualCapture, processAutoCapture],
   );
 
   const handleCropChange = useCallback((rectangle: Rectangle) => {
@@ -200,7 +244,110 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     [onError],
   );
 
-  const performCrop = useCallback(async (): Promise<string> => {
+  const processAutoCapture = useCallback(
+    async (document: DocScannerCapture) => {
+      manualCapturePending.current = false;
+      const normalizedDoc = normalizeCapturedDocument(document);
+      const cropManager = NativeModules.CustomCropManager as CustomCropManagerType | undefined;
+
+      if (!cropManager?.crop) {
+        emitError(new Error('CustomCropManager.crop is not available'));
+        return;
+      }
+
+      setProcessing(true);
+
+      try {
+        const size = await resolveImageSize(
+          normalizedDoc.path,
+          normalizedDoc.width,
+          normalizedDoc.height,
+        );
+
+        const targetWidthRaw = size.width > 0 ? size.width : normalizedDoc.width;
+        const targetHeightRaw = size.height > 0 ? size.height : normalizedDoc.height;
+        const baseWidth = normalizedDoc.width > 0 ? normalizedDoc.width : targetWidthRaw;
+        const baseHeight = normalizedDoc.height > 0 ? normalizedDoc.height : targetHeightRaw;
+        const targetWidth = targetWidthRaw > 0 ? targetWidthRaw : baseWidth || 1;
+        const targetHeight = targetHeightRaw > 0 ? targetHeightRaw : baseHeight || 1;
+
+        let rectangleBase: Rectangle | null = normalizedDoc.rectangle ?? null;
+        if (!rectangleBase && normalizedDoc.quad && normalizedDoc.quad.length === 4) {
+          rectangleBase = quadToRectangle(normalizedDoc.quad as Quad);
+        }
+
+        const scaledRectangle = rectangleBase
+          ? scaleRectangle(
+              rectangleBase,
+              baseWidth || targetWidth,
+              baseHeight || targetHeight,
+              targetWidth,
+              targetHeight,
+            )
+          : null;
+
+        const rectangleToUse = scaledRectangle ?? createFullImageRectangle(targetWidth, targetHeight);
+
+        const base64 = await new Promise<string>((resolve, reject) => {
+          cropManager.crop(
+            {
+              topLeft: rectangleToUse.topLeft,
+              topRight: rectangleToUse.topRight,
+              bottomRight: rectangleToUse.bottomRight,
+              bottomLeft: rectangleToUse.bottomLeft,
+              width: targetWidth,
+              height: targetHeight,
+            },
+            ensureFileUri(normalizedDoc.path),
+            (error: unknown, result: { image: string }) => {
+              if (error) {
+                reject(error instanceof Error ? error : new Error('Crop failed'));
+                return;
+              }
+              resolve(result.image);
+            },
+          );
+        });
+
+        const finalDoc: CapturedDocument = {
+          ...normalizedDoc,
+          rectangle: rectangleToUse,
+        };
+
+        onResult({
+          original: finalDoc,
+          rectangle: rectangleToUse,
+          base64,
+        });
+
+        resetState();
+      } catch (error) {
+        setProcessing(false);
+        emitError(error instanceof Error ? error : new Error(String(error)), 'Failed to process document.');
+      } finally {
+        processingCaptureRef.current = false;
+      }
+    },
+    [emitError, onResult, resetState],
+  );
+
+  const triggerManualCapture = useCallback(() => {
+    if (processingCaptureRef.current) {
+      return;
+    }
+    manualCapturePending.current = true;
+    const capturePromise = docScannerRef.current?.capture();
+    if (capturePromise && typeof capturePromise.catch === 'function') {
+      capturePromise.catch((error: unknown) => {
+        manualCapturePending.current = false;
+        console.warn('[FullDocScanner] manual capture failed', error);
+      });
+    } else if (!capturePromise) {
+      manualCapturePending.current = false;
+    }
+  }, []);
+
+  const performCrop = useCallback(async (): Promise<{ base64: string; rectangle: Rectangle }> => {
     if (!capturedDoc) {
       throw new Error('No captured document to crop');
     }
@@ -214,43 +361,43 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
     const baseWidth = capturedDoc.width > 0 ? capturedDoc.width : size.width;
     const baseHeight = capturedDoc.height > 0 ? capturedDoc.height : size.height;
+    const targetWidth = size.width > 0 ? size.width : baseWidth || 1;
+    const targetHeight = size.height > 0 ? size.height : baseHeight || 1;
 
-    const rectangleFromDetection = capturedDoc.rectangle
-      ? scaleRectangle(
-          capturedDoc.rectangle,
-          baseWidth,
-          baseHeight,
-          size.width,
-          size.height,
-        )
-      : null;
+    let fallbackRectangle: Rectangle | null = null;
 
-    let fallbackRectangle: Rectangle | null = rectangleFromDetection;
-
-    if (!fallbackRectangle && capturedDoc.quad && capturedDoc.quad.length === 4) {
+    if (capturedDoc.rectangle) {
+      fallbackRectangle = scaleRectangle(
+        capturedDoc.rectangle,
+        baseWidth || targetWidth,
+        baseHeight || targetHeight,
+        targetWidth,
+        targetHeight,
+      );
+    } else if (capturedDoc.quad && capturedDoc.quad.length === 4) {
       const quadRectangle = quadToRectangle(capturedDoc.quad as Quad);
       if (quadRectangle) {
         fallbackRectangle = scaleRectangle(
           quadRectangle,
-          baseWidth,
-          baseHeight,
-          size.width,
-          size.height,
+          baseWidth || targetWidth,
+          baseHeight || targetHeight,
+          targetWidth,
+          targetHeight,
         );
       }
     }
 
-    const rectangle = cropRectangle ?? fallbackRectangle;
+    const rectangleToUse = cropRectangle ?? fallbackRectangle ?? createFullImageRectangle(targetWidth, targetHeight);
 
     const base64 = await new Promise<string>((resolve, reject) => {
       cropManager.crop(
         {
-          topLeft: rectangle?.topLeft ?? { x: 0, y: 0 },
-          topRight: rectangle?.topRight ?? { x: size.width, y: 0 },
-          bottomRight: rectangle?.bottomRight ?? { x: size.width, y: size.height },
-          bottomLeft: rectangle?.bottomLeft ?? { x: 0, y: size.height },
-          width: size.width,
-          height: size.height,
+          topLeft: rectangleToUse.topLeft,
+          topRight: rectangleToUse.topRight,
+          bottomRight: rectangleToUse.bottomRight,
+          bottomLeft: rectangleToUse.bottomLeft,
+          width: targetWidth,
+          height: targetHeight,
         },
         ensureFileUri(capturedDoc.path),
         (error: unknown, result: { image: string }) => {
@@ -264,7 +411,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       );
     });
 
-    return base64;
+    return { base64, rectangle: rectangleToUse };
   }, [capturedDoc, cropRectangle, imageSize]);
 
   const handleConfirm = useCallback(async () => {
@@ -274,11 +421,15 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
     try {
       setProcessing(true);
-      const base64 = await performCrop();
+      const { base64, rectangle } = await performCrop();
       setProcessing(false);
+      const finalDoc: CapturedDocument = {
+        ...capturedDoc,
+        rectangle,
+      };
       onResult({
-        original: capturedDoc,
-        rectangle: cropRectangle,
+        original: finalDoc,
+        rectangle,
         base64,
       });
       resetState();
@@ -286,7 +437,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       setProcessing(false);
       emitError(error instanceof Error ? error : new Error(String(error)), 'Failed to process document.');
     }
-  }, [capturedDoc, cropRectangle, emitError, onResult, performCrop, resetState]);
+  }, [capturedDoc, emitError, onResult, performCrop, resetState]);
 
   const handleRetake = useCallback(() => {
     resetState();
@@ -302,6 +453,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       {screen === 'scanner' && (
         <View style={styles.flex}>
           <DocScanner
+            ref={docScannerRef}
             autoCapture={!manualCapture}
             overlayColor={overlayColor}
             showGrid={showGrid}
@@ -322,8 +474,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               </TouchableOpacity>
               <View style={styles.instructions} pointerEvents="none">
                 <Text style={styles.captureText}>{mergedStrings.captureHint}</Text>
-                {manualCapture && <Text style={styles.captureText}>{mergedStrings.manualHint}</Text>}
+                <Text style={styles.captureText}>{mergedStrings.manualHint}</Text>
               </View>
+              <TouchableOpacity
+                style={[styles.shutterButton, processing && styles.shutterButtonDisabled]}
+                onPress={triggerManualCapture}
+                disabled={processing}
+                accessibilityLabel={mergedStrings.manualHint}
+                accessibilityRole="button"
+              >
+                <View style={styles.shutterInner} />
+              </TouchableOpacity>
             </View>
           </DocScanner>
         </View>
@@ -400,6 +561,26 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     textAlign: 'center',
+  },
+  shutterButton: {
+    alignSelf: 'center',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 4,
+    borderColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  shutterButtonDisabled: {
+    opacity: 0.4,
+  },
+  shutterInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#fff',
   },
   cropFooter: {
     position: 'absolute',

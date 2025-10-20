@@ -36,6 +36,7 @@ export type DocScannerCapture = {
   rectangle: Rectangle | null;
   width: number;
   height: number;
+  origin: 'auto' | 'manual';
 };
 
 const isFiniteNumber = (value: unknown): value is number =>
@@ -93,6 +94,7 @@ interface Props {
   gridLineWidth?: number;
   detectionConfig?: DetectionConfig;
   onRectangleDetect?: (event: RectangleDetectEvent) => void;
+  showManualCaptureButton?: boolean;
 }
 
 export type DocScannerHandle = {
@@ -118,6 +120,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       gridLineWidth,
       detectionConfig,
       onRectangleDetect,
+      showManualCaptureButton = false,
     },
     ref,
   ) => {
@@ -129,6 +132,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
     const [isAutoCapturing, setIsAutoCapturing] = useState(false);
     const [detectedRectangle, setDetectedRectangle] = useState<RectangleDetectEvent | null>(null);
     const lastRectangleRef = useRef<Rectangle | null>(null);
+    const captureOriginRef = useRef<'auto' | 'manual'>('auto');
 
     useEffect(() => {
       if (!autoCapture) {
@@ -151,6 +155,8 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
         const normalizedRectangle =
           normalizeRectangle(event.rectangleCoordinates ?? null) ?? lastRectangleRef.current;
         const quad = normalizedRectangle ? rectangleToQuad(normalizedRectangle) : null;
+        const origin = captureOriginRef.current;
+        captureOriginRef.current = 'auto';
 
         const initialPath = event.initialImage ?? null;
         const croppedPath = event.croppedImage ?? null;
@@ -165,6 +171,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
             rectangle: normalizedRectangle,
             width: event.width ?? 0,
             height: event.height ?? 0,
+            origin,
           });
         }
 
@@ -186,35 +193,52 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
     }, []);
 
     const capture = useCallback((): Promise<PictureEvent> => {
+      captureOriginRef.current = 'manual';
       const instance = scannerRef.current;
       if (!instance || typeof instance.capture !== 'function') {
+        captureOriginRef.current = 'auto';
         return Promise.reject(new Error('DocumentScanner native instance is not ready'));
       }
       if (captureResolvers.current) {
+        captureOriginRef.current = 'auto';
         return Promise.reject(new Error('capture_in_progress'));
       }
 
-      const result = instance.capture();
+      let result: any;
+      try {
+        result = instance.capture();
+      } catch (error) {
+        captureOriginRef.current = 'auto';
+        return Promise.reject(error);
+      }
       if (result && typeof result.then === 'function') {
-        return result.then((payload: PictureEvent) => {
-          handlePictureTaken(payload);
-          return payload;
+        return result.catch((error: unknown) => {
+          captureOriginRef.current = 'auto';
+          throw error;
         });
       }
 
       return new Promise<PictureEvent>((resolve, reject) => {
-        captureResolvers.current = { resolve, reject };
+        captureResolvers.current = {
+          resolve: (value) => {
+            captureOriginRef.current = 'auto';
+            resolve(value);
+          },
+          reject: (reason) => {
+            captureOriginRef.current = 'auto';
+            reject(reason);
+          },
+        };
       });
-    }, [handlePictureTaken]);
+    }, []);
 
     const handleManualCapture = useCallback(() => {
-      if (autoCapture) {
-        return;
-      }
+      captureOriginRef.current = 'manual';
       capture().catch((error) => {
+        captureOriginRef.current = 'auto';
         console.warn('[DocScanner] manual capture failed', error);
       });
-    }, [autoCapture, capture]);
+    }, [capture]);
 
     const handleRectangleDetect = useCallback(
       (event: RectangleEventPayload) => {
@@ -255,6 +279,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
             captureResolvers.current.reject(new Error('reset'));
             captureResolvers.current = null;
           }
+          captureOriginRef.current = 'auto';
         },
       }),
       [capture],
@@ -287,7 +312,9 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
             polygon={overlayPolygon}
           />
         )}
-        {!autoCapture && <TouchableOpacity style={styles.button} onPress={handleManualCapture} />}
+        {(showManualCaptureButton || !autoCapture) && (
+          <TouchableOpacity style={styles.button} onPress={handleManualCapture} />
+        )}
         {children}
       </View>
     );
