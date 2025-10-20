@@ -124,23 +124,28 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     const baseWidth = capturedDoc.width > 0 ? capturedDoc.width : imageSize.width;
     const baseHeight = capturedDoc.height > 0 ? capturedDoc.height : imageSize.height;
 
-    const initialRectangle = capturedDoc.rectangle
-      ? scaleRectangle(
-          capturedDoc.rectangle,
+    let initialRectangle: Rectangle | null = null;
+
+    if (capturedDoc.rectangle) {
+      initialRectangle = scaleRectangle(
+        capturedDoc.rectangle,
+        baseWidth,
+        baseHeight,
+        imageSize.width,
+        imageSize.height,
+      );
+    } else if (capturedDoc.quad && capturedDoc.quad.length === 4) {
+      const quadRectangle = quadToRectangle(capturedDoc.quad as Quad);
+      if (quadRectangle) {
+        initialRectangle = scaleRectangle(
+          quadRectangle,
           baseWidth,
           baseHeight,
           imageSize.width,
           imageSize.height,
-        )
-      : capturedDoc.quad && capturedDoc.quad.length === 4
-      ? scaleRectangle(
-          quadToRectangle(capturedDoc.quad as Quad),
-          baseWidth,
-          baseHeight,
-          imageSize.width,
-          imageSize.height,
-        )
-      : null;
+        );
+      }
+    }
 
     if (initialRectangle) {
       setCropRectangle(initialRectangle);
@@ -159,6 +164,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     (document: CapturedDocument) => {
       const normalizedPath = stripFileUri(document.path);
       const nextQuad = document.quad && document.quad.length === 4 ? (document.quad as Quad) : null;
+      const quadRectangle = nextQuad ? quadToRectangle(nextQuad) : null;
+      const nextRectangle = document.rectangle ?? quadRectangle ?? null;
       const normalizedInitial =
         document.initialPath != null ? stripFileUri(document.initialPath) : normalizedPath;
       const normalizedCropped =
@@ -170,7 +177,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         initialPath: normalizedInitial,
         croppedPath: normalizedCropped,
         quad: nextQuad,
-        rectangle: document.rectangle ?? (nextQuad ? quadToRectangle(nextQuad) : null),
+        rectangle: nextRectangle,
       });
       setCropRectangle(null);
       setScreen('crop');
@@ -218,17 +225,20 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         )
       : null;
 
-    const fallbackRectangle =
-      rectangleFromDetection ??
-      (capturedDoc.quad && capturedDoc.quad.length === 4
-        ? scaleRectangle(
-            quadToRectangle(capturedDoc.quad as Quad),
-            baseWidth,
-            baseHeight,
-            size.width,
-            size.height,
-          )
-        : null);
+    let fallbackRectangle: Rectangle | null = rectangleFromDetection;
+
+    if (!fallbackRectangle && capturedDoc.quad && capturedDoc.quad.length === 4) {
+      const quadRectangle = quadToRectangle(capturedDoc.quad as Quad);
+      if (quadRectangle) {
+        fallbackRectangle = scaleRectangle(
+          quadRectangle,
+          baseWidth,
+          baseHeight,
+          size.width,
+          size.height,
+        );
+      }
+    }
 
     const rectangle = cropRectangle ?? fallbackRectangle;
 
