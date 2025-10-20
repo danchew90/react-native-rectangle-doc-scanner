@@ -3,7 +3,7 @@ import { View, StyleSheet, Image, Dimensions, ActivityIndicator, Text } from 're
 import CustomImageCropper from 'react-native-perspective-image-cropper';
 import type { Rectangle as CropperRectangle } from 'react-native-perspective-image-cropper';
 import type { Point, Rectangle, CapturedDocument } from './types';
-import { quadToRectangle, scaleRectangle } from './utils/coordinate';
+import { createFullImageRectangle, quadToRectangle, scaleRectangle } from './utils/coordinate';
 
 interface CropEditorProps {
   document: CapturedDocument;
@@ -81,11 +81,7 @@ export const CropEditor: React.FC<CropEditorProps> = ({
       ? document.rectangle
       : document.quad && document.quad.length === 4
       ? quadToRectangle(document.quad)
-      : null;
-
-    if (!sourceRectangle) {
-      return undefined;
-    }
+      : createFullImageRectangle(baseWidth, baseHeight);
 
     const scaled = scaleRectangle(
       sourceRectangle,

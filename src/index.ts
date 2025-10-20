@@ -24,4 +24,5 @@ export {
   rectangleToQuad,
   scaleCoordinates,
   scaleRectangle,
+  createFullImageRectangle,
 } from './utils/coordinate';

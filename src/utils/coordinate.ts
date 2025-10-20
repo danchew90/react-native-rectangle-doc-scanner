@@ -29,6 +29,13 @@ export const rectangleToQuad = (rect: Rectangle): Point[] => {
   ];
 };
 
+export const createFullImageRectangle = (width: number, height: number): Rectangle => ({
+  topLeft: { x: 0, y: 0 },
+  topRight: { x: width, y: 0 },
+  bottomRight: { x: width, y: height },
+  bottomLeft: { x: 0, y: height },
+});
+
 /**
  * Scale coordinates from one dimension to another
  * Useful when image dimensions differ from display dimensions

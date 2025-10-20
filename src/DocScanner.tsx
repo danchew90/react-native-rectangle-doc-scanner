@@ -212,10 +212,15 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
         return Promise.reject(error);
       }
       if (result && typeof result.then === 'function') {
-        return result.catch((error: unknown) => {
-          captureOriginRef.current = 'auto';
-          throw error;
-        });
+        return result
+          .then((payload: PictureEvent) => {
+            handlePictureTaken(payload);
+            return payload;
+          })
+          .catch((error: unknown) => {
+            captureOriginRef.current = 'auto';
+            throw error;
+          });
       }
 
       return new Promise<PictureEvent>((resolve, reject) => {
@@ -230,7 +235,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
           },
         };
       });
-    }, []);
+    }, [handlePictureTaken]);
 
     const handleManualCapture = useCallback(() => {
       captureOriginRef.current = 'manual';

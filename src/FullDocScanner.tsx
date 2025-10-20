@@ -13,7 +13,7 @@ import { DocScanner } from './DocScanner';
 import { CropEditor } from './CropEditor';
 import type { CapturedDocument, Point, Quad, Rectangle } from './types';
 import type { DetectionConfig, DocScannerHandle, DocScannerCapture } from './DocScanner';
-import { quadToRectangle, scaleRectangle } from './utils/coordinate';
+import { createFullImageRectangle, quadToRectangle, scaleRectangle } from './utils/coordinate';
 
 type CustomCropManagerType = {
   crop: (
@@ -58,9 +58,10 @@ const resolveImageSize = (
   });
 
 const normalizeCapturedDocument = (document: DocScannerCapture): CapturedDocument => {
+  const { origin: _origin, ...rest } = document;
   const normalizedPath = stripFileUri(document.initialPath ?? document.path);
   return {
-    ...document,
+    ...rest,
     path: normalizedPath,
     initialPath: document.initialPath ? stripFileUri(document.initialPath) : normalizedPath,
     croppedPath: document.croppedPath ? stripFileUri(document.croppedPath) : null,
@@ -184,10 +185,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       }
     }
 
-    if (initialRectangle) {
-      cropInitializedRef.current = true;
-      setCropRectangle(initialRectangle);
-    }
+    cropInitializedRef.current = true;
+    setCropRectangle(
+      initialRectangle ?? createFullImageRectangle(imageSize.width || 1, imageSize.height || 1),
+    );
   }, [capturedDoc, imageSize]);
 
   const resetState = useCallback(() => {
@@ -462,6 +463,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             minStableFrames={minStableFrames ?? 6}
             detectionConfig={detectionConfig}
             onCapture={handleCapture}
+            showManualCaptureButton
           >
             <View style={styles.overlay} pointerEvents="box-none">
               <TouchableOpacity
