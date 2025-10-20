@@ -299,12 +299,11 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         return;
       }
 
-      const isManualCapture =
+      const normalizedDoc = normalizeCapturedDocument(document);
+      const wantsManualFlow =
         manualCapture || manualCapturePending.current || document.origin === 'manual';
 
-      const normalizedDoc = normalizeCapturedDocument(document);
-
-      if (isManualCapture) {
+      if (wantsManualFlow) {
         manualCapturePending.current = false;
         processingCaptureRef.current = false;
         cropInitializedRef.current = false;
