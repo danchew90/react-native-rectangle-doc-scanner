@@ -39,6 +39,9 @@ RCT_EXPORT_METHOD(capture) {
 
 - (UIView*) view {
     _scannerView = [[DocumentScannerView alloc] init];
+    // Force layout update
+    _scannerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    NSLog(@"[RNPdfScannerManager] Created view with frame: %@", NSStringFromCGRect(_scannerView.frame));
     return _scannerView;
 }
 

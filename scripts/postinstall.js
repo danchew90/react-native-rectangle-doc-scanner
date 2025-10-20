@@ -35,6 +35,8 @@ try {
   const filesToCopy = [
     'ios/IPDFCameraViewController.m',
     'ios/DocumentScannerView.m',
+    'ios/RNPdfScannerManager.m',
+    'ios/RNPdfScannerManager.h',
     'ios.js'
   ];
 
