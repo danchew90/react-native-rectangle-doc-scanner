@@ -12,7 +12,12 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import ImageCropPicker from 'react-native-image-crop-picker';
 import { DocScanner } from './DocScanner';
 import type { CapturedDocument } from './types';
-import type { DetectionConfig, DocScannerHandle, DocScannerCapture } from './DocScanner';
+import type {
+  DetectionConfig,
+  DocScannerHandle,
+  DocScannerCapture,
+  RectangleDetectEvent,
+} from './DocScanner';
 
 const stripFileUri = (value: string) => value.replace(/^file:\/\//, '');
 
@@ -164,11 +169,16 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         captureMode: captureModeRef.current,
       });
 
+      if (document.origin === 'auto') {
+        console.log('[FullDocScanner] Ignoring auto capture result');
+        return;
+      }
+
       const captureMode = captureModeRef.current;
 
-      // Ignore auto captures - only process manual captures
       if (!captureMode) {
-        console.log('[FullDocScanner] Ignoring auto capture - only manual captures allowed');
+        console.warn('[FullDocScanner] Missing capture mode for manual capture result');
+        captureModeRef.current = null;
         return;
       }
 
@@ -300,10 +310,23 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     }
   }, []);
 
-  const handleRectangleDetect = useCallback((event: any) => {
-    // Update button color based on rectangle detection
-    const hasGoodRectangle = event.lastDetectionType === 0 && event.rectangleCoordinates !== null;
-    setRectangleDetected(hasGoodRectangle);
+  const handleRectangleDetect = useCallback((event: RectangleDetectEvent) => {
+    const stableCounter = event.stableCounter ?? 0;
+    const hasRectangle = Boolean(event.rectangleOnScreen ?? event.rectangleCoordinates);
+    const isGoodRectangle = event.lastDetectionType === 0 && hasRectangle && stableCounter > 0;
+
+    setRectangleDetected((prev) => {
+      if (prev !== isGoodRectangle) {
+        console.log('[FullDocScanner] Rectangle detection update', {
+          lastDetectionType: event.lastDetectionType,
+          stableCounter,
+          hasRectangle,
+          isGoodRectangle,
+        });
+      }
+
+      return isGoodRectangle;
+    });
   }, []);
 
   return (
