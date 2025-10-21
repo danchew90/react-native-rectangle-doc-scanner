@@ -85,6 +85,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [rectangleDetected, setRectangleDetected] = useState(false);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
+  const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
 
   const mergedStrings = useMemo(
     () => ({
@@ -164,19 +165,27 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         initialPath: document.initialPath,
       });
 
+      const captureMode = captureModeRef.current;
+      captureModeRef.current = null;
+
       const normalizedDoc = normalizeCapturedDocument(document);
 
-      // If grid detected and cropped image exists, show it directly in check_DP
+      if (captureMode === 'no-grid') {
+        console.log('[FullDocScanner] No grid at capture button press: opening cropper for manual selection');
+        await openCropper(normalizedDoc.path);
+        return;
+      }
+
       if (normalizedDoc.croppedPath) {
         console.log('[FullDocScanner] Grid detected: using pre-cropped image', normalizedDoc.croppedPath);
         setCroppedImageData({
           path: normalizedDoc.croppedPath,
         });
-      } else {
-        // No grid: open cropper for manual crop
-        console.log('[FullDocScanner] No grid detected: opening cropper for manual crop', normalizedDoc.path);
-        await openCropper(normalizedDoc.path);
+        return;
       }
+
+      console.log('[FullDocScanner] Fallback to manual crop (no croppedPath available)');
+      await openCropper(normalizedDoc.path);
     },
     [openCropper],
   );
@@ -185,6 +194,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     console.log('[FullDocScanner] triggerManualCapture called', {
       processing,
       hasRef: !!docScannerRef.current,
+      rectangleDetected,
     });
 
     if (processing) {
@@ -199,11 +209,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
     console.log('[FullDocScanner] Starting manual capture');
 
+    captureModeRef.current = rectangleDetected ? 'grid' : 'no-grid';
+
     docScannerRef.current.capture()
       .then((result) => {
         console.log('[FullDocScanner] Manual capture success:', result);
       })
       .catch((error: unknown) => {
+        captureModeRef.current = null;
         console.error('[FullDocScanner] Manual capture failed:', error);
         if (error instanceof Error && error.message !== 'capture_in_progress') {
           emitError(
@@ -212,7 +225,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           );
         }
       });
-  }, [processing, emitError]);
+  }, [processing, rectangleDetected, emitError]);
 
   const handleGalleryPick = useCallback(async () => {
     console.log('[FullDocScanner] handleGalleryPick called');
@@ -267,6 +280,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setCroppedImageData(null);
     setProcessing(false);
     setRectangleDetected(false);
+    captureModeRef.current = null;
     // Reset DocScanner state
     if (docScannerRef.current?.reset) {
       docScannerRef.current.reset();
