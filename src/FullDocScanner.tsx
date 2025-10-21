@@ -159,8 +159,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
       const normalizedDoc = normalizeCapturedDocument(document);
 
-      // Open cropper with the captured image
-      await openCropper(normalizedDoc.path);
+      // Auto-capture: Use already cropped image, skip cropper
+      if (document.origin === 'auto' && normalizedDoc.croppedPath) {
+        console.log('[FullDocScanner] Auto-capture: using pre-cropped image');
+        setCroppedImageData({
+          path: normalizedDoc.croppedPath,
+        });
+      } else {
+        // Manual capture or gallery: Open cropper
+        console.log('[FullDocScanner] Manual capture: opening cropper');
+        await openCropper(normalizedDoc.path);
+      }
     },
     [openCropper],
   );
