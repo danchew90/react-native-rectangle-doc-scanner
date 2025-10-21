@@ -32,8 +32,22 @@ RCT_EXPORT_VIEW_PROPERTY(quality, float)
 RCT_EXPORT_VIEW_PROPERTY(brightness, float)
 RCT_EXPORT_VIEW_PROPERTY(contrast, float)
 
-RCT_EXPORT_METHOD(capture) {
-    NSLog(@"[RNPdfScannerManager] capture called, scannerView: %@", _scannerView ? @"YES" : @"NO");
+RCT_EXPORT_METHOD(capture:(nonnull NSNumber *)reactTag) {
+    NSLog(@"[RNPdfScannerManager] capture called with reactTag: %@", reactTag);
+    [self.bridge.uiManager addUIBlock:^(RCTUIManager *uiManager, NSDictionary<NSNumber *,UIView *> *viewRegistry) {
+        DocumentScannerView *view = (DocumentScannerView *)viewRegistry[reactTag];
+        if (!view || ![view isKindOfClass:[DocumentScannerView class]]) {
+            NSLog(@"[RNPdfScannerManager] Cannot find DocumentScannerView with tag #%@", reactTag);
+            return;
+        }
+        NSLog(@"[RNPdfScannerManager] Calling capture on view: %@", view);
+        [view capture];
+    }];
+}
+
+// Deprecated - kept for backward compatibility
+RCT_EXPORT_METHOD(captureGlobal) {
+    NSLog(@"[RNPdfScannerManager] captureGlobal called (deprecated), scannerView: %@", _scannerView ? @"YES" : @"NO");
     [_scannerView capture];
 }
 

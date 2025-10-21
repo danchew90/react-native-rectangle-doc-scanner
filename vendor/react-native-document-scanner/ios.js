@@ -1,5 +1,5 @@
 import React from 'react';
-import { requireNativeComponent, NativeModules } from 'react-native';
+import { requireNativeComponent, NativeModules, findNodeHandle } from 'react-native';
 import PropTypes from 'prop-types';
 
 const RNPdfScanner = requireNativeComponent('RNPdfScanner', PdfScanner);
@@ -7,6 +7,7 @@ const RNPdfScanner = requireNativeComponent('RNPdfScanner', PdfScanner);
 class PdfScanner extends React.Component {
   constructor(props) {
     super(props);
+    this.scannerRef = React.createRef();
   }
 
   sendOnPictureTakenEvent(event) {
@@ -26,13 +27,22 @@ class PdfScanner extends React.Component {
   }
 
   capture() {
-    console.log('[PdfScanner/ios.js] capture called');
-    return NativeModules.RNPdfScannerManager.capture();
+    console.log('[PdfScanner/ios.js] capture called, ref:', this.scannerRef.current);
+    const handle = findNodeHandle(this.scannerRef.current);
+    console.log('[PdfScanner/ios.js] node handle (reactTag):', handle);
+    if (handle) {
+      // Call native method with reactTag
+      return NativeModules.RNPdfScannerManager.capture(handle);
+    }
+    // Fallback to old method
+    console.log('[PdfScanner/ios.js] No handle, using fallback');
+    return NativeModules.RNPdfScannerManager.captureGlobal();
   }
 
   render() {
     return (
       <RNPdfScanner
+        ref={this.scannerRef}
         {...this.props}
         onPictureTaken={this.sendOnPictureTakenEvent.bind(this)}
         onRectangleDetect={this.sendOnRectanleDetectEvent.bind(this)}
