@@ -122,13 +122,16 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         console.log('[FullDocScanner] openCropper called with path:', imagePath);
         setProcessing(true);
 
-        // Normalize path - ensure file:// prefix for iOS
-        const normalizedPath = imagePath.startsWith('file://') ? imagePath : `file://${imagePath}`;
-        console.log('[FullDocScanner] Normalized path:', normalizedPath);
+        // Clean path - remove file:// prefix for react-native-image-crop-picker
+        // The library handles the prefix internally and double prefixing causes issues
+        let cleanPath = imagePath;
+        if (cleanPath.startsWith('file://')) {
+          cleanPath = cleanPath.replace('file://', '');
+        }
+        console.log('[FullDocScanner] Clean path for cropper:', cleanPath);
 
-        // Add timeout to prevent hanging
-        const cropperPromise = ImageCropPicker.openCropper({
-          path: normalizedPath,
+        const croppedImage = await ImageCropPicker.openCropper({
+          path: cleanPath,
           mediaType: 'photo',
           width: cropWidth,
           height: cropHeight,
@@ -138,12 +141,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           includeBase64: true,
           compressImageQuality: 0.9,
         });
-
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Cropper timeout after 30 seconds')), 30000);
-        });
-
-        const croppedImage = await Promise.race([cropperPromise, timeoutPromise]) as any;
 
         console.log('[FullDocScanner] Cropper returned:', {
           path: croppedImage.path,
@@ -186,18 +183,19 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         croppedPath: document.croppedPath,
         initialPath: document.initialPath,
         captureMode: captureModeRef.current,
+        captureInProgress: captureInProgressRef.current,
       });
 
-      captureInProgressRef.current = false;
-
       const captureMode = captureModeRef.current;
+
+      // Reset capture state
+      captureInProgressRef.current = false;
+      captureModeRef.current = null;
 
       if (!captureMode) {
         console.warn('[FullDocScanner] Missing capture mode for capture result, ignoring');
         return;
       }
-
-      captureModeRef.current = null;
 
       const normalizedDoc = normalizeCapturedDocument(document);
 
@@ -253,12 +251,31 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     captureModeRef.current = captureMode;
     captureInProgressRef.current = true;
 
+    // Add timeout to reset state if capture hangs
+    const captureTimeout = setTimeout(() => {
+      if (captureInProgressRef.current) {
+        console.error('[FullDocScanner] Capture timeout - resetting state');
+        captureModeRef.current = null;
+        captureInProgressRef.current = false;
+        emitError(
+          new Error('Capture timeout'),
+          'Capture timed out. Please try again.',
+        );
+      }
+    }, 10000);
+
     scannerInstance.capture()
       .then((result) => {
-        console.log('[FullDocScanner] Manual capture success:', result);
-        captureInProgressRef.current = false;
+        clearTimeout(captureTimeout);
+        console.log('[FullDocScanner] Manual capture promise resolved:', {
+          hasResult: !!result,
+          croppedImage: result?.croppedImage,
+          initialImage: result?.initialImage,
+        });
+        // Note: captureInProgressRef is reset in handleCapture
       })
       .catch((error: unknown) => {
+        clearTimeout(captureTimeout);
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error('[FullDocScanner] Manual capture failed:', errorMessage, error);
         captureModeRef.current = null;
@@ -353,29 +370,34 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     const hasRectangle = Boolean(event.rectangleOnScreen ?? event.rectangleCoordinates);
     const isGoodRectangle = hasRectangle && event.lastDetectionType === 0;
 
-    if (hasRectangle) {
+    // Clear timeout immediately when rectangle is lost
+    if (!hasRectangle || !isGoodRectangle) {
+      if (rectangleTimeoutRef.current) {
+        clearTimeout(rectangleTimeoutRef.current);
+        rectangleTimeoutRef.current = null;
+      }
+      setRectangleDetected(false);
+    } else {
+      // Rectangle detected - clear any existing timeout
       if (rectangleTimeoutRef.current) {
         clearTimeout(rectangleTimeoutRef.current);
       }
+      setRectangleDetected(true);
+
+      // Set timeout to clear rectangle after brief period of no updates
       rectangleTimeoutRef.current = setTimeout(() => {
         rectangleTimeoutRef.current = null;
         setRectangleDetected(false);
+        console.log('[FullDocScanner] Rectangle timeout - clearing detection');
       }, 300);
-    } else if (rectangleTimeoutRef.current) {
-      clearTimeout(rectangleTimeoutRef.current);
-      rectangleTimeoutRef.current = null;
     }
 
-    setRectangleDetected((prev) => {
-      if (prev !== isGoodRectangle) {
-        console.log('[FullDocScanner] Rectangle detection update', {
-          lastDetectionType: event.lastDetectionType,
-          stableCounter,
-          hasRectangle,
-          isGoodRectangle,
-        });
-      }
-      return isGoodRectangle;
+    console.log('[FullDocScanner] Rectangle detection update', {
+      lastDetectionType: event.lastDetectionType,
+      stableCounter,
+      hasRectangle,
+      isGoodRectangle,
+      rectangleDetected: isGoodRectangle,
     });
   }, []);
 
