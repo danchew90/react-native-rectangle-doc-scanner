@@ -151,9 +151,13 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       console.log('[FullDocScanner] handleCapture called:', {
         origin: document.origin,
         path: document.path,
+        croppedPath: document.croppedPath,
+        initialPath: document.initialPath,
       });
 
+      // Reset manual capture pending flag
       if (manualCapturePending.current) {
+        console.log('[FullDocScanner] Resetting manualCapturePending');
         manualCapturePending.current = false;
       }
 
@@ -161,13 +165,13 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
       // Auto-capture: Use already cropped image, skip cropper
       if (document.origin === 'auto' && normalizedDoc.croppedPath) {
-        console.log('[FullDocScanner] Auto-capture: using pre-cropped image');
+        console.log('[FullDocScanner] Auto-capture: using pre-cropped image', normalizedDoc.croppedPath);
         setCroppedImageData({
           path: normalizedDoc.croppedPath,
         });
       } else {
         // Manual capture or gallery: Open cropper
-        console.log('[FullDocScanner] Manual capture: opening cropper');
+        console.log('[FullDocScanner] Manual/Gallery capture: opening cropper with', normalizedDoc.path);
         await openCropper(normalizedDoc.path);
       }
     },
@@ -175,31 +179,50 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   );
 
   const triggerManualCapture = useCallback(() => {
-    console.log('[FullDocScanner] triggerManualCapture called');
+    console.log('[FullDocScanner] triggerManualCapture called', {
+      processing,
+      manualCapturePending: manualCapturePending.current,
+      hasRef: !!docScannerRef.current,
+    });
+
     if (processing) {
       console.log('[FullDocScanner] Already processing, skipping manual capture');
       return;
     }
+
     if (manualCapturePending.current) {
       console.log('[FullDocScanner] Manual capture already pending, skipping');
       return;
     }
 
-    console.log('[FullDocScanner] Setting manualCapturePending to true');
+    if (!docScannerRef.current) {
+      console.error('[FullDocScanner] DocScanner ref not available');
+      return;
+    }
+
+    console.log('[FullDocScanner] Starting manual capture');
     manualCapturePending.current = true;
 
-    const capturePromise = docScannerRef.current?.capture();
-    if (capturePromise && typeof capturePromise.then === 'function') {
-      capturePromise
-        .then(() => {
-          console.log('[FullDocScanner] Capture success');
-        })
-        .catch((error: unknown) => {
-          manualCapturePending.current = false;
-          console.warn('[FullDocScanner] manual capture failed', error);
-        });
-    } else if (!capturePromise) {
-      console.warn('[FullDocScanner] No capture promise returned');
+    try {
+      const capturePromise = docScannerRef.current.capture();
+      console.log('[FullDocScanner] Capture promise:', capturePromise);
+
+      if (capturePromise && typeof capturePromise.then === 'function') {
+        capturePromise
+          .then((result) => {
+            console.log('[FullDocScanner] Manual capture success:', result);
+            manualCapturePending.current = false;
+          })
+          .catch((error: unknown) => {
+            console.error('[FullDocScanner] Manual capture failed:', error);
+            manualCapturePending.current = false;
+          });
+      } else {
+        console.warn('[FullDocScanner] No promise returned from capture()');
+        manualCapturePending.current = false;
+      }
+    } catch (error) {
+      console.error('[FullDocScanner] Exception during capture:', error);
       manualCapturePending.current = false;
     }
   }, [processing]);
