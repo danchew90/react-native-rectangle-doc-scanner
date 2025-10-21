@@ -12,6 +12,8 @@
         [self setEnableBorderDetection:YES];
         [self setDelegate: self];
         _hasSetupCamera = NO;
+        self.manualOnly = YES;
+        self.detectionCountBeforeCapture = NSIntegerMax;
     }
 
     return self;
