@@ -78,6 +78,10 @@
 
     _lastDetectionType = type;
 
+    if (self.manualOnly) {
+        return;
+    }
+
     if (self.stableCounter >= self.detectionCountBeforeCapture){
         NSLog(@"[DocumentScanner] Auto-capture triggered! stableCounter: %ld >= threshold: %ld", (long)self.stableCounter, (long)self.detectionCountBeforeCapture);
         self.stableCounter = 0; // Reset to prevent multiple captures
