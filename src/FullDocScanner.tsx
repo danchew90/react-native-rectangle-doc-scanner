@@ -114,6 +114,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const openCropper = useCallback(
     async (imagePath: string) => {
       try {
+        console.log('[FullDocScanner] openCropper called with path:', imagePath);
         setProcessing(true);
         const croppedImage = await ImageCropPicker.openCropper({
           path: imagePath,
@@ -127,6 +128,11 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           compressImageQuality: 0.9,
         });
 
+        console.log('[FullDocScanner] Cropper returned:', {
+          path: croppedImage.path,
+          hasBase64: !!croppedImage.data,
+        });
+
         setProcessing(false);
 
         // Show check_DP confirmation screen
@@ -135,12 +141,15 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           base64: croppedImage.data ?? undefined,
         });
       } catch (error) {
+        console.error('[FullDocScanner] openCropper error:', error);
         setProcessing(false);
         if ((error as any)?.message !== 'User cancelled image selection') {
           emitError(
             error instanceof Error ? error : new Error(String(error)),
             'Failed to crop image.',
           );
+        } else {
+          console.log('[FullDocScanner] User cancelled cropper');
         }
       }
     },
@@ -164,19 +173,21 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
       const normalizedDoc = normalizeCapturedDocument(document);
 
-      // Auto-capture: Use already cropped image, skip cropper
-      if (document.origin === 'auto' && normalizedDoc.croppedPath) {
-        console.log('[FullDocScanner] Auto-capture: using pre-cropped image', normalizedDoc.croppedPath);
+      // If grid detected and cropped image exists, show it directly in check_DP
+      if (normalizedDoc.croppedPath) {
+        console.log('[FullDocScanner] Grid detected: using pre-cropped image', normalizedDoc.croppedPath);
         setCroppedImageData({
           path: normalizedDoc.croppedPath,
         });
       } else {
-        // Manual capture or gallery: Open cropper
-        console.log('[FullDocScanner] Manual/Gallery capture: opening cropper with', normalizedDoc.path);
-        await openCropper(normalizedDoc.path);
+        // No grid: show original image in check_DP
+        console.log('[FullDocScanner] No grid: using original image', normalizedDoc.path);
+        setCroppedImageData({
+          path: normalizedDoc.path,
+        });
       }
     },
-    [openCropper],
+    [],
   );
 
   const triggerManualCapture = useCallback(() => {
@@ -326,7 +337,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         <View style={styles.flex}>
           <DocScanner
             ref={docScannerRef}
-            autoCapture={!manualCapture && !isGalleryOpen}
+            autoCapture={false}
             overlayColor={overlayColor}
             showGrid={showGrid}
             gridColor={resolvedGridColor}
