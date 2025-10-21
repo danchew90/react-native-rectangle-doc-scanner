@@ -109,6 +109,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         setProcessing(true);
         const croppedImage = await ImageCropPicker.openCropper({
           path: imagePath,
+          mediaType: 'photo',
           width: cropWidth,
           height: cropHeight,
           cropping: true,
@@ -122,7 +123,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
         onResult({
           path: croppedImage.path,
-          base64: croppedImage.data,
+          base64: croppedImage.data ?? undefined,
         });
       } catch (error) {
         setProcessing(false);
