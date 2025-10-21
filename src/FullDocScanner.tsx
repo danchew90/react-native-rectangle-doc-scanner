@@ -82,6 +82,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [processing, setProcessing] = useState(false);
   const [croppedImageData, setCroppedImageData] = useState<{path: string; base64?: string} | null>(null);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [rectangleDetected, setRectangleDetected] = useState(false);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const manualCapturePending = useRef(false);
@@ -279,10 +280,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     console.log('[FullDocScanner] Retake - clearing cropped image and resetting scanner');
     setCroppedImageData(null);
     setProcessing(false);
+    setRectangleDetected(false);
     // Reset DocScanner state
     if (docScannerRef.current?.reset) {
       docScannerRef.current.reset();
     }
+  }, []);
+
+  const handleRectangleDetect = useCallback((event: any) => {
+    // Update button color based on rectangle detection
+    const hasGoodRectangle = event.lastDetectionType === 0 && event.rectangleCoordinates !== null;
+    setRectangleDetected(hasGoodRectangle);
   }, []);
 
   return (
@@ -326,6 +334,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             minStableFrames={minStableFrames ?? 6}
             detectionConfig={detectionConfig}
             onCapture={handleCapture}
+            onRectangleDetect={handleRectangleDetect}
             showManualCaptureButton={false}
           >
           <View style={styles.overlayTop} pointerEvents="box-none">
@@ -369,7 +378,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               accessibilityLabel={mergedStrings.manualHint}
               accessibilityRole="button"
             >
-              <View style={styles.shutterInner} />
+              <View style={[
+                styles.shutterInner,
+                rectangleDetected && { backgroundColor: overlayColor }
+              ]} />
             </TouchableOpacity>
           </View>
         </DocScanner>
