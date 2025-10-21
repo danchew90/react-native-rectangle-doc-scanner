@@ -121,8 +121,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       try {
         console.log('[FullDocScanner] openCropper called with path:', imagePath);
         setProcessing(true);
-        const croppedImage = await ImageCropPicker.openCropper({
-          path: imagePath,
+
+        // Normalize path - ensure file:// prefix for iOS
+        const normalizedPath = imagePath.startsWith('file://') ? imagePath : `file://${imagePath}`;
+        console.log('[FullDocScanner] Normalized path:', normalizedPath);
+
+        // Add timeout to prevent hanging
+        const cropperPromise = ImageCropPicker.openCropper({
+          path: normalizedPath,
           mediaType: 'photo',
           width: cropWidth,
           height: cropHeight,
@@ -133,6 +139,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           compressImageQuality: 0.9,
         });
 
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Cropper timeout after 30 seconds')), 30000);
+        });
+
+        const croppedImage = await Promise.race([cropperPromise, timeoutPromise]) as any;
+
         console.log('[FullDocScanner] Cropper returned:', {
           path: croppedImage.path,
           hasBase64: !!croppedImage.data,
@@ -140,7 +152,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
         setProcessing(false);
 
-        // Show check_DP confirmation screen
+        // Show confirmation screen
         setCroppedImageData({
           path: croppedImage.path,
           base64: croppedImage.data ?? undefined,
@@ -148,13 +160,18 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       } catch (error) {
         console.error('[FullDocScanner] openCropper error:', error);
         setProcessing(false);
-        if ((error as any)?.message !== 'User cancelled image selection') {
-          emitError(
-            error instanceof Error ? error : new Error(String(error)),
-            'Failed to crop image.',
-          );
-        } else {
+
+        const errorMessage = (error as any)?.message || String(error);
+
+        if (errorMessage === 'User cancelled image selection' ||
+            errorMessage.includes('cancelled') ||
+            errorMessage.includes('cancel')) {
           console.log('[FullDocScanner] User cancelled cropper');
+        } else {
+          emitError(
+            error instanceof Error ? error : new Error(errorMessage),
+            'Failed to crop image. Please try again.',
+          );
         }
       }
     },
@@ -173,16 +190,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
       captureInProgressRef.current = false;
 
-      if (document.origin === 'auto') {
-        console.log('[FullDocScanner] Ignoring auto capture result');
-        return;
-      }
-
       const captureMode = captureModeRef.current;
 
       if (!captureMode) {
-        console.warn('[FullDocScanner] Missing capture mode for manual capture result');
-        captureModeRef.current = null;
+        console.warn('[FullDocScanner] Missing capture mode for capture result, ignoring');
         return;
       }
 
@@ -248,13 +259,15 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         captureInProgressRef.current = false;
       })
       .catch((error: unknown) => {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('[FullDocScanner] Manual capture failed:', errorMessage, error);
         captureModeRef.current = null;
         captureInProgressRef.current = false;
-        console.error('[FullDocScanner] Manual capture failed:', error);
+
         if (error instanceof Error && error.message !== 'capture_in_progress') {
           emitError(
             error,
-            'Failed to capture image.',
+            'Failed to capture image. Please try again.',
           );
         }
       });
@@ -263,21 +276,30 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const handleGalleryPick = useCallback(async () => {
     console.log('[FullDocScanner] handleGalleryPick called');
     if (processing || isGalleryOpen) {
+      console.log('[FullDocScanner] Skipping gallery pick - already processing:', { processing, isGalleryOpen });
       return;
     }
 
     try {
       setIsGalleryOpen(true);
+      console.log('[FullDocScanner] Launching image library...');
+
       const result = await launchImageLibrary({
         mediaType: 'photo',
         quality: 1,
         selectionLimit: 1,
       });
 
+      console.log('[FullDocScanner] Image library result:', {
+        didCancel: result.didCancel,
+        hasAssets: !!result.assets,
+        assetsLength: result.assets?.length,
+      });
+
       setIsGalleryOpen(false);
 
       if (result.didCancel || !result.assets?.[0]?.uri) {
-        console.log('[FullDocScanner] User cancelled gallery picker');
+        console.log('[FullDocScanner] User cancelled gallery picker or no image selected');
         return;
       }
 
@@ -287,6 +309,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       // Open cropper with the selected image
       await openCropper(imageUri);
     } catch (error) {
+      console.error('[FullDocScanner] Gallery pick error:', error);
       setIsGalleryOpen(false);
       emitError(
         error instanceof Error ? error : new Error(String(error)),
@@ -395,7 +418,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         <View style={styles.flex}>
           <DocScanner
             ref={docScannerRef}
-            autoCapture={true}
+            autoCapture={false}
             overlayColor={overlayColor}
             showGrid={showGrid}
             gridColor={resolvedGridColor}

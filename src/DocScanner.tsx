@@ -241,7 +241,8 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       captureOriginRef.current = 'manual';
       capture().catch((error) => {
         captureOriginRef.current = 'auto';
-        console.warn('[DocScanner] manual capture failed', error);
+        console.error('[DocScanner] manual capture failed', error);
+        throw error;
       });
     }, [capture]);
 
