@@ -1,6 +1,7 @@
 
 #import "RNPdfScannerManager.h"
 #import "DocumentScannerView.h"
+#import <React/RCTUIManager.h>
 
 @interface RNPdfScannerManager()
 @property (strong, nonatomic) DocumentScannerView *scannerView;
@@ -34,15 +35,16 @@ RCT_EXPORT_VIEW_PROPERTY(contrast, float)
 
 RCT_EXPORT_METHOD(capture:(nonnull NSNumber *)reactTag) {
     NSLog(@"[RNPdfScannerManager] capture called with reactTag: %@", reactTag);
-    [self.bridge.uiManager addUIBlock:^(RCTUIManager *uiManager, NSDictionary<NSNumber *,UIView *> *viewRegistry) {
-        DocumentScannerView *view = (DocumentScannerView *)viewRegistry[reactTag];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIView *view = [self.bridge.uiManager viewForReactTag:reactTag];
         if (!view || ![view isKindOfClass:[DocumentScannerView class]]) {
             NSLog(@"[RNPdfScannerManager] Cannot find DocumentScannerView with tag #%@", reactTag);
             return;
         }
-        NSLog(@"[RNPdfScannerManager] Calling capture on view: %@", view);
-        [view capture];
-    }];
+        DocumentScannerView *scannerView = (DocumentScannerView *)view;
+        NSLog(@"[RNPdfScannerManager] Calling capture on view: %@", scannerView);
+        [scannerView capture];
+    });
 }
 
 // Deprecated - kept for backward compatibility
