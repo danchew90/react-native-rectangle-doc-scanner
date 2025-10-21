@@ -85,7 +85,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [rectangleDetected, setRectangleDetected] = useState(false);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
-  const manualCapturePending = useRef(false);
 
   const mergedStrings = useMemo(
     () => ({
@@ -167,12 +166,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
       const normalizedDoc = normalizeCapturedDocument(document);
 
-      // Reset manual capture pending flag BEFORE processing
-      if (manualCapturePending.current) {
-        console.log('[FullDocScanner] Resetting manualCapturePending');
-        manualCapturePending.current = false;
-      }
-
       // If grid detected and cropped image exists, show it directly in check_DP
       if (normalizedDoc.croppedPath) {
         console.log('[FullDocScanner] Grid detected: using pre-cropped image', normalizedDoc.croppedPath);
@@ -191,17 +184,11 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const triggerManualCapture = useCallback(() => {
     console.log('[FullDocScanner] triggerManualCapture called', {
       processing,
-      manualCapturePending: manualCapturePending.current,
       hasRef: !!docScannerRef.current,
     });
 
     if (processing) {
       console.log('[FullDocScanner] Already processing, skipping manual capture');
-      return;
-    }
-
-    if (manualCapturePending.current) {
-      console.log('[FullDocScanner] Manual capture already pending, skipping');
       return;
     }
 
@@ -211,31 +198,21 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     }
 
     console.log('[FullDocScanner] Starting manual capture');
-    manualCapturePending.current = true;
 
-    try {
-      const capturePromise = docScannerRef.current.capture();
-      console.log('[FullDocScanner] Capture promise:', capturePromise);
-
-      if (capturePromise && typeof capturePromise.then === 'function') {
-        capturePromise
-          .then((result) => {
-            console.log('[FullDocScanner] Manual capture success:', result);
-            manualCapturePending.current = false;
-          })
-          .catch((error: unknown) => {
-            console.error('[FullDocScanner] Manual capture failed:', error);
-            manualCapturePending.current = false;
-          });
-      } else {
-        console.warn('[FullDocScanner] No promise returned from capture()');
-        manualCapturePending.current = false;
-      }
-    } catch (error) {
-      console.error('[FullDocScanner] Exception during capture:', error);
-      manualCapturePending.current = false;
-    }
-  }, [processing]);
+    docScannerRef.current.capture()
+      .then((result) => {
+        console.log('[FullDocScanner] Manual capture success:', result);
+      })
+      .catch((error: unknown) => {
+        console.error('[FullDocScanner] Manual capture failed:', error);
+        if (error instanceof Error && error.message !== 'capture_in_progress') {
+          emitError(
+            error,
+            'Failed to capture image.',
+          );
+        }
+      });
+  }, [processing, emitError]);
 
   const handleGalleryPick = useCallback(async () => {
     console.log('[FullDocScanner] handleGalleryPick called');
