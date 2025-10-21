@@ -89,6 +89,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
+  const captureInProgressRef = useRef(false);
 
   const mergedStrings = useMemo(
     () => ({
@@ -169,6 +170,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         captureMode: captureModeRef.current,
       });
 
+      captureInProgressRef.current = false;
+
       if (document.origin === 'auto') {
         console.log('[FullDocScanner] Ignoring auto capture result');
         return;
@@ -207,11 +210,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   );
 
   const triggerManualCapture = useCallback(() => {
+    const scannerInstance = docScannerRef.current;
+    const hasScanner = !!scannerInstance;
     console.log('[FullDocScanner] triggerManualCapture called', {
       processing,
-      hasRef: !!docScannerRef.current,
+      hasRef: hasScanner,
       rectangleDetected,
       currentCaptureMode: captureModeRef.current,
+      captureInProgress: captureInProgressRef.current,
     });
 
     if (processing) {
@@ -219,27 +225,30 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       return;
     }
 
-    // Check if capture is already in progress
-    if (captureModeRef.current !== null) {
+    if (captureInProgressRef.current) {
       console.log('[FullDocScanner] Capture already in progress, skipping');
       return;
     }
 
-    if (!docScannerRef.current) {
+    if (!hasScanner) {
       console.error('[FullDocScanner] DocScanner ref not available');
       return;
     }
 
     console.log('[FullDocScanner] Starting manual capture, grid detected:', rectangleDetected);
 
-    captureModeRef.current = rectangleDetected ? 'grid' : 'no-grid';
+    const captureMode = rectangleDetected ? 'grid' : 'no-grid';
+    captureModeRef.current = captureMode;
+    captureInProgressRef.current = true;
 
-    docScannerRef.current.capture()
+    scannerInstance.capture()
       .then((result) => {
         console.log('[FullDocScanner] Manual capture success:', result);
+        captureInProgressRef.current = false;
       })
       .catch((error: unknown) => {
         captureModeRef.current = null;
+        captureInProgressRef.current = false;
         console.error('[FullDocScanner] Manual capture failed:', error);
         if (error instanceof Error && error.message !== 'capture_in_progress') {
           emitError(
@@ -304,6 +313,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setProcessing(false);
     setRectangleDetected(false);
     captureModeRef.current = null;
+    captureInProgressRef.current = false;
     // Reset DocScanner state
     if (docScannerRef.current?.reset) {
       docScannerRef.current.reset();
@@ -313,7 +323,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const handleRectangleDetect = useCallback((event: RectangleDetectEvent) => {
     const stableCounter = event.stableCounter ?? 0;
     const hasRectangle = Boolean(event.rectangleOnScreen ?? event.rectangleCoordinates);
-    const isGoodRectangle = event.lastDetectionType === 0 && hasRectangle && stableCounter > 0;
+    const isGoodRectangle = hasRectangle;
 
     setRectangleDetected((prev) => {
       if (prev !== isGoodRectangle) {
