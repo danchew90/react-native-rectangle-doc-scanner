@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -90,6 +90,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
   const captureInProgressRef = useRef(false);
+  const rectangleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mergedStrings = useMemo(
     () => ({
@@ -314,6 +315,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setRectangleDetected(false);
     captureModeRef.current = null;
     captureInProgressRef.current = false;
+    if (rectangleTimeoutRef.current) {
+      clearTimeout(rectangleTimeoutRef.current);
+      rectangleTimeoutRef.current = null;
+    }
     // Reset DocScanner state
     if (docScannerRef.current?.reset) {
       docScannerRef.current.reset();
@@ -323,7 +328,20 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const handleRectangleDetect = useCallback((event: RectangleDetectEvent) => {
     const stableCounter = event.stableCounter ?? 0;
     const hasRectangle = Boolean(event.rectangleOnScreen ?? event.rectangleCoordinates);
-    const isGoodRectangle = hasRectangle;
+    const isGoodRectangle = hasRectangle && event.lastDetectionType === 0;
+
+    if (hasRectangle) {
+      if (rectangleTimeoutRef.current) {
+        clearTimeout(rectangleTimeoutRef.current);
+      }
+      rectangleTimeoutRef.current = setTimeout(() => {
+        rectangleTimeoutRef.current = null;
+        setRectangleDetected(false);
+      }, 300);
+    } else if (rectangleTimeoutRef.current) {
+      clearTimeout(rectangleTimeoutRef.current);
+      rectangleTimeoutRef.current = null;
+    }
 
     setRectangleDetected((prev) => {
       if (prev !== isGoodRectangle) {
@@ -334,9 +352,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           isGoodRectangle,
         });
       }
-
       return isGoodRectangle;
     });
+  }, []);
+
+  useEffect(() => () => {
+    if (rectangleTimeoutRef.current) {
+      clearTimeout(rectangleTimeoutRef.current);
+    }
   }, []);
 
   return (

@@ -293,12 +293,14 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
     const overlayPolygon = detectedRectangle?.rectangleOnScreen ?? detectedRectangle?.rectangleCoordinates ?? null;
     const overlayIsActive = autoCapture ? isAutoCapturing : (detectedRectangle?.stableCounter ?? 0) > 0;
 
-    return (
+  const detectionThreshold = autoCapture ? minStableFrames : 9999;
+
+  return (
       <View style={styles.container}>
         <DocumentScanner
           ref={scannerRef}
           style={styles.scanner}
-          detectionCountBeforeCapture={minStableFrames}
+          detectionCountBeforeCapture={detectionThreshold}
           overlayColor={overlayColor}
           enableTorch={enableTorch}
           quality={normalizedQuality}
