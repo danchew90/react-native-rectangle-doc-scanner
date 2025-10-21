@@ -163,9 +163,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         path: document.path,
         croppedPath: document.croppedPath,
         initialPath: document.initialPath,
+        captureMode: captureModeRef.current,
       });
 
       const captureMode = captureModeRef.current;
+
+      // Ignore auto captures - only process manual captures
+      if (!captureMode) {
+        console.log('[FullDocScanner] Ignoring auto capture - only manual captures allowed');
+        return;
+      }
+
       captureModeRef.current = null;
 
       const normalizedDoc = normalizeCapturedDocument(document);
@@ -195,10 +203,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       processing,
       hasRef: !!docScannerRef.current,
       rectangleDetected,
+      currentCaptureMode: captureModeRef.current,
     });
 
     if (processing) {
       console.log('[FullDocScanner] Already processing, skipping manual capture');
+      return;
+    }
+
+    // Check if capture is already in progress
+    if (captureModeRef.current !== null) {
+      console.log('[FullDocScanner] Capture already in progress, skipping');
       return;
     }
 
@@ -207,7 +222,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       return;
     }
 
-    console.log('[FullDocScanner] Starting manual capture');
+    console.log('[FullDocScanner] Starting manual capture, grid detected:', rectangleDetected);
 
     captureModeRef.current = rectangleDetected ? 'grid' : 'no-grid';
 
