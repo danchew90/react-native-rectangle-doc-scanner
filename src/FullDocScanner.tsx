@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -41,6 +42,8 @@ export interface FullDocScannerStrings {
   cancel?: string;
   processing?: string;
   galleryButton?: string;
+  retake?: string;
+  confirm?: string;
 }
 
 export interface FullDocScannerProps {
@@ -77,6 +80,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   cropHeight = 1600,
 }) => {
   const [processing, setProcessing] = useState(false);
+  const [croppedImageData, setCroppedImageData] = useState<{path: string; base64?: string} | null>(null);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const manualCapturePending = useRef(false);
@@ -88,6 +93,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       cancel: strings?.cancel,
       processing: strings?.processing,
       galleryButton: strings?.galleryButton,
+      retake: strings?.retake ?? 'Retake',
+      confirm: strings?.confirm ?? 'Confirm',
     }),
     [strings],
   );
@@ -121,7 +128,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
         setProcessing(false);
 
-        onResult({
+        // Show check_DP confirmation screen
+        setCroppedImageData({
           path: croppedImage.path,
           base64: croppedImage.data ?? undefined,
         });
@@ -135,7 +143,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         }
       }
     },
-    [cropWidth, cropHeight, emitError, onResult],
+    [cropWidth, cropHeight, emitError],
   );
 
   const handleCapture = useCallback(
@@ -189,16 +197,19 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   const handleGalleryPick = useCallback(async () => {
     console.log('[FullDocScanner] handleGalleryPick called');
-    if (processing) {
+    if (processing || isGalleryOpen) {
       return;
     }
 
     try {
+      setIsGalleryOpen(true);
       const result = await launchImageLibrary({
         mediaType: 'photo',
         quality: 1,
         selectionLimit: 1,
       });
+
+      setIsGalleryOpen(false);
 
       if (result.didCancel || !result.assets?.[0]?.uri) {
         console.log('[FullDocScanner] User cancelled gallery picker');
@@ -211,32 +222,74 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       // Open cropper with the selected image
       await openCropper(imageUri);
     } catch (error) {
+      setIsGalleryOpen(false);
       emitError(
         error instanceof Error ? error : new Error(String(error)),
         'Failed to pick image from gallery.',
       );
     }
-  }, [processing, openCropper, emitError]);
+  }, [processing, isGalleryOpen, openCropper, emitError]);
 
   const handleClose = useCallback(() => {
     onClose?.();
   }, [onClose]);
 
+  const handleConfirm = useCallback(() => {
+    if (croppedImageData) {
+      onResult({
+        path: croppedImageData.path,
+        base64: croppedImageData.base64,
+      });
+    }
+  }, [croppedImageData, onResult]);
+
+  const handleRetake = useCallback(() => {
+    setCroppedImageData(null);
+  }, []);
+
   return (
     <View style={styles.container}>
-      <View style={styles.flex}>
-        <DocScanner
-          ref={docScannerRef}
-          autoCapture={!manualCapture}
-          overlayColor={overlayColor}
-          showGrid={showGrid}
-          gridColor={resolvedGridColor}
-          gridLineWidth={gridLineWidth}
-          minStableFrames={minStableFrames ?? 6}
-          detectionConfig={detectionConfig}
-          onCapture={handleCapture}
-          showManualCaptureButton={false}
-        >
+      {croppedImageData ? (
+        // check_DP: Show confirmation screen
+        <View style={styles.confirmationContainer}>
+          <Image
+            source={{ uri: croppedImageData.path }}
+            style={styles.previewImage}
+            resizeMode="contain"
+          />
+          <View style={styles.confirmationButtons}>
+            <TouchableOpacity
+              style={[styles.confirmButton, styles.retakeButton]}
+              onPress={handleRetake}
+              accessibilityLabel={mergedStrings.retake}
+              accessibilityRole="button"
+            >
+              <Text style={styles.confirmButtonText}>{mergedStrings.retake}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.confirmButton, styles.confirmButtonPrimary]}
+              onPress={handleConfirm}
+              accessibilityLabel={mergedStrings.confirm}
+              accessibilityRole="button"
+            >
+              <Text style={styles.confirmButtonText}>{mergedStrings.confirm}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.flex}>
+          <DocScanner
+            ref={docScannerRef}
+            autoCapture={!manualCapture && !isGalleryOpen}
+            overlayColor={overlayColor}
+            showGrid={showGrid}
+            gridColor={resolvedGridColor}
+            gridLineWidth={gridLineWidth}
+            minStableFrames={minStableFrames ?? 6}
+            detectionConfig={detectionConfig}
+            onCapture={handleCapture}
+            showManualCaptureButton={false}
+          >
           <View style={styles.overlayTop} pointerEvents="box-none">
             <TouchableOpacity
               style={styles.closeButton}
@@ -282,7 +335,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             </TouchableOpacity>
           </View>
         </DocScanner>
-      </View>
+        </View>
+      )}
 
       {processing && (
         <View style={styles.processingOverlay}>
@@ -396,6 +450,44 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: '#fff',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  confirmationContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: '80%',
+  },
+  confirmationButtons: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 24,
+    paddingVertical: 32,
+  },
+  confirmButton: {
+    paddingHorizontal: 40,
+    paddingVertical: 16,
+    borderRadius: 12,
+    minWidth: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retakeButton: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  confirmButtonPrimary: {
+    backgroundColor: '#3170f3',
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 18,
     fontWeight: '600',
   },
 });
