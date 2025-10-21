@@ -413,7 +413,12 @@
 
 - (void)captureImageWithCompletionHander:(void(^)(id data, id initialData, CIRectangleFeature *rectangleFeature))completionHandler
 {
-    if (_isCapturing) return;
+    NSLog(@"[IPDFCameraViewController] captureImageWithCompletionHander called, _isCapturing=%@", _isCapturing ? @"YES" : @"NO");
+
+    if (_isCapturing) {
+        NSLog(@"[IPDFCameraViewController] Already capturing, ignoring request");
+        return;
+    }
 
     __weak typeof(self) weakSelf = self;
 

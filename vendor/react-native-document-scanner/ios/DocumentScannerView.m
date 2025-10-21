@@ -12,8 +12,8 @@
         [self setEnableBorderDetection:YES];
         [self setDelegate: self];
         _hasSetupCamera = NO;
-        self.manualOnly = YES;
-        self.detectionCountBeforeCapture = NSIntegerMax;
+        self.manualOnly = NO;  // Changed from YES to NO - allow manual capture to work
+        self.detectionCountBeforeCapture = 99999;  // High threshold to prevent auto-capture
     }
 
     return self;
