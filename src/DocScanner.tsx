@@ -150,6 +150,14 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
 
     const handlePictureTaken = useCallback(
       (event: PictureEvent) => {
+        console.log('[DocScanner] handlePictureTaken called with event:', {
+          hasInitialImage: !!event.initialImage,
+          hasCroppedImage: !!event.croppedImage,
+          hasRectangleCoordinates: !!event.rectangleCoordinates,
+          width: event.width,
+          height: event.height,
+        });
+
         setIsAutoCapturing(false);
 
         const normalizedRectangle =
@@ -162,7 +170,16 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
         const croppedPath = event.croppedImage ?? null;
         const editablePath = initialPath ?? croppedPath;
 
+        console.log('[DocScanner] Processing captured image:', {
+          origin,
+          initialPath,
+          croppedPath,
+          editablePath,
+          hasQuad: !!quad,
+        });
+
         if (editablePath) {
+          console.log('[DocScanner] Calling onCapture callback');
           onCapture?.({
             path: editablePath,
             initialPath,
@@ -173,11 +190,14 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
             height: event.height ?? 0,
             origin,
           });
+        } else {
+          console.warn('[DocScanner] No editable path available, skipping onCapture');
         }
 
         setDetectedRectangle(null);
 
         if (captureResolvers.current) {
+          console.log('[DocScanner] Resolving capture promise');
           captureResolvers.current.resolve(event);
           captureResolvers.current = null;
         }
@@ -193,43 +213,61 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
     }, []);
 
     const capture = useCallback((): Promise<PictureEvent> => {
+      console.log('[DocScanner] capture() called');
       captureOriginRef.current = 'manual';
       const instance = scannerRef.current;
+
       if (!instance || typeof instance.capture !== 'function') {
+        console.error('[DocScanner] Native instance not ready:', {
+          hasInstance: !!instance,
+          hasCaptureMethod: instance ? typeof instance.capture : 'no instance',
+        });
         captureOriginRef.current = 'auto';
         return Promise.reject(new Error('DocumentScanner native instance is not ready'));
       }
+
       if (captureResolvers.current) {
+        console.warn('[DocScanner] Capture already in progress');
         captureOriginRef.current = 'auto';
         return Promise.reject(new Error('capture_in_progress'));
       }
 
+      console.log('[DocScanner] Calling native capture method...');
       let result: any;
       try {
         result = instance.capture();
+        console.log('[DocScanner] Native capture method called, result type:', typeof result, 'isPromise:', !!(result && typeof result.then === 'function'));
       } catch (error) {
+        console.error('[DocScanner] Native capture threw error:', error);
         captureOriginRef.current = 'auto';
         return Promise.reject(error);
       }
+
       if (result && typeof result.then === 'function') {
+        console.log('[DocScanner] Native returned a promise, waiting for resolution...');
         return result
           .then((payload: PictureEvent) => {
+            console.log('[DocScanner] Native promise resolved with payload:', payload);
             handlePictureTaken(payload);
             return payload;
           })
           .catch((error: unknown) => {
+            console.error('[DocScanner] Native promise rejected:', error);
             captureOriginRef.current = 'auto';
             throw error;
           });
       }
 
+      console.log('[DocScanner] Native did not return a promise, using callback-based approach');
       return new Promise<PictureEvent>((resolve, reject) => {
         captureResolvers.current = {
           resolve: (value) => {
+            console.log('[DocScanner] Callback resolver called with:', value);
             captureOriginRef.current = 'auto';
             resolve(value);
           },
           reject: (reason) => {
+            console.error('[DocScanner] Callback rejector called with:', reason);
             captureOriginRef.current = 'auto';
             reject(reason);
           },
