@@ -317,7 +317,7 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
             polygon={overlayPolygon}
           />
         )}
-        {(showManualCaptureButton || !autoCapture) && (
+        {showManualCaptureButton && (
           <TouchableOpacity style={styles.button} onPress={handleManualCapture} />
         )}
         {children}

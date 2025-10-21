@@ -180,14 +180,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           path: normalizedDoc.croppedPath,
         });
       } else {
-        // No grid: show original image in check_DP
-        console.log('[FullDocScanner] No grid: using original image', normalizedDoc.path);
-        setCroppedImageData({
-          path: normalizedDoc.path,
-        });
+        // No grid: open cropper for manual crop
+        console.log('[FullDocScanner] No grid detected: opening cropper for manual crop', normalizedDoc.path);
+        await openCropper(normalizedDoc.path);
       }
     },
-    [],
+    [openCropper],
   );
 
   const triggerManualCapture = useCallback(() => {
