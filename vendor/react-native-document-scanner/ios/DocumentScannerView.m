@@ -78,6 +78,8 @@
 
     _lastDetectionType = type;
 
+    NSLog(@"[DocumentScanner] manualOnly=%@ detectionCount=%ld stableCounter=%ld", self.manualOnly ? @"YES" : @"NO", (long)self.detectionCountBeforeCapture, (long)self.stableCounter);
+
     if (self.manualOnly) {
         return;
     }
