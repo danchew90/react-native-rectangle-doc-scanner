@@ -32,7 +32,8 @@
   "peerDependencies": {
     "react": "*",
     "react-native": "*",
-    "react-native-perspective-image-cropper": "*",
+    "react-native-image-picker": "*",
+    "react-native-image-crop-picker": "*",
     "react-native-svg": "*"
   },
   "devDependencies": {
