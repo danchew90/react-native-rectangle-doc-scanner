@@ -165,13 +165,13 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         initialPath: document.initialPath,
       });
 
-      // Reset manual capture pending flag
+      const normalizedDoc = normalizeCapturedDocument(document);
+
+      // Reset manual capture pending flag BEFORE processing
       if (manualCapturePending.current) {
         console.log('[FullDocScanner] Resetting manualCapturePending');
         manualCapturePending.current = false;
       }
-
-      const normalizedDoc = normalizeCapturedDocument(document);
 
       // If grid detected and cropped image exists, show it directly in check_DP
       if (normalizedDoc.croppedPath) {
