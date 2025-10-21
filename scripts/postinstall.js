@@ -39,7 +39,8 @@ try {
     'ios/DocumentScannerView.h',
     'ios/RNPdfScannerManager.m',
     'ios/RNPdfScannerManager.h',
-    'ios.js'
+    'ios.js',
+    'index.js'
   ];
 
   let copiedCount = 0;
