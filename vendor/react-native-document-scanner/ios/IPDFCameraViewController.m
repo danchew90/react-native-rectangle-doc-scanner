@@ -474,6 +474,12 @@
 
                      [weakSelf hideGLKView:NO completion:nil];
                      completionHandler(image, initialImage, rectangleFeature);
+                 } else {
+                     // No rectangle detected, return original image
+                     NSLog(@"[IPDFCameraViewController] No rectangle detected during manual capture, returning original image");
+                     [weakSelf hideGLKView:NO completion:nil];
+                     UIImage *initialImage = [UIImage imageWithData:imageData];
+                     completionHandler(initialImage, initialImage, nil);
                  }
              } else {
                  [weakSelf hideGLKView:NO completion:nil];

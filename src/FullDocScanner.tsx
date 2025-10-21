@@ -276,7 +276,13 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   }, [croppedImageData, onResult]);
 
   const handleRetake = useCallback(() => {
+    console.log('[FullDocScanner] Retake - clearing cropped image and resetting scanner');
     setCroppedImageData(null);
+    setProcessing(false);
+    // Reset DocScanner state
+    if (docScannerRef.current?.reset) {
+      docScannerRef.current.reset();
+    }
   }, []);
 
   return (
