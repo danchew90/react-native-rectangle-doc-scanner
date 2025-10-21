@@ -55,7 +55,6 @@ export interface FullDocScannerProps {
   gridLineWidth?: number;
   showGrid?: boolean;
   strings?: FullDocScannerStrings;
-  manualCapture?: boolean;
   minStableFrames?: number;
   onError?: (error: Error) => void;
   enableGallery?: boolean;
@@ -72,7 +71,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   gridLineWidth,
   showGrid,
   strings,
-  manualCapture = false,
   minStableFrames,
   onError,
   enableGallery = true,
