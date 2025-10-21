@@ -341,7 +341,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         <View style={styles.flex}>
           <DocScanner
             ref={docScannerRef}
-            autoCapture={false}
+            autoCapture={true}
             overlayColor={overlayColor}
             showGrid={showGrid}
             gridColor={resolvedGridColor}
