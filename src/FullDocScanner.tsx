@@ -326,6 +326,9 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       const imageUri = result.assets[0].uri;
       console.log('[FullDocScanner] Gallery image selected:', imageUri);
 
+      // Allow the picker dismissal animation to complete before presenting the cropper
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
       // Open cropper with the selected image
       await openCropper(imageUri);
     } catch (error) {

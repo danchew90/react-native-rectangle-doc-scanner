@@ -27,15 +27,17 @@ class PdfScanner extends React.Component {
   }
 
   capture() {
-    console.log('[PdfScanner/ios.js] capture called');
+    console.log('[PdfScanner/ios.js] capture called, ref:', this.scannerRef.current);
+    const handle = findNodeHandle(this.scannerRef.current);
+    console.log('[PdfScanner/ios.js] node handle (reactTag):', handle);
 
-    if (!this.scannerRef.current) {
+    if (typeof handle !== 'number') {
       const error = new Error('DocumentScanner native view is not ready');
       console.error('[PdfScanner/ios.js] ERROR:', error.message);
       return Promise.reject(error);
     }
 
-    return NativeModules.RNPdfScannerManager.capture();
+    return NativeModules.RNPdfScannerManager.capture(handle);
   }
 
   render() {
