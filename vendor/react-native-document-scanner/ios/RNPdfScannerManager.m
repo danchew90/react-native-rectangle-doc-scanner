@@ -35,22 +35,27 @@ RCT_EXPORT_VIEW_PROPERTY(brightness, float)
 RCT_EXPORT_VIEW_PROPERTY(contrast, float)
 
 // Main capture method - returns a Promise
-RCT_EXPORT_METHOD(capture:(nullable NSNumber *)reactTag
+RCT_EXPORT_METHOD(capture:(nullable id)reactTag
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject) {
     NSLog(@"[RNPdfScannerManager] capture called with reactTag: %@", reactTag);
     dispatch_async(dispatch_get_main_queue(), ^{
         DocumentScannerView *targetView = nil;
+        NSNumber *resolvedTag = ([reactTag isKindOfClass:[NSNumber class]]) ? (NSNumber *)reactTag : nil;
 
-        if (reactTag) {
-            UIView *view = [self.bridge.uiManager viewForReactTag:reactTag];
+        if (!resolvedTag && reactTag) {
+            NSLog(@"[RNPdfScannerManager] Unexpected reactTag type %@ - falling back to last known view", NSStringFromClass([reactTag class]));
+        }
+
+        if (resolvedTag) {
+            UIView *view = [self.bridge.uiManager viewForReactTag:resolvedTag];
             if ([view isKindOfClass:[DocumentScannerView class]]) {
                 targetView = (DocumentScannerView *)view;
                 self->_scannerView = targetView;
             } else if (view) {
-                NSLog(@"[RNPdfScannerManager] View for tag %@ is not DocumentScannerView: %@", reactTag, NSStringFromClass(view.class));
+                NSLog(@"[RNPdfScannerManager] View for tag %@ is not DocumentScannerView: %@", resolvedTag, NSStringFromClass(view.class));
             } else {
-                NSLog(@"[RNPdfScannerManager] No view found for tag %@", reactTag);
+                NSLog(@"[RNPdfScannerManager] No view found for tag %@", resolvedTag);
             }
         }
 

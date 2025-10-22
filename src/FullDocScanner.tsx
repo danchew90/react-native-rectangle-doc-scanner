@@ -367,37 +367,46 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   const handleRectangleDetect = useCallback((event: RectangleDetectEvent) => {
     const stableCounter = event.stableCounter ?? 0;
-    const hasRectangle = Boolean(event.rectangleOnScreen ?? event.rectangleCoordinates);
-    const isGoodRectangle = hasRectangle && event.lastDetectionType === 0;
+    const rectangleCoordinates = event.rectangleOnScreen ?? event.rectangleCoordinates;
+    const hasRectangle = Boolean(rectangleCoordinates);
+    const isConfidentRectangle = hasRectangle && (event.lastDetectionType === 0 || stableCounter > 0);
 
-    // Clear timeout immediately when rectangle is lost
-    if (!hasRectangle || !isGoodRectangle) {
+    const scheduleDetectionClear = () => {
+      if (rectangleTimeoutRef.current) {
+        clearTimeout(rectangleTimeoutRef.current);
+      }
+
+      rectangleTimeoutRef.current = setTimeout(() => {
+        rectangleTimeoutRef.current = null;
+        setRectangleDetected((prev) => {
+          if (!prev) {
+            return prev;
+          }
+          console.log('[FullDocScanner] Rectangle timeout - clearing detection');
+          return false;
+        });
+      }, 350);
+    };
+
+    if (isConfidentRectangle) {
+      scheduleDetectionClear();
+      setRectangleDetected((prev) => (prev ? prev : true));
+    } else if (!hasRectangle) {
       if (rectangleTimeoutRef.current) {
         clearTimeout(rectangleTimeoutRef.current);
         rectangleTimeoutRef.current = null;
       }
       setRectangleDetected(false);
     } else {
-      // Rectangle detected - clear any existing timeout
-      if (rectangleTimeoutRef.current) {
-        clearTimeout(rectangleTimeoutRef.current);
-      }
-      setRectangleDetected(true);
-
-      // Set timeout to clear rectangle after brief period of no updates
-      rectangleTimeoutRef.current = setTimeout(() => {
-        rectangleTimeoutRef.current = null;
-        setRectangleDetected(false);
-        console.log('[FullDocScanner] Rectangle timeout - clearing detection');
-      }, 300);
+      // Rectangle is present but confidence is low – keep current state but schedule a clear
+      scheduleDetectionClear();
     }
 
     console.log('[FullDocScanner] Rectangle detection update', {
       lastDetectionType: event.lastDetectionType,
       stableCounter,
       hasRectangle,
-      isGoodRectangle,
-      rectangleDetected: isGoodRectangle,
+      isConfidentRectangle,
     });
   }, []);
 
