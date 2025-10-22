@@ -231,6 +231,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         console.error('[FullDocScanner] openCropper error:', error);
         setProcessing(false);
 
+        // Reset capture state when cropper fails or is cancelled
+        captureInProgressRef.current = false;
+        captureModeRef.current = null;
+
         const errorCode = (error as any)?.code;
         const errorMessage = (error as any)?.message || String(error);
 

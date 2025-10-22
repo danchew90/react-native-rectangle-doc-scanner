@@ -28,13 +28,28 @@
         [self setupCameraView];
         [self start];
         _hasSetupCamera = YES;
+    } else if (_hasSetupCamera && self.window && !CGRectIsEmpty(self.bounds)) {
+        // Check if camera session is running, restart if needed
+        if (self.captureSession && !self.captureSession.isRunning) {
+            NSLog(@"[DocumentScanner] Camera session not running, restarting...");
+            [self start];
+        }
     }
 }
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
-    if (!self.window && _hasSetupCamera) {
+    if (self.window && _hasSetupCamera) {
+        // Restart camera when view is added back to window
+        if (self.captureSession && !self.captureSession.isRunning) {
+            NSLog(@"[DocumentScanner] View added to window, restarting camera...");
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self start];
+            });
+        }
+    } else if (!self.window && _hasSetupCamera) {
         // Stop camera when view is removed from window
+        NSLog(@"[DocumentScanner] View removed from window, stopping camera");
         [self stop];
     }
 }
