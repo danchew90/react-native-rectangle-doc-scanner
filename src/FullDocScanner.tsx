@@ -22,6 +22,68 @@ import type {
 
 const stripFileUri = (value: string) => value.replace(/^file:\/\//, '');
 
+const CROPPER_TIMEOUT_MS = 8000;
+const CROPPER_TIMEOUT_CODE = 'cropper_timeout';
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const runAfterInteractions = () =>
+  new Promise<void>((resolve) => InteractionManager.runAfterInteractions(() => resolve()));
+
+// Allow native pickers to finish their dismissal animations before presenting the cropper.
+const waitForModalDismissal = async () => {
+  await delay(50);
+  await runAfterInteractions();
+  if (typeof requestAnimationFrame === 'function') {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+  await delay(180);
+  await runAfterInteractions();
+};
+
+// Guard the native cropper promise so we can recover if it never resolves.
+async function withTimeout<T>(factory: () => Promise<T>): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let finished = false;
+
+  const promise = factory()
+    .then((value) => {
+      finished = true;
+      return value;
+    })
+    .catch((error) => {
+      finished = true;
+      throw error;
+    });
+
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      if (!finished) {
+        const timeoutError = new Error(CROPPER_TIMEOUT_CODE);
+        (timeoutError as any).code = CROPPER_TIMEOUT_CODE;
+        reject(timeoutError);
+      }
+    }, CROPPER_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    if (!finished) {
+      promise.catch(() => {
+        console.warn('[FullDocScanner] Cropper promise settled after timeout');
+      });
+    }
+  }
+}
+
+type OpenCropperOptions = {
+  waitForPickerDismissal?: boolean;
+};
+
 const normalizeCapturedDocument = (document: DocScannerCapture): CapturedDocument => {
   const { origin: _origin, ...rest } = document;
   const normalizedPath = stripFileUri(document.initialPath ?? document.path);
@@ -120,7 +182,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   );
 
   const openCropper = useCallback(
-    async (imagePath: string) => {
+    async (imagePath: string, options?: OpenCropperOptions) => {
       try {
         console.log('[FullDocScanner] openCropper called with path:', imagePath);
         setProcessing(true);
@@ -133,17 +195,25 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         }
         console.log('[FullDocScanner] Clean path for cropper:', cleanPath);
 
-        const croppedImage = await ImageCropPicker.openCropper({
-          path: cleanPath,
-          mediaType: 'photo',
-          width: cropWidth,
-          height: cropHeight,
-          cropping: true,
-          cropperToolbarTitle: 'Crop Document',
-          freeStyleCropEnabled: true,
-          includeBase64: true,
-          compressImageQuality: 0.9,
-        });
+        const shouldWaitForPickerDismissal = options?.waitForPickerDismissal ?? true;
+
+        if (shouldWaitForPickerDismissal) {
+          await waitForModalDismissal();
+        }
+
+        const croppedImage = await withTimeout(() =>
+          ImageCropPicker.openCropper({
+            path: cleanPath,
+            mediaType: 'photo',
+            width: cropWidth,
+            height: cropHeight,
+            cropping: true,
+            cropperToolbarTitle: 'Crop Document',
+            freeStyleCropEnabled: true,
+            includeBase64: true,
+            compressImageQuality: 0.9,
+          }),
+        );
 
         console.log('[FullDocScanner] Cropper returned:', {
           path: croppedImage.path,
@@ -161,11 +231,21 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         console.error('[FullDocScanner] openCropper error:', error);
         setProcessing(false);
 
+        const errorCode = (error as any)?.code;
         const errorMessage = (error as any)?.message || String(error);
 
-        if (errorMessage === 'User cancelled image selection' ||
-            errorMessage.includes('cancelled') ||
-            errorMessage.includes('cancel')) {
+        if (errorCode === CROPPER_TIMEOUT_CODE || errorMessage === CROPPER_TIMEOUT_CODE) {
+          console.error('[FullDocScanner] Cropper timed out waiting for presentation');
+          emitError(
+            error instanceof Error ? error : new Error('Cropper timed out'),
+            'Failed to open crop editor. Please try again.',
+          );
+        } else if (
+          errorCode === 'E_PICKER_CANCELLED' ||
+          errorMessage === 'User cancelled image selection' ||
+          errorMessage.includes('cancelled') ||
+          errorMessage.includes('cancel')
+        ) {
           console.log('[FullDocScanner] User cancelled cropper');
         } else {
           emitError(
@@ -204,7 +284,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
       if (captureMode === 'no-grid') {
         console.log('[FullDocScanner] No grid at capture button press: opening cropper for manual selection');
-        await openCropper(normalizedDoc.path);
+        await openCropper(normalizedDoc.path, { waitForPickerDismissal: false });
         return;
       }
 
@@ -217,7 +297,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       }
 
       console.log('[FullDocScanner] Fallback to manual crop (no croppedPath available)');
-      await openCropper(normalizedDoc.path);
+      await openCropper(normalizedDoc.path, { waitForPickerDismissal: false });
     },
     [openCropper],
   );
@@ -326,12 +406,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
       const imageUri = result.assets[0].uri;
       console.log('[FullDocScanner] Gallery image selected:', imageUri);
-
-      // Defer cropper presentation until picker dismissal finishes to avoid hierarchy errors
-      await new Promise<void>((resolve) =>
-        InteractionManager.runAfterInteractions(() => resolve()),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 350));
 
       await openCropper(imageUri);
     } catch (error) {
