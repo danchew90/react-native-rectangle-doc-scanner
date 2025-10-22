@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  InteractionManager,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -326,10 +327,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       const imageUri = result.assets[0].uri;
       console.log('[FullDocScanner] Gallery image selected:', imageUri);
 
-      // Allow the picker dismissal animation to complete before presenting the cropper
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Defer cropper presentation until picker dismissal finishes to avoid hierarchy errors
+      await new Promise<void>((resolve) =>
+        InteractionManager.runAfterInteractions(() => resolve()),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 150));
 
-      // Open cropper with the selected image
       await openCropper(imageUri);
     } catch (error) {
       console.error('[FullDocScanner] Gallery pick error:', error);

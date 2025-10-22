@@ -6,6 +6,7 @@ import {
   Platform,
   PermissionsAndroid,
   DeviceEventEmitter,
+  findNodeHandle,
 } from 'react-native';
 import PropTypes from 'prop-types';
 
@@ -121,8 +122,31 @@ class PdfScanner extends React.Component {
   }
 
   capture() {
-    if (this.state.permissionsAuthorized) {
-      CameraManager.capture();
+    if (!this.state.permissionsAuthorized) {
+      return Promise.reject(new Error('camera_permissions_not_granted'));
+    }
+
+    if (!CameraManager || typeof CameraManager.capture !== 'function') {
+      return Promise.reject(new Error('capture_not_supported'));
+    }
+
+    const nodeHandle = findNodeHandle(this);
+
+    if (!nodeHandle) {
+      return Promise.reject(new Error('scanner_view_not_ready'));
+    }
+
+    try {
+      const result = CameraManager.capture(nodeHandle);
+
+      if (result && typeof result.then === 'function') {
+        return result;
+      }
+
+      // Ensure callers always receive a promise even if native side falls back to events
+      return Promise.resolve(result);
+    } catch (error) {
+      return Promise.reject(error);
     }
   }
 
