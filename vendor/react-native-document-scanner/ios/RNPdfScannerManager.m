@@ -34,8 +34,22 @@ RCT_EXPORT_VIEW_PROPERTY(quality, float)
 RCT_EXPORT_VIEW_PROPERTY(brightness, float)
 RCT_EXPORT_VIEW_PROPERTY(contrast, float)
 
-RCT_EXPORT_METHOD(capture:(nonnull NSNumber *)reactTag) {
-    NSLog(@"[RNPdfScannerManager] capture called with reactTag: %@", reactTag);
+// Main capture method - uses the last created scanner view
+RCT_EXPORT_METHOD(capture) {
+    NSLog(@"[RNPdfScannerManager] capture called, scannerView: %@", _scannerView ? @"YES" : @"NO");
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self->_scannerView) {
+            NSLog(@"[RNPdfScannerManager] ERROR: No scanner view available");
+            return;
+        }
+        NSLog(@"[RNPdfScannerManager] Calling capture on view: %@", self->_scannerView);
+        [self->_scannerView capture];
+    });
+}
+
+// Alternative method that takes reactTag - for future use
+RCT_EXPORT_METHOD(captureWithTag:(nonnull NSNumber *)reactTag) {
+    NSLog(@"[RNPdfScannerManager] captureWithTag called with reactTag: %@", reactTag);
     dispatch_async(dispatch_get_main_queue(), ^{
         UIView *view = [self.bridge.uiManager viewForReactTag:reactTag];
         if (!view || ![view isKindOfClass:[DocumentScannerView class]]) {
@@ -46,12 +60,6 @@ RCT_EXPORT_METHOD(capture:(nonnull NSNumber *)reactTag) {
         NSLog(@"[RNPdfScannerManager] Calling capture on view: %@", scannerView);
         [scannerView capture];
     });
-}
-
-// Deprecated - kept for backward compatibility
-RCT_EXPORT_METHOD(captureGlobal) {
-    NSLog(@"[RNPdfScannerManager] captureGlobal called (deprecated), scannerView: %@", _scannerView ? @"YES" : @"NO");
-    [_scannerView capture];
 }
 
 - (UIView*) view {
