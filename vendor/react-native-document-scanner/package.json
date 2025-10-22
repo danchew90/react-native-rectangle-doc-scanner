@@ -1,0 +1,17 @@
+{
+  "name": "react-native-document-scanner",
+  "version": "1.0.0",
+  "description": "Modified version of react-native-document-scanner with Promise support",
+  "main": "index.js",
+  "scripts": {},
+  "keywords": ["react-native", "document-scanner", "camera"],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "dependencies": {
+    "prop-types": "^15.7.2"
+  }
+}

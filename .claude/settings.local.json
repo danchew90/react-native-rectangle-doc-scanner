@@ -3,7 +3,9 @@
     "allow": [
       "Bash(node:*)",
       "Read(//Users/tt-mac-03/Documents/workspace/tdb/**)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npx react-native codegen)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
