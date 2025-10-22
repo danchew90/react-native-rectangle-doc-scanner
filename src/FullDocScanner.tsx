@@ -112,6 +112,7 @@ export interface FullDocScannerStrings {
   galleryButton?: string;
   retake?: string;
   confirm?: string;
+  cropTitle?: string;
 }
 
 export interface FullDocScannerProps {
@@ -151,6 +152,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [rectangleDetected, setRectangleDetected] = useState(false);
   const [rectangleHint, setRectangleHint] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
@@ -167,6 +169,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       galleryButton: strings?.galleryButton,
       retake: strings?.retake ?? 'Retake',
       confirm: strings?.confirm ?? 'Confirm',
+      cropTitle: strings?.cropTitle ?? 'Crop Document',
     }),
     [strings],
   );
@@ -209,7 +212,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             width: cropWidth,
             height: cropHeight,
             cropping: true,
-            cropperToolbarTitle: 'Crop Document',
+            cropperToolbarTitle: mergedStrings.cropTitle || 'Crop Document',
             freeStyleCropEnabled: true,
             includeBase64: true,
             compressImageQuality: 0.9,
@@ -437,6 +440,47 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setFlashEnabled(prev => !prev);
   }, []);
 
+  const handleRotateImage = useCallback(async (degrees: -90 | 90) => {
+    if (isRotating || !croppedImageData) return;
+
+    setIsRotating(true);
+    try {
+      console.log('[FullDocScanner] Rotating image by', degrees, 'degrees');
+
+      const rotatedImage = await ImageCropPicker.openCropper({
+        path: croppedImageData.path,
+        mediaType: 'photo',
+        cropping: true,
+        freeStyleCropEnabled: true,
+        includeBase64: true,
+        compressImageQuality: 0.9,
+        cropperToolbarTitle: degrees === 90 ? '↻' : '↺',
+        cropperChooseText: '완료',
+        cropperCancelText: '취소',
+        cropperRotateButtonsHidden: false,
+      });
+
+      console.log('[FullDocScanner] Image rotated successfully');
+      setCroppedImageData({
+        path: rotatedImage.path,
+        base64: rotatedImage.data ?? undefined,
+      });
+    } catch (error) {
+      console.error('[FullDocScanner] Image rotation error:', error);
+      if (error && typeof error === 'object' && 'message' in error) {
+        const errorMessage = (error as Error).message;
+        if (!errorMessage.includes('cancel') && !errorMessage.includes('User cancelled')) {
+          emitError(
+            error instanceof Error ? error : new Error(String(error)),
+            'Failed to rotate image.',
+          );
+        }
+      }
+    } finally {
+      setIsRotating(false);
+    }
+  }, [isRotating, croppedImageData, emitError]);
+
   const handleConfirm = useCallback(() => {
     if (croppedImageData) {
       onResult({
@@ -542,6 +586,29 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       {croppedImageData ? (
         // check_DP: Show confirmation screen
         <View style={styles.confirmationContainer}>
+          {/* 상단 회전 버튼들 */}
+          <View style={styles.rotateButtonsTop}>
+            <TouchableOpacity
+              style={[styles.rotateButtonTop, isRotating && styles.buttonDisabled]}
+              onPress={() => handleRotateImage(-90)}
+              disabled={isRotating}
+              accessibilityLabel="왼쪽으로 90도 회전"
+              accessibilityRole="button"
+            >
+              <Text style={styles.rotateIconText}>↺</Text>
+              <Text style={styles.rotateButtonLabel}>좌로 90°</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.rotateButtonTop, isRotating && styles.buttonDisabled]}
+              onPress={() => handleRotateImage(90)}
+              disabled={isRotating}
+              accessibilityLabel="오른쪽으로 90도 회전"
+              accessibilityRole="button"
+            >
+              <Text style={styles.rotateIconText}>↻</Text>
+              <Text style={styles.rotateButtonLabel}>우로 90°</Text>
+            </TouchableOpacity>
+          </View>
           <Image
             source={{ uri: croppedImageData.path }}
             style={styles.previewImage}
@@ -778,6 +845,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  rotateButtonsTop: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    flexDirection: 'row',
+    gap: 12,
+    zIndex: 10,
+  },
+  rotateButtonTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(50,50,50,0.8)',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    gap: 6,
+  },
+  rotateIconText: {
+    fontSize: 24,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  rotateButtonLabel: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '500',
   },
   previewImage: {
     width: '100%',
