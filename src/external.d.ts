@@ -84,6 +84,12 @@ declare module 'react-native-document-scanner' {
   }
 }
 
+declare module '../vendor/react-native-document-scanner' {
+  import DocumentScanner from 'react-native-document-scanner';
+  export * from 'react-native-document-scanner';
+  export default DocumentScanner;
+}
+
 declare module 'react-native-svg' {
   import type { ComponentType, ReactNode } from 'react';
 

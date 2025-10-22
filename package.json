@@ -42,8 +42,5 @@
     "react-native-image-picker": "^7.1.2",
     "react-native-image-crop-picker": "^0.41.2",
     "typescript": "^5.3.3"
-  },
-  "dependencies": {
-    "react-native-document-scanner": "github:Michaelvilleneuve/react-native-document-scanner"
   }
 }

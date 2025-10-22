@@ -16,8 +16,8 @@ import {
   NativeModules,
   findNodeHandle,
 } from 'react-native';
-import DocumentScanner from 'react-native-document-scanner';
-import type { Rectangle as NativeRectangle, RectangleEventPayload } from 'react-native-document-scanner';
+import DocumentScanner from '../vendor/react-native-document-scanner';
+import type { Rectangle as NativeRectangle, RectangleEventPayload } from '../vendor/react-native-document-scanner';
 import { rectangleToQuad } from './utils/coordinate';
 import type { Point, Rectangle } from './types';
 import { ScannerOverlay } from './utils/overlay';
