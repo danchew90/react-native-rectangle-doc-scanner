@@ -44,6 +44,6 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "react-native-document-scanner": "file:./vendor/react-native-document-scanner"
+    "react-native-document-scanner": "github:Michaelvilleneuve/react-native-document-scanner"
   }
 }
