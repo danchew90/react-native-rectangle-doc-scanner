@@ -15,16 +15,19 @@
 #import <ImageIO/ImageIO.h>
 #import <GLKit/GLKit.h>
 
-@interface IPDFCameraViewController () <AVCaptureVideoDataOutputSampleBufferDelegate>
+@interface IPDFCameraViewController () <AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate>
 
 @property (nonatomic,strong) AVCaptureSession *captureSession;
 @property (nonatomic,strong) AVCaptureDevice *captureDevice;
 @property (nonatomic,strong) EAGLContext *context;
 
-@property (nonatomic, strong) AVCaptureStillImageOutput* stillImageOutput;
+@property (nonatomic, strong) AVCapturePhotoOutput* photoOutput;
+@property (nonatomic, strong) AVCaptureStillImageOutput* stillImageOutput; // Kept for backward compatibility
 
 @property (nonatomic, assign) BOOL forceStop;
 @property (nonatomic, assign) float lastDetectionRate;
+
+@property (nonatomic, copy) void (^captureCompletionHandler)(UIImage *, UIImage *, CIRectangleFeature *);
 
 @end
 
@@ -143,8 +146,21 @@
     [dataOutput setSampleBufferDelegate:self queue:dispatch_get_main_queue()];
     [session addOutput:dataOutput];
 
-    self.stillImageOutput = [[AVCaptureStillImageOutput alloc] init];
-    [session addOutput:self.stillImageOutput];
+    // Use modern AVCapturePhotoOutput for iOS 10+
+    if (@available(iOS 10.0, *)) {
+        self.photoOutput = [[AVCapturePhotoOutput alloc] init];
+        if ([session canAddOutput:self.photoOutput]) {
+            [session addOutput:self.photoOutput];
+            NSLog(@"[IPDFCamera] Using AVCapturePhotoOutput (modern API)");
+        } else {
+            NSLog(@"[IPDFCamera] ERROR: Cannot add AVCapturePhotoOutput");
+        }
+    } else {
+        // Fallback for older iOS versions (< iOS 10)
+        self.stillImageOutput = [[AVCaptureStillImageOutput alloc] init];
+        [session addOutput:self.stillImageOutput];
+        NSLog(@"[IPDFCamera] Using AVCaptureStillImageOutput (legacy API)");
+    }
 
     AVCaptureConnection *connection = [dataOutput.connections firstObject];
     [connection setVideoOrientation:AVCaptureVideoOrientationPortrait];
@@ -420,6 +436,17 @@
         return;
     }
 
+    if (!completionHandler) {
+        NSLog(@"[IPDFCameraViewController] ERROR: No completion handler provided");
+        return;
+    }
+
+    if (!self.captureSession || !self.captureSession.isRunning) {
+        NSLog(@"[IPDFCameraViewController] ERROR: captureSession is not running");
+        _isCapturing = NO;
+        return;
+    }
+
     __weak typeof(self) weakSelf = self;
 
     [weakSelf hideGLKView:YES completion:^
@@ -432,76 +459,188 @@
 
     _isCapturing = YES;
 
-    AVCaptureConnection *videoConnection = nil;
-    for (AVCaptureConnection *connection in self.stillImageOutput.connections)
-    {
-        for (AVCaptureInputPort *port in [connection inputPorts])
-        {
-            if ([[port mediaType] isEqual:AVMediaTypeVideo] )
-            {
-                videoConnection = connection;
-                break;
-            }
+    // Store completion handler for delegate callback
+    self.captureCompletionHandler = completionHandler;
+
+    // Use modern AVCapturePhotoOutput API (iOS 10+)
+    if (@available(iOS 10.0, *)) {
+        if (!self.photoOutput) {
+            NSLog(@"[IPDFCameraViewController] ERROR: photoOutput is nil");
+            _isCapturing = NO;
+            self.captureCompletionHandler = nil;
+            [weakSelf hideGLKView:NO completion:nil];
+            return;
         }
-        if (videoConnection) break;
+
+        NSLog(@"[IPDFCameraViewController] Using AVCapturePhotoOutput to capture");
+        AVCapturePhotoSettings *settings = [AVCapturePhotoSettings photoSettings];
+        [self.photoOutput capturePhotoWithSettings:settings delegate:self];
+    } else {
+        // Fallback to deprecated API for iOS < 10
+        if (!self.stillImageOutput) {
+            NSLog(@"[IPDFCameraViewController] ERROR: stillImageOutput is nil");
+            _isCapturing = NO;
+            self.captureCompletionHandler = nil;
+            [weakSelf hideGLKView:NO completion:nil];
+            return;
+        }
+
+        AVCaptureConnection *videoConnection = nil;
+        for (AVCaptureConnection *connection in self.stillImageOutput.connections)
+        {
+            for (AVCaptureInputPort *port in [connection inputPorts])
+            {
+                if ([[port mediaType] isEqual:AVMediaTypeVideo] )
+                {
+                    videoConnection = connection;
+                    break;
+                }
+            }
+            if (videoConnection) break;
+        }
+
+        if (!videoConnection) {
+            NSLog(@"[IPDFCameraViewController] ERROR: No video connection found");
+            _isCapturing = NO;
+            self.captureCompletionHandler = nil;
+            [weakSelf hideGLKView:NO completion:nil];
+            return;
+        }
+
+        NSLog(@"[IPDFCameraViewController] Using AVCaptureStillImageOutput (legacy)");
+        [self.stillImageOutput captureStillImageAsynchronouslyFromConnection:videoConnection completionHandler: ^(CMSampleBufferRef imageSampleBuffer, NSError *error)
+        {
+            [weakSelf handleCapturedImageData:imageSampleBuffer error:error];
+        }];
+    }
+}
+
+// AVCapturePhotoCaptureDelegate method for iOS 11+
+- (void)captureOutput:(AVCapturePhotoOutput *)output didFinishProcessingPhoto:(AVCapturePhoto *)photo error:(NSError *)error API_AVAILABLE(ios(11.0)) {
+    NSLog(@"[IPDFCameraViewController] didFinishProcessingPhoto called, error=%@", error);
+
+    if (error) {
+        NSLog(@"[IPDFCameraViewController] ERROR in didFinishProcessingPhoto: %@", error);
+        _isCapturing = NO;
+        self.captureCompletionHandler = nil;
+        [self hideGLKView:NO completion:nil];
+        return;
     }
 
-    [self.stillImageOutput captureStillImageAsynchronouslyFromConnection:videoConnection completionHandler: ^(CMSampleBufferRef imageSampleBuffer, NSError *error)
-     {
-         NSData *imageData = [AVCaptureStillImageOutput jpegStillImageNSDataRepresentation:imageSampleBuffer];
+    NSData *imageData = [photo fileDataRepresentation];
+    if (!imageData) {
+        NSLog(@"[IPDFCameraViewController] ERROR: Failed to get image data from photo");
+        _isCapturing = NO;
+        self.captureCompletionHandler = nil;
+        [self hideGLKView:NO completion:nil];
+        return;
+    }
 
-         if (weakSelf.cameraViewType == IPDFCameraViewTypeBlackAndWhite || weakSelf.isBorderDetectionEnabled)
-         {
-             CIImage *enhancedImage = [CIImage imageWithData:imageData];
+    [self processImageData:imageData];
+}
 
-             if (weakSelf.cameraViewType == IPDFCameraViewTypeBlackAndWhite)
-             {
-                 enhancedImage = [self filteredImageUsingEnhanceFilterOnImage:enhancedImage];
-             }
-             else
-             {
-                 enhancedImage = [self filteredImageUsingContrastFilterOnImage:enhancedImage];
-             }
+// AVCapturePhotoCaptureDelegate method for iOS 10
+- (void)captureOutput:(AVCapturePhotoOutput *)output didFinishProcessingPhotoSampleBuffer:(CMSampleBufferRef)photoSampleBuffer previewPhotoSampleBuffer:(CMSampleBufferRef)previewPhotoSampleBuffer resolvedSettings:(AVCaptureResolvedPhotoSettings *)resolvedSettings bracketSettings:(AVCaptureBracketedStillImageSettings *)bracketSettings error:(NSError *)error API_DEPRECATED("Use -captureOutput:didFinishProcessingPhoto:error: instead.", ios(10.0, 11.0)) {
+    NSLog(@"[IPDFCameraViewController] didFinishProcessingPhotoSampleBuffer called (iOS 10)");
+    [self handleCapturedImageData:photoSampleBuffer error:error];
+}
 
-             if (weakSelf.isBorderDetectionEnabled && rectangleDetectionConfidenceHighEnough(_imageDedectionConfidence))
-             {
-                 CIRectangleFeature *rectangleFeature = [self biggestRectangleInRectangles:[[self highAccuracyRectangleDetector] featuresInImage:enhancedImage]];
+- (void)handleCapturedImageData:(CMSampleBufferRef)sampleBuffer error:(NSError *)error {
+    NSLog(@"[IPDFCameraViewController] handleCapturedImageData called, error=%@, buffer=%@", error, sampleBuffer ? @"YES" : @"NO");
 
-                 if (rectangleFeature)
-                 {
-                     enhancedImage = [self correctPerspectiveForImage:enhancedImage withFeatures:rectangleFeature];
+    if (error) {
+        NSLog(@"[IPDFCameraViewController] ERROR capturing image: %@", error);
+        _isCapturing = NO;
+        self.captureCompletionHandler = nil;
+        [self hideGLKView:NO completion:nil];
+        return;
+    }
 
-                     UIGraphicsBeginImageContext(CGSizeMake(enhancedImage.extent.size.height, enhancedImage.extent.size.width));
-                     [[UIImage imageWithCIImage:enhancedImage scale:1.0 orientation:UIImageOrientationRight] drawInRect:CGRectMake(0,0, enhancedImage.extent.size.height, enhancedImage.extent.size.width)];
-                     UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-                     UIImage *initialImage = [UIImage imageWithData:imageData];
-                     UIGraphicsEndImageContext();
+    if (!sampleBuffer) {
+        NSLog(@"[IPDFCameraViewController] ERROR: sampleBuffer is nil");
+        _isCapturing = NO;
+        self.captureCompletionHandler = nil;
+        [self hideGLKView:NO completion:nil];
+        return;
+    }
 
-                     [weakSelf hideGLKView:NO completion:nil];
-                     completionHandler(image, initialImage, rectangleFeature);
-                 } else {
-                     // No rectangle detected, return original image
-                     NSLog(@"[IPDFCameraViewController] No rectangle detected during manual capture, returning original image");
-                     [weakSelf hideGLKView:NO completion:nil];
-                     UIImage *initialImage = [UIImage imageWithData:imageData];
-                     completionHandler(initialImage, initialImage, nil);
-                 }
-             } else {
-                 [weakSelf hideGLKView:NO completion:nil];
-                 UIImage *initialImage = [UIImage imageWithData:imageData];
-                 completionHandler(initialImage, initialImage, nil);
-             }
+    NSData *imageData = [AVCaptureStillImageOutput jpegStillImageNSDataRepresentation:sampleBuffer];
 
-         }
-         else
-         {
-             [weakSelf hideGLKView:NO completion:nil];
-             UIImage *initialImage = [UIImage imageWithData:imageData];
-             completionHandler(initialImage, initialImage, nil);
-         }
+    if (!imageData) {
+        NSLog(@"[IPDFCameraViewController] ERROR: Failed to create image data from sample buffer");
+        _isCapturing = NO;
+        self.captureCompletionHandler = nil;
+        [self hideGLKView:NO completion:nil];
+        return;
+    }
 
-         _isCapturing = NO;
-     }];
+    [self processImageData:imageData];
+}
+
+- (void)processImageData:(NSData *)imageData {
+    NSLog(@"[IPDFCameraViewController] processImageData called, imageData size: %lu bytes", (unsigned long)imageData.length);
+
+    __weak typeof(self) weakSelf = self;
+    void (^completionHandler)(UIImage *, UIImage *, CIRectangleFeature *) = self.captureCompletionHandler;
+
+    if (!completionHandler) {
+        NSLog(@"[IPDFCameraViewController] ERROR: completionHandler is nil");
+        _isCapturing = NO;
+        [self hideGLKView:NO completion:nil];
+        return;
+    }
+
+    if (self.cameraViewType == IPDFCameraViewTypeBlackAndWhite || self.isBorderDetectionEnabled)
+    {
+        CIImage *enhancedImage = [CIImage imageWithData:imageData];
+
+        if (self.cameraViewType == IPDFCameraViewTypeBlackAndWhite)
+        {
+            enhancedImage = [self filteredImageUsingEnhanceFilterOnImage:enhancedImage];
+        }
+        else
+        {
+            enhancedImage = [self filteredImageUsingContrastFilterOnImage:enhancedImage];
+        }
+
+        if (self.isBorderDetectionEnabled && rectangleDetectionConfidenceHighEnough(_imageDedectionConfidence))
+        {
+            CIRectangleFeature *rectangleFeature = [self biggestRectangleInRectangles:[[self highAccuracyRectangleDetector] featuresInImage:enhancedImage]];
+
+            if (rectangleFeature)
+            {
+                enhancedImage = [self correctPerspectiveForImage:enhancedImage withFeatures:rectangleFeature];
+
+                UIGraphicsBeginImageContext(CGSizeMake(enhancedImage.extent.size.height, enhancedImage.extent.size.width));
+                [[UIImage imageWithCIImage:enhancedImage scale:1.0 orientation:UIImageOrientationRight] drawInRect:CGRectMake(0,0, enhancedImage.extent.size.height, enhancedImage.extent.size.width)];
+                UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+                UIImage *initialImage = [UIImage imageWithData:imageData];
+                UIGraphicsEndImageContext();
+
+                [weakSelf hideGLKView:NO completion:nil];
+                completionHandler(image, initialImage, rectangleFeature);
+            } else {
+                // No rectangle detected, return original image
+                NSLog(@"[IPDFCameraViewController] No rectangle detected during manual capture, returning original image");
+                [weakSelf hideGLKView:NO completion:nil];
+                UIImage *initialImage = [UIImage imageWithData:imageData];
+                completionHandler(initialImage, initialImage, nil);
+            }
+        } else {
+            [weakSelf hideGLKView:NO completion:nil];
+            UIImage *initialImage = [UIImage imageWithData:imageData];
+            completionHandler(initialImage, initialImage, nil);
+        }
+    }
+    else
+    {
+        [weakSelf hideGLKView:NO completion:nil];
+        UIImage *initialImage = [UIImage imageWithData:imageData];
+        completionHandler(initialImage, initialImage, nil);
+    }
+
+    _isCapturing = NO;
+    self.captureCompletionHandler = nil;
 }
 
 - (void)hideGLKView:(BOOL)hidden completion:(void(^)())completion
