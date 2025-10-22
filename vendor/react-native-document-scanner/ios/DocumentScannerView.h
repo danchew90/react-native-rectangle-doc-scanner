@@ -1,5 +1,6 @@
 #import "IPDFCameraViewController.h"
 #import <React/RCTViewManager.h>
+#import <React/RCTBridgeModule.h>
 
 @interface DocumentScannerView : IPDFCameraViewController <IPDFCameraViewControllerDelegate>
 
@@ -14,5 +15,6 @@
 @property (nonatomic, assign) BOOL manualOnly;
 
 - (void) capture;
+- (void) captureWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject;
 
 @end

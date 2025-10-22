@@ -30,13 +30,15 @@ class PdfScanner extends React.Component {
     console.log('[PdfScanner/ios.js] capture called, ref:', this.scannerRef.current);
     const handle = findNodeHandle(this.scannerRef.current);
     console.log('[PdfScanner/ios.js] node handle (reactTag):', handle);
-    if (handle) {
-      // Call native method with reactTag
-      return NativeModules.RNPdfScannerManager.capture(handle);
+
+    if (!handle) {
+      console.error('[PdfScanner/ios.js] ERROR: No handle found for scanner ref');
+      return Promise.reject(new Error('No handle found for scanner view'));
     }
-    // Fallback to old method
-    console.log('[PdfScanner/ios.js] No handle, using fallback');
-    return NativeModules.RNPdfScannerManager.captureGlobal();
+
+    // Call native method with reactTag - now returns a Promise
+    console.log('[PdfScanner/ios.js] Calling native capture with handle:', handle);
+    return NativeModules.RNPdfScannerManager.capture(handle);
   }
 
   render() {

@@ -247,47 +247,50 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
         return Promise.reject(new Error('capture_in_progress'));
       }
 
-      console.log('[DocScanner] Calling native capture method...');
-      let result: any;
+      console.log('[DocScanner] Calling native capture method (now returns Promise)...');
       try {
-        result = instance.capture();
+        const result = instance.capture();
         console.log('[DocScanner] Native capture method called, result type:', typeof result, 'isPromise:', !!(result && typeof result.then === 'function'));
+
+        if (result && typeof result.then === 'function') {
+          console.log('[DocScanner] Native returned a promise, waiting for resolution...');
+          return result
+            .then((payload: PictureEvent) => {
+              console.log('[DocScanner] Native promise resolved with payload:', {
+                hasCroppedImage: !!payload.croppedImage,
+                hasInitialImage: !!payload.initialImage,
+              });
+              handlePictureTaken(payload);
+              return payload;
+            })
+            .catch((error: unknown) => {
+              console.error('[DocScanner] Native promise rejected:', error);
+              captureOriginRef.current = 'auto';
+              throw error;
+            });
+        }
+
+        // Fallback for legacy event-based approach
+        console.warn('[DocScanner] Native did not return a promise, using callback-based approach (legacy)');
+        return new Promise<PictureEvent>((resolve, reject) => {
+          captureResolvers.current = {
+            resolve: (value) => {
+              console.log('[DocScanner] Callback resolver called with:', value);
+              captureOriginRef.current = 'auto';
+              resolve(value);
+            },
+            reject: (reason) => {
+              console.error('[DocScanner] Callback rejector called with:', reason);
+              captureOriginRef.current = 'auto';
+              reject(reason);
+            },
+          };
+        });
       } catch (error) {
         console.error('[DocScanner] Native capture threw error:', error);
         captureOriginRef.current = 'auto';
         return Promise.reject(error);
       }
-
-      if (result && typeof result.then === 'function') {
-        console.log('[DocScanner] Native returned a promise, waiting for resolution...');
-        return result
-          .then((payload: PictureEvent) => {
-            console.log('[DocScanner] Native promise resolved with payload:', payload);
-            handlePictureTaken(payload);
-            return payload;
-          })
-          .catch((error: unknown) => {
-            console.error('[DocScanner] Native promise rejected:', error);
-            captureOriginRef.current = 'auto';
-            throw error;
-          });
-      }
-
-      console.log('[DocScanner] Native did not return a promise, using callback-based approach');
-      return new Promise<PictureEvent>((resolve, reject) => {
-        captureResolvers.current = {
-          resolve: (value) => {
-            console.log('[DocScanner] Callback resolver called with:', value);
-            captureOriginRef.current = 'auto';
-            resolve(value);
-          },
-          reject: (reason) => {
-            console.error('[DocScanner] Callback rejector called with:', reason);
-            captureOriginRef.current = 'auto';
-            reject(reason);
-          },
-        };
-      });
     }, [handlePictureTaken]);
 
     const handleManualCapture = useCallback(() => {

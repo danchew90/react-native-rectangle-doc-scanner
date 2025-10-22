@@ -124,6 +124,87 @@
     self.onRectangleDetect(payload);
 }
 
+// Helper method to process captured images and prepare response data
+- (NSDictionary *)processAndPrepareImageData:(UIImage *)croppedImage
+                                 initialImage:(UIImage *)initialImage
+                             rectangleFeature:(CIRectangleFeature *)rectangleFeature {
+    CGFloat imageQuality = MAX(self.quality, 0.95);
+    NSData *croppedImageData = UIImageJPEGRepresentation(croppedImage, imageQuality);
+
+    if (initialImage.imageOrientation != UIImageOrientationUp) {
+        UIGraphicsBeginImageContextWithOptions(initialImage.size, false, initialImage.scale);
+        [initialImage drawInRect:CGRectMake(0, 0, initialImage.size.width, initialImage.size.height)];
+        initialImage = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+    }
+    NSData *initialImageData = UIImageJPEGRepresentation(initialImage, imageQuality);
+
+    NSDictionary *rectangleCoordinatesDict = [self dictionaryForRectangleFeature:rectangleFeature];
+    id rectangleCoordinates = rectangleCoordinatesDict ? rectangleCoordinatesDict : [NSNull null];
+
+    if (self.useBase64) {
+        return @{
+            @"croppedImage": [croppedImageData base64EncodedStringWithOptions:NSDataBase64Encoding64CharacterLineLength],
+            @"initialImage": [initialImageData base64EncodedStringWithOptions:NSDataBase64Encoding64CharacterLineLength],
+            @"rectangleCoordinates": rectangleCoordinates
+        };
+    } else {
+        NSString *dir = NSTemporaryDirectory();
+        if (self.saveInAppDocument) {
+            dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        }
+        NSString *croppedFilePath = [dir stringByAppendingPathComponent:[NSString stringWithFormat:@"cropped_img_%i.jpeg",(int)[NSDate date].timeIntervalSince1970]];
+        NSString *initialFilePath = [dir stringByAppendingPathComponent:[NSString stringWithFormat:@"initial_img_%i.jpeg",(int)[NSDate date].timeIntervalSince1970]];
+
+        [croppedImageData writeToFile:croppedFilePath atomically:YES];
+        [initialImageData writeToFile:initialFilePath atomically:YES];
+
+        return @{
+            @"croppedImage": croppedFilePath,
+            @"initialImage": initialFilePath,
+            @"rectangleCoordinates": rectangleCoordinates
+        };
+    }
+}
+
+// Promise-based capture method - NEW
+- (void)captureWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject {
+    NSLog(@"[DocumentScanner] captureWithResolver called");
+
+    [self captureImageWithCompletionHander:^(UIImage *croppedImage, UIImage *initialImage, CIRectangleFeature *rectangleFeature) {
+        NSLog(@"[DocumentScanner] captureImageWithCompletionHander callback - croppedImage: %@, initialImage: %@", croppedImage ? @"YES" : @"NO", initialImage ? @"YES" : @"NO");
+
+        if (!croppedImage && initialImage) {
+            croppedImage = initialImage;
+        } else if (!initialImage && croppedImage) {
+            initialImage = croppedImage;
+        }
+
+        if (!croppedImage || !initialImage) {
+            NSLog(@"[DocumentScanner] capture failed - missing image data");
+            reject(@"CAPTURE_FAILED", @"Failed to capture image", nil);
+
+            if (!self.captureMultiple) {
+                [self stop];
+            }
+            return;
+        }
+
+        NSLog(@"[DocumentScanner] Processing captured images");
+        NSDictionary *result = [self processAndPrepareImageData:croppedImage
+                                                    initialImage:initialImage
+                                                rectangleFeature:rectangleFeature];
+
+        NSLog(@"[DocumentScanner] Resolving promise with result");
+        resolve(result);
+
+        if (!self.captureMultiple) {
+            [self stop];
+        }
+    }];
+}
+
+// Event-based capture method - LEGACY (for backwards compatibility)
 - (void) capture {
     NSLog(@"[DocumentScanner] capture called");
     [self captureImageWithCompletionHander:^(UIImage *croppedImage, UIImage *initialImage, CIRectangleFeature *rectangleFeature) {
@@ -151,49 +232,10 @@
 
       if (self.onPictureTaken) {
             NSLog(@"[DocumentScanner] Calling onPictureTaken");
-            // Use maximum JPEG quality (1.0) or user's quality setting, whichever is higher
-            // This ensures no quality loss during compression
-            CGFloat imageQuality = MAX(self.quality, 0.95);
-            NSData *croppedImageData = UIImageJPEGRepresentation(croppedImage, imageQuality);
-
-            if (initialImage.imageOrientation != UIImageOrientationUp) {
-                UIGraphicsBeginImageContextWithOptions(initialImage.size, false, initialImage.scale);
-                [initialImage drawInRect:CGRectMake(0, 0, initialImage.size.width
-                                                    , initialImage.size.height)];
-                initialImage = UIGraphicsGetImageFromCurrentImageContext();
-                UIGraphicsEndImageContext();
-            }
-            NSData *initialImageData = UIImageJPEGRepresentation(initialImage, imageQuality);
-
-            /*
-             RectangleCoordinates expects a rectanle viewed from portrait,
-             while rectangleFeature returns a rectangle viewed from landscape, which explains the nonsense of the mapping below.
-             Sorry about that.
-             */
-            NSDictionary *rectangleCoordinatesDict = [self dictionaryForRectangleFeature:rectangleFeature];
-            id rectangleCoordinates = rectangleCoordinatesDict ? rectangleCoordinatesDict : [NSNull null];
-            if (self.useBase64) {
-              self.onPictureTaken(@{
-                                    @"croppedImage": [croppedImageData base64EncodedStringWithOptions:NSDataBase64Encoding64CharacterLineLength],
-                                    @"initialImage": [initialImageData base64EncodedStringWithOptions:NSDataBase64Encoding64CharacterLineLength],
-                                    @"rectangleCoordinates": rectangleCoordinates });
-            }
-            else {
-                NSString *dir = NSTemporaryDirectory();
-                if (self.saveInAppDocument) {
-                    dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-                }
-               NSString *croppedFilePath = [dir stringByAppendingPathComponent:[NSString stringWithFormat:@"cropped_img_%i.jpeg",(int)[NSDate date].timeIntervalSince1970]];
-               NSString *initialFilePath = [dir stringByAppendingPathComponent:[NSString stringWithFormat:@"initial_img_%i.jpeg",(int)[NSDate date].timeIntervalSince1970]];
-
-              [croppedImageData writeToFile:croppedFilePath atomically:YES];
-              [initialImageData writeToFile:initialFilePath atomically:YES];
-
-               self.onPictureTaken(@{
-                                     @"croppedImage": croppedFilePath,
-                                     @"initialImage": initialFilePath,
-                                     @"rectangleCoordinates": rectangleCoordinates });
-            }
+            NSDictionary *result = [self processAndPrepareImageData:croppedImage
+                                                        initialImage:initialImage
+                                                    rectangleFeature:rectangleFeature];
+            self.onPictureTaken(result);
         }
 
         if (!self.captureMultiple) {

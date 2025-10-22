@@ -34,8 +34,10 @@ RCT_EXPORT_VIEW_PROPERTY(quality, float)
 RCT_EXPORT_VIEW_PROPERTY(brightness, float)
 RCT_EXPORT_VIEW_PROPERTY(contrast, float)
 
-// Main capture method - uses the last created scanner view
-RCT_EXPORT_METHOD(capture:(nullable NSNumber *)reactTag) {
+// Main capture method - returns a Promise
+RCT_EXPORT_METHOD(capture:(nullable NSNumber *)reactTag
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
     NSLog(@"[RNPdfScannerManager] capture called with reactTag: %@", reactTag);
     dispatch_async(dispatch_get_main_queue(), ^{
         DocumentScannerView *targetView = nil;
@@ -59,11 +61,12 @@ RCT_EXPORT_METHOD(capture:(nullable NSNumber *)reactTag) {
 
         if (!targetView) {
             NSLog(@"[RNPdfScannerManager] ERROR: No scanner view available for capture");
+            reject(@"NO_VIEW", @"No scanner view available for capture", nil);
             return;
         }
 
         NSLog(@"[RNPdfScannerManager] Calling capture on view: %@", targetView);
-        [targetView capture];
+        [targetView captureWithResolver:resolve rejecter:reject];
     });
 }
 

@@ -34,7 +34,6 @@ static inline void dispatch_async_main_queue(dispatch_block_t block)
 @property (nonatomic,strong) AVCaptureDevice *captureDevice;
 @property (nonatomic,strong) EAGLContext *context;
 
-@property (nonatomic, strong) AVCapturePhotoOutput* photoOutput;
 @property (nonatomic, strong) AVCaptureStillImageOutput* stillImageOutput; // Kept for backward compatibility
 
 @property (nonatomic, assign) BOOL forceStop;
@@ -192,29 +191,14 @@ static inline void dispatch_async_main_queue(dispatch_block_t block)
     [dataOutput setSampleBufferDelegate:self queue:dispatch_get_main_queue()];
     [session addOutput:dataOutput];
 
-    // Use modern AVCapturePhotoOutput for iOS 10+
-    if (@available(iOS 10.0, *)) {
-        self.photoOutput = [[AVCapturePhotoOutput alloc] init];
-        if ([session canAddOutput:self.photoOutput]) {
-            [session addOutput:self.photoOutput];
-            NSLog(@"[IPDFCamera] Using AVCapturePhotoOutput (modern API)");
-        } else {
-            NSLog(@"[IPDFCamera] WARNING: Cannot add AVCapturePhotoOutput, falling back to AVCaptureStillImageOutput");
-            self.photoOutput = nil;
-            // Fallback to legacy API
-            self.stillImageOutput = [[AVCaptureStillImageOutput alloc] init];
-            if ([session canAddOutput:self.stillImageOutput]) {
-                [session addOutput:self.stillImageOutput];
-                NSLog(@"[IPDFCamera] Fallback successful: Using AVCaptureStillImageOutput");
-            } else {
-                NSLog(@"[IPDFCamera] CRITICAL ERROR: Cannot add any capture output!");
-            }
-        }
-    } else {
-        // Fallback for older iOS versions (< iOS 10)
-        self.stillImageOutput = [[AVCaptureStillImageOutput alloc] init];
+    // Use legacy AVCaptureStillImageOutput for reliable manual captures on all supported iOS versions
+    self.stillImageOutput = [[AVCaptureStillImageOutput alloc] init];
+    if ([session canAddOutput:self.stillImageOutput]) {
         [session addOutput:self.stillImageOutput];
-        NSLog(@"[IPDFCamera] Using AVCaptureStillImageOutput (legacy API)");
+        NSLog(@"[IPDFCamera] Using AVCaptureStillImageOutput (manual capture)");
+    } else {
+        NSLog(@"[IPDFCamera] CRITICAL ERROR: Cannot add AVCaptureStillImageOutput to session");
+        self.stillImageOutput = nil;
     }
 
     AVCaptureConnection *connection = [dataOutput.connections firstObject];
@@ -520,122 +504,49 @@ static inline void dispatch_async_main_queue(dispatch_block_t block)
     // Store completion handler for delegate callback
     self.captureCompletionHandler = completionHandler;
 
-    // Use modern AVCapturePhotoOutput API (iOS 10+)
-    if (@available(iOS 10.0, *)) {
-        if (self.photoOutput) {
-            NSLog(@"[IPDFCameraViewController] Using AVCapturePhotoOutput to capture");
-            AVCapturePhotoSettings *settings = [AVCapturePhotoSettings photoSettings];
-            [self.photoOutput capturePhotoWithSettings:settings delegate:self];
-            return;
-        }
-
-        NSLog(@"[IPDFCameraViewController] photoOutput is nil, trying fallback to stillImageOutput");
-        // Fallback to legacy API if photoOutput is not available
+    if (!self.stillImageOutput) {
+        NSLog(@"[IPDFCameraViewController] ERROR: stillImageOutput is nil");
+        NSError *error = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                             code:-201
+                                         userInfo:@{ NSLocalizedDescriptionKey: @"missing_still_image_output" }];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
+        return;
     }
 
-    // Fallback: Use legacy AVCaptureStillImageOutput (iOS < 10 or when photoOutput failed)
+    AVCaptureConnection *videoConnection = nil;
+    for (AVCaptureConnection *connection in self.stillImageOutput.connections)
     {
-        if (!self.stillImageOutput) {
-            NSLog(@"[IPDFCameraViewController] ERROR: stillImageOutput is nil");
-            NSError *error = [NSError errorWithDomain:@"IPDFCameraViewController"
-                                                 code:-201
-                                             userInfo:@{ NSLocalizedDescriptionKey: @"missing_still_image_output" }];
-            [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
-            return;
-        }
-
-        AVCaptureConnection *videoConnection = nil;
-        for (AVCaptureConnection *connection in self.stillImageOutput.connections)
+        for (AVCaptureInputPort *port in [connection inputPorts])
         {
-            for (AVCaptureInputPort *port in [connection inputPorts])
+            if ([[port mediaType] isEqual:AVMediaTypeVideo] )
             {
-                if ([[port mediaType] isEqual:AVMediaTypeVideo] )
-                {
-                    videoConnection = connection;
-                    break;
-                }
+                videoConnection = connection;
+                break;
             }
-            if (videoConnection) break;
         }
-
-        if (!videoConnection) {
-            NSLog(@"[IPDFCameraViewController] ERROR: No video connection found");
-            NSError *error = [NSError errorWithDomain:@"IPDFCameraViewController"
-                                                 code:-202
-                                             userInfo:@{ NSLocalizedDescriptionKey: @"no_video_connection" }];
-            [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
-            return;
-        }
-
-        NSLog(@"[IPDFCameraViewController] Using AVCaptureStillImageOutput (legacy)");
-        [self.stillImageOutput captureStillImageAsynchronouslyFromConnection:videoConnection completionHandler: ^(CMSampleBufferRef imageSampleBuffer, NSError *error)
-        {
-            [weakSelf handleCapturedImageData:imageSampleBuffer error:error];
-        }];
+        if (videoConnection) break;
     }
-}
 
-// AVCapturePhotoCaptureDelegate method for iOS 11+
-- (void)captureOutput:(AVCapturePhotoOutput *)output didFinishProcessingPhoto:(AVCapturePhoto *)photo error:(NSError *)error API_AVAILABLE(ios(11.0)) {
-    NSLog(@"[IPDFCameraViewController] didFinishProcessingPhoto called, error=%@", error);
-
-    if (error) {
-        NSLog(@"[IPDFCameraViewController] ERROR in didFinishProcessingPhoto: %@", error);
+    if (!videoConnection) {
+        NSLog(@"[IPDFCameraViewController] ERROR: No video connection found");
+        NSError *error = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                             code:-202
+                                         userInfo:@{ NSLocalizedDescriptionKey: @"no_video_connection" }];
         [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
         return;
     }
 
-    // iOS 11+ uses fileDataRepresentation
-    NSData *imageData = [photo fileDataRepresentation];
-    if (!imageData) {
-        NSLog(@"[IPDFCameraViewController] ERROR: Failed to get image data from photo");
-        NSError *dataError = [NSError errorWithDomain:@"IPDFCameraViewController"
-                                                code:-203
-                                            userInfo:@{ NSLocalizedDescriptionKey: @"no_image_data_from_photo" }];
-        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:dataError];
-        return;
+    if (videoConnection.isVideoOrientationSupported) {
+        videoConnection.videoOrientation = AVCaptureVideoOrientationPortrait;
     }
 
-    NSLog(@"[IPDFCameraViewController] Got image data from AVCapturePhoto, size: %lu bytes", (unsigned long)imageData.length);
-    [self processImageData:imageData];
+    NSLog(@"[IPDFCameraViewController] Capturing image via AVCaptureStillImageOutput");
+    [self.stillImageOutput captureStillImageAsynchronouslyFromConnection:videoConnection completionHandler:^(CMSampleBufferRef imageSampleBuffer, NSError *error) {
+        [weakSelf handleCapturedImageData:imageSampleBuffer error:error];
+    }];
 }
 
-// AVCapturePhotoCaptureDelegate method for iOS 10
-- (void)captureOutput:(AVCapturePhotoOutput *)output didFinishProcessingPhotoSampleBuffer:(CMSampleBufferRef)photoSampleBuffer previewPhotoSampleBuffer:(CMSampleBufferRef)previewPhotoSampleBuffer resolvedSettings:(AVCaptureResolvedPhotoSettings *)resolvedSettings bracketSettings:(AVCaptureBracketedStillImageSettings *)bracketSettings error:(NSError *)error API_DEPRECATED("Use -captureOutput:didFinishProcessingPhoto:error: instead.", ios(10.0, 11.0)) {
-    NSLog(@"[IPDFCameraViewController] didFinishProcessingPhotoSampleBuffer called (iOS 10)");
-
-    if (error) {
-        NSLog(@"[IPDFCameraViewController] ERROR in didFinishProcessingPhotoSampleBuffer: %@", error);
-        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
-        return;
-    }
-
-    if (!photoSampleBuffer) {
-        NSLog(@"[IPDFCameraViewController] ERROR: photoSampleBuffer is nil");
-        NSError *bufferError = [NSError errorWithDomain:@"IPDFCameraViewController"
-                                                  code:-204
-                                              userInfo:@{ NSLocalizedDescriptionKey: @"photo_sample_buffer_nil" }];
-        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:bufferError];
-        return;
-    }
-
-    // iOS 10: Use AVCapturePhotoOutput's method for converting sample buffer
-    NSData *imageData = [AVCapturePhotoOutput JPEGPhotoDataRepresentationForJPEGSampleBuffer:photoSampleBuffer previewPhotoSampleBuffer:previewPhotoSampleBuffer];
-
-    if (!imageData) {
-        NSLog(@"[IPDFCameraViewController] ERROR: Failed to create JPEG data from photo sample buffer");
-        NSError *dataError = [NSError errorWithDomain:@"IPDFCameraViewController"
-                                                code:-205
-                                            userInfo:@{ NSLocalizedDescriptionKey: @"jpeg_conversion_failed" }];
-        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:dataError];
-        return;
-    }
-
-    NSLog(@"[IPDFCameraViewController] Got image data from photo sample buffer (iOS 10), size: %lu bytes", (unsigned long)imageData.length);
-    [self processImageData:imageData];
-}
-
-// Helper method for legacy AVCaptureStillImageOutput (iOS < 10)
+// Helper method for legacy AVCaptureStillImageOutput
 - (void)handleCapturedImageData:(CMSampleBufferRef)sampleBuffer error:(NSError *)error {
     NSLog(@"[IPDFCameraViewController] handleCapturedImageData called (legacy), error=%@, buffer=%@", error, sampleBuffer ? @"YES" : @"NO");
 
