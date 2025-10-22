@@ -41,13 +41,13 @@ RCT_EXPORT_METHOD(capture:(NSNumber * _Nullable)reactTag
     NSLog(@"[RNPdfScannerManager] capture called with reactTag: %@", reactTag);
     dispatch_async(dispatch_get_main_queue(), ^{
         DocumentScannerView *targetView = nil;
+        NSNumber *resolvedTag = reactTag;
 
-        if ([reactTag isKindOfClass:[NSNull class]]) {
-            reactTag = nil;
+        if ([resolvedTag isKindOfClass:[NSNull class]]) {
+            resolvedTag = nil;
         }
 
-        if (reactTag) {
-            NSNumber *resolvedTag = (NSNumber *)reactTag;
+        if (resolvedTag) {
             UIView *view = [self.bridge.uiManager viewForReactTag:resolvedTag];
             if ([view isKindOfClass:[DocumentScannerView class]]) {
                 targetView = (DocumentScannerView *)view;
