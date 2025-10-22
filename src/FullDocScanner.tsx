@@ -150,6 +150,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [rectangleDetected, setRectangleDetected] = useState(false);
   const [rectangleHint, setRectangleHint] = useState(false);
+  const [flashEnabled, setFlashEnabled] = useState(false);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
@@ -426,6 +427,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     onClose?.();
   }, [onClose]);
 
+  const handleFlashToggle = useCallback(() => {
+    setFlashEnabled(prev => !prev);
+  }, []);
+
   const handleConfirm = useCallback(() => {
     if (croppedImageData) {
       onResult({
@@ -569,6 +574,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             onCapture={handleCapture}
             onRectangleDetect={handleRectangleDetect}
             showManualCaptureButton={false}
+            enableTorch={flashEnabled}
           >
           <View style={styles.overlayTop} pointerEvents="box-none">
             <TouchableOpacity
@@ -593,17 +599,28 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             </View>
           )}
           <View style={styles.shutterContainer} pointerEvents="box-none">
-            {enableGallery && (
+            <View style={styles.leftButtonsContainer}>
+              {enableGallery && (
+                <TouchableOpacity
+                  style={[styles.galleryButton, processing && styles.buttonDisabled]}
+                  onPress={handleGalleryPick}
+                  disabled={processing}
+                  accessibilityLabel={mergedStrings.galleryButton}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.galleryButtonText}>📁</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
-                style={[styles.galleryButton, processing && styles.buttonDisabled]}
-                onPress={handleGalleryPick}
+                style={[styles.flashButton, processing && styles.buttonDisabled]}
+                onPress={handleFlashToggle}
                 disabled={processing}
-                accessibilityLabel={mergedStrings.galleryButton}
+                accessibilityLabel="Toggle flash"
                 accessibilityRole="button"
               >
-                <Text style={styles.galleryButtonText}>📁</Text>
+                <Text style={styles.flashButtonText}>{flashEnabled ? '⚡' : '⚡️'}</Text>
               </TouchableOpacity>
-            )}
+            </View>
             <TouchableOpacity
               style={[styles.shutterButton, processing && styles.buttonDisabled]}
               onPress={triggerManualCapture}
@@ -616,6 +633,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
                 rectangleHint && { backgroundColor: overlayColor }
               ]} />
             </TouchableOpacity>
+            <View style={styles.rightButtonsPlaceholder} />
           </View>
         </DocScanner>
         </View>
@@ -661,10 +679,19 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 24,
+    paddingHorizontal: 40,
     zIndex: 10,
+  },
+  leftButtonsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+    flex: 1,
+  },
+  rightButtonsPlaceholder: {
+    flex: 1,
   },
   closeButton: {
     width: 40,
@@ -692,9 +719,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   galleryButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     borderWidth: 3,
     borderColor: '#fff',
     justifyContent: 'center',
@@ -702,7 +729,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   galleryButtonText: {
-    fontSize: 28,
+    fontSize: 24,
+  },
+  flashButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 3,
+    borderColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  flashButtonText: {
+    fontSize: 24,
   },
   shutterButton: {
     width: 80,
