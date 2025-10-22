@@ -34,38 +34,15 @@ RCT_EXPORT_VIEW_PROPERTY(quality, float)
 RCT_EXPORT_VIEW_PROPERTY(brightness, float)
 RCT_EXPORT_VIEW_PROPERTY(contrast, float)
 
-// Main capture method - returns a Promise
-RCT_EXPORT_METHOD(capture:(nullable id)reactTag
-                  resolver:(RCTPromiseResolveBlock)resolve
+// Main capture method - returns a Promise and uses the last mounted scanner view
+RCT_EXPORT_METHOD(capture:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject) {
-    NSLog(@"[RNPdfScannerManager] capture called with reactTag: %@", reactTag);
+    NSLog(@"[RNPdfScannerManager] capture requested (no reactTag)");
     dispatch_async(dispatch_get_main_queue(), ^{
-        DocumentScannerView *targetView = nil;
-        NSNumber *resolvedTag = ([reactTag isKindOfClass:[NSNumber class]]) ? (NSNumber *)reactTag : nil;
-
-        if (!resolvedTag && reactTag) {
-            NSLog(@"[RNPdfScannerManager] Unexpected reactTag type %@ - ignoring reactTag", NSStringFromClass([reactTag class]));
-        }
-
-        if (resolvedTag) {
-            UIView *view = [self.bridge.uiManager viewForReactTag:resolvedTag];
-            if ([view isKindOfClass:[DocumentScannerView class]]) {
-                targetView = (DocumentScannerView *)view;
-                self->_scannerView = targetView;
-            } else if (view) {
-                NSLog(@"[RNPdfScannerManager] View for tag %@ is not DocumentScannerView: %@", resolvedTag, NSStringFromClass(view.class));
-            } else {
-                NSLog(@"[RNPdfScannerManager] No view found for tag %@", resolvedTag);
-            }
-        }
-
-        if (!targetView && self->_scannerView) {
-            NSLog(@"[RNPdfScannerManager] Falling back to last known scanner view");
-            targetView = self->_scannerView;
-        }
+        DocumentScannerView *targetView = self->_scannerView;
 
         if (!targetView) {
-            NSLog(@"[RNPdfScannerManager] ERROR: No scanner view available for capture");
+            NSLog(@"[RNPdfScannerManager] ERROR: Scanner view not yet ready for capture");
             if (reject) {
                 reject(@"NO_VIEW", @"Document scanner view is not ready", nil);
             }
