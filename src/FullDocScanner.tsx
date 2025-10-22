@@ -331,7 +331,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       await new Promise<void>((resolve) =>
         InteractionManager.runAfterInteractions(() => resolve()),
       );
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((resolve) => setTimeout(resolve, 350));
 
       await openCropper(imageUri);
     } catch (error) {

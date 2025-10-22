@@ -58,8 +58,10 @@ RCT_EXPORT_METHOD(capture:(nullable id)reactTag
         }
 
         if (!targetView && self->_scannerView) {
-            NSLog(@"[RNPdfScannerManager] Falling back to last known scanner view");
+            NSLog(@"[RNPdfScannerManager] Falling back to last known scanner view: %@", self->_scannerView);
             targetView = self->_scannerView;
+        } else if (!targetView) {
+            NSLog(@"[RNPdfScannerManager] No cached scanner view available");
         }
 
         if (!targetView) {
