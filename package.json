@@ -27,7 +27,8 @@
     "vendor",
     "*.md",
     "*.js",
-    "*.json"
+    "*.json",
+    "*.podspec"
   ],
   "peerDependencies": {
     "react": "*",
