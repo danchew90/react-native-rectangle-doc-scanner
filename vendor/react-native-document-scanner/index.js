@@ -21,6 +21,7 @@ class PdfScanner extends React.Component {
     };
     this.eventsSubscribed = false;
     this.nativeRef = null;
+    this.nativeTag = null;
   }
 
   onPermissionsDenied = () => {
@@ -131,7 +132,7 @@ class PdfScanner extends React.Component {
       return Promise.reject(new Error('capture_not_supported'));
     }
 
-    const nodeHandle = findNodeHandle(this.nativeRef);
+    const nodeHandle = this.nativeTag ?? findNodeHandle(this.nativeRef);
 
     if (!nodeHandle) {
       return Promise.reject(new Error('scanner_view_not_ready'));
@@ -154,12 +155,20 @@ class PdfScanner extends React.Component {
     if (!this.state.permissionsAuthorized) {
       return null;
     }
+    const { onLayout, ...restProps } = this.props;
     return (
       <RNPdfScanner
         ref={(ref) => {
           this.nativeRef = ref;
+          this.nativeTag = ref ? findNodeHandle(ref) : null;
         }}
-        {...this.props}
+        onLayout={(event) => {
+          this.nativeTag = event?.nativeEvent?.target ?? this.nativeTag;
+          if (onLayout) {
+            onLayout(event);
+          }
+        }}
+        {...restProps}
         onPictureTaken={this.sendOnPictureTakenEvent.bind(this)}
         onRectangleDetect={this.sendOnRectanleDetectEvent.bind(this)}
         useFrontCam={this.props.useFrontCam || false}
