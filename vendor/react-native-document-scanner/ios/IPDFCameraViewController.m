@@ -15,6 +15,19 @@
 #import <ImageIO/ImageIO.h>
 #import <GLKit/GLKit.h>
 
+static inline void dispatch_async_main_queue(dispatch_block_t block)
+{
+    if (!block) {
+        return;
+    }
+
+    if ([NSThread isMainThread]) {
+        block();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), block);
+    }
+}
+
 @interface IPDFCameraViewController () <AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate>
 
 @property (nonatomic,strong) AVCaptureSession *captureSession;
@@ -45,6 +58,39 @@
     CIRectangleFeature *_borderDetectLastRectangleFeature;
 
     BOOL _isCapturing;
+}
+
+- (void)completeCaptureWithCroppedImage:(UIImage *)croppedImage
+                            initialImage:(UIImage *)initialImage
+                               rectangle:(CIRectangleFeature *)rectangleFeature
+                                   error:(NSError *)error
+{
+    void (^completionHandler)(UIImage *, UIImage *, CIRectangleFeature *) = self.captureCompletionHandler;
+
+    dispatch_async_main_queue(^{
+        if (error) {
+            NSLog(@"[IPDFCameraViewController] Completing capture with error: %@", error.localizedDescription);
+            if (completionHandler) {
+                completionHandler(nil, nil, nil);
+            }
+        } else {
+            UIImage *resolvedInitial = initialImage ?: croppedImage;
+            UIImage *resolvedCropped = croppedImage ?: resolvedInitial;
+
+            if (!resolvedInitial || !resolvedCropped) {
+                NSLog(@"[IPDFCameraViewController] Missing images during completion, sending failure to JS");
+                if (completionHandler) {
+                    completionHandler(nil, nil, nil);
+                }
+            } else if (completionHandler) {
+                completionHandler(resolvedCropped, resolvedInitial, rectangleFeature);
+            }
+        }
+
+        self.captureCompletionHandler = nil;
+        self->_isCapturing = NO;
+        [self hideGLKView:NO completion:nil];
+    });
 }
 
 - (void)awakeFromNib
@@ -452,7 +498,10 @@
 
     if (!self.captureSession || !self.captureSession.isRunning) {
         NSLog(@"[IPDFCameraViewController] ERROR: captureSession is not running");
-        _isCapturing = NO;
+        NSError *error = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                             code:-200
+                                         userInfo:@{ NSLocalizedDescriptionKey: @"capture_session_not_running" }];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
         return;
     }
 
@@ -488,9 +537,10 @@
     {
         if (!self.stillImageOutput) {
             NSLog(@"[IPDFCameraViewController] ERROR: stillImageOutput is nil");
-            _isCapturing = NO;
-            self.captureCompletionHandler = nil;
-            [weakSelf hideGLKView:NO completion:nil];
+            NSError *error = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                                 code:-201
+                                             userInfo:@{ NSLocalizedDescriptionKey: @"missing_still_image_output" }];
+            [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
             return;
         }
 
@@ -510,9 +560,10 @@
 
         if (!videoConnection) {
             NSLog(@"[IPDFCameraViewController] ERROR: No video connection found");
-            _isCapturing = NO;
-            self.captureCompletionHandler = nil;
-            [weakSelf hideGLKView:NO completion:nil];
+            NSError *error = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                                 code:-202
+                                             userInfo:@{ NSLocalizedDescriptionKey: @"no_video_connection" }];
+            [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
             return;
         }
 
@@ -530,9 +581,7 @@
 
     if (error) {
         NSLog(@"[IPDFCameraViewController] ERROR in didFinishProcessingPhoto: %@", error);
-        _isCapturing = NO;
-        self.captureCompletionHandler = nil;
-        [self hideGLKView:NO completion:nil];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
         return;
     }
 
@@ -540,9 +589,10 @@
     NSData *imageData = [photo fileDataRepresentation];
     if (!imageData) {
         NSLog(@"[IPDFCameraViewController] ERROR: Failed to get image data from photo");
-        _isCapturing = NO;
-        self.captureCompletionHandler = nil;
-        [self hideGLKView:NO completion:nil];
+        NSError *dataError = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                                code:-203
+                                            userInfo:@{ NSLocalizedDescriptionKey: @"no_image_data_from_photo" }];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:dataError];
         return;
     }
 
@@ -556,17 +606,16 @@
 
     if (error) {
         NSLog(@"[IPDFCameraViewController] ERROR in didFinishProcessingPhotoSampleBuffer: %@", error);
-        _isCapturing = NO;
-        self.captureCompletionHandler = nil;
-        [self hideGLKView:NO completion:nil];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
         return;
     }
 
     if (!photoSampleBuffer) {
         NSLog(@"[IPDFCameraViewController] ERROR: photoSampleBuffer is nil");
-        _isCapturing = NO;
-        self.captureCompletionHandler = nil;
-        [self hideGLKView:NO completion:nil];
+        NSError *bufferError = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                                  code:-204
+                                              userInfo:@{ NSLocalizedDescriptionKey: @"photo_sample_buffer_nil" }];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:bufferError];
         return;
     }
 
@@ -575,9 +624,10 @@
 
     if (!imageData) {
         NSLog(@"[IPDFCameraViewController] ERROR: Failed to create JPEG data from photo sample buffer");
-        _isCapturing = NO;
-        self.captureCompletionHandler = nil;
-        [self hideGLKView:NO completion:nil];
+        NSError *dataError = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                                code:-205
+                                            userInfo:@{ NSLocalizedDescriptionKey: @"jpeg_conversion_failed" }];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:dataError];
         return;
     }
 
@@ -591,17 +641,16 @@
 
     if (error) {
         NSLog(@"[IPDFCameraViewController] ERROR capturing image: %@", error);
-        _isCapturing = NO;
-        self.captureCompletionHandler = nil;
-        [self hideGLKView:NO completion:nil];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:error];
         return;
     }
 
     if (!sampleBuffer) {
         NSLog(@"[IPDFCameraViewController] ERROR: sampleBuffer is nil");
-        _isCapturing = NO;
-        self.captureCompletionHandler = nil;
-        [self hideGLKView:NO completion:nil];
+        NSError *bufferError = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                                  code:-206
+                                              userInfo:@{ NSLocalizedDescriptionKey: @"sample_buffer_nil" }];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:bufferError];
         return;
     }
 
@@ -610,9 +659,10 @@
 
     if (!imageData) {
         NSLog(@"[IPDFCameraViewController] ERROR: Failed to create image data from sample buffer (legacy)");
-        _isCapturing = NO;
-        self.captureCompletionHandler = nil;
-        [self hideGLKView:NO completion:nil];
+        NSError *dataError = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                                code:-207
+                                            userInfo:@{ NSLocalizedDescriptionKey: @"legacy_sample_conversion_failed" }];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:dataError];
         return;
     }
 
@@ -623,67 +673,63 @@
 - (void)processImageData:(NSData *)imageData {
     NSLog(@"[IPDFCameraViewController] processImageData called, imageData size: %lu bytes", (unsigned long)imageData.length);
 
-    __weak typeof(self) weakSelf = self;
-    void (^completionHandler)(UIImage *, UIImage *, CIRectangleFeature *) = self.captureCompletionHandler;
-
-    if (!completionHandler) {
-        NSLog(@"[IPDFCameraViewController] ERROR: completionHandler is nil");
-        _isCapturing = NO;
-        [self hideGLKView:NO completion:nil];
+    if (!imageData || imageData.length == 0) {
+        NSError *dataError = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                                code:-208
+                                            userInfo:@{ NSLocalizedDescriptionKey: @"empty_image_data" }];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:dataError];
         return;
     }
 
-    if (self.cameraViewType == IPDFCameraViewTypeBlackAndWhite || self.isBorderDetectionEnabled)
-    {
-        CIImage *enhancedImage = [CIImage imageWithData:imageData];
+    UIImage *initialImage = [UIImage imageWithData:imageData];
+    if (!initialImage) {
+        NSError *conversionError = [NSError errorWithDomain:@"IPDFCameraViewController"
+                                                       code:-209
+                                                   userInfo:@{ NSLocalizedDescriptionKey: @"initial_image_conversion_failed" }];
+        [self completeCaptureWithCroppedImage:nil initialImage:nil rectangle:nil error:conversionError];
+        return;
+    }
 
-        if (self.cameraViewType == IPDFCameraViewTypeBlackAndWhite)
-        {
-            enhancedImage = [self filteredImageUsingEnhanceFilterOnImage:enhancedImage];
-        }
-        else
-        {
-            enhancedImage = [self filteredImageUsingContrastFilterOnImage:enhancedImage];
-        }
+    UIImage *croppedImage = initialImage;
+    CIRectangleFeature *rectangleFeature = nil;
 
-        if (self.isBorderDetectionEnabled && rectangleDetectionConfidenceHighEnough(_imageDedectionConfidence))
-        {
-            CIRectangleFeature *rectangleFeature = [self biggestRectangleInRectangles:[[self highAccuracyRectangleDetector] featuresInImage:enhancedImage]];
-
-            if (rectangleFeature)
-            {
-                enhancedImage = [self correctPerspectiveForImage:enhancedImage withFeatures:rectangleFeature];
-
-                UIGraphicsBeginImageContext(CGSizeMake(enhancedImage.extent.size.height, enhancedImage.extent.size.width));
-                [[UIImage imageWithCIImage:enhancedImage scale:1.0 orientation:UIImageOrientationRight] drawInRect:CGRectMake(0,0, enhancedImage.extent.size.height, enhancedImage.extent.size.width)];
-                UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-                UIImage *initialImage = [UIImage imageWithData:imageData];
-                UIGraphicsEndImageContext();
-
-                [weakSelf hideGLKView:NO completion:nil];
-                completionHandler(image, initialImage, rectangleFeature);
-            } else {
-                // No rectangle detected, return original image
-                NSLog(@"[IPDFCameraViewController] No rectangle detected during manual capture, returning original image");
-                [weakSelf hideGLKView:NO completion:nil];
-                UIImage *initialImage = [UIImage imageWithData:imageData];
-                completionHandler(initialImage, initialImage, nil);
-            }
+    BOOL shouldEnhance = (self.cameraViewType == IPDFCameraViewTypeBlackAndWhite) || self.isBorderDetectionEnabled;
+    if (shouldEnhance) {
+        CIImage *processedImage = [CIImage imageWithData:imageData];
+        if (!processedImage) {
+            NSLog(@"[IPDFCameraViewController] Unable to create CIImage from data, returning original image");
         } else {
-            [weakSelf hideGLKView:NO completion:nil];
-            UIImage *initialImage = [UIImage imageWithData:imageData];
-            completionHandler(initialImage, initialImage, nil);
+            if (self.cameraViewType == IPDFCameraViewTypeBlackAndWhite) {
+                processedImage = [self filteredImageUsingEnhanceFilterOnImage:processedImage];
+            } else {
+                processedImage = [self filteredImageUsingContrastFilterOnImage:processedImage];
+            }
+
+            if (self.isBorderDetectionEnabled && rectangleDetectionConfidenceHighEnough(_imageDedectionConfidence)) {
+                CIRectangleFeature *detectedRectangle = [self biggestRectangleInRectangles:[[self highAccuracyRectangleDetector] featuresInImage:processedImage]];
+
+                if (detectedRectangle) {
+                    rectangleFeature = detectedRectangle;
+                    CIImage *correctedImage = [self correctPerspectiveForImage:processedImage withFeatures:detectedRectangle];
+
+                    UIGraphicsBeginImageContext(CGSizeMake(correctedImage.extent.size.height, correctedImage.extent.size.width));
+                    [[UIImage imageWithCIImage:correctedImage scale:1.0 orientation:UIImageOrientationRight] drawInRect:CGRectMake(0, 0, correctedImage.extent.size.height, correctedImage.extent.size.width)];
+                    UIImage *perspectiveCorrectedImage = UIGraphicsGetImageFromCurrentImageContext();
+                    UIGraphicsEndImageContext();
+
+                    if (perspectiveCorrectedImage) {
+                        croppedImage = perspectiveCorrectedImage;
+                    } else {
+                        NSLog(@"[IPDFCameraViewController] Failed to create perspective corrected image, using original");
+                    }
+                } else {
+                    NSLog(@"[IPDFCameraViewController] No rectangle detected during manual capture, returning original image");
+                }
+            }
         }
     }
-    else
-    {
-        [weakSelf hideGLKView:NO completion:nil];
-        UIImage *initialImage = [UIImage imageWithData:imageData];
-        completionHandler(initialImage, initialImage, nil);
-    }
 
-    _isCapturing = NO;
-    self.captureCompletionHandler = nil;
+    [self completeCaptureWithCroppedImage:croppedImage initialImage:initialImage rectangle:rectangleFeature error:nil];
 }
 
 - (void)hideGLKView:(BOOL)hidden completion:(void(^)())completion

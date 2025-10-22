@@ -35,30 +35,35 @@ RCT_EXPORT_VIEW_PROPERTY(brightness, float)
 RCT_EXPORT_VIEW_PROPERTY(contrast, float)
 
 // Main capture method - uses the last created scanner view
-RCT_EXPORT_METHOD(capture) {
-    NSLog(@"[RNPdfScannerManager] capture called, scannerView: %@", _scannerView ? @"YES" : @"NO");
+RCT_EXPORT_METHOD(capture:(nullable NSNumber *)reactTag) {
+    NSLog(@"[RNPdfScannerManager] capture called with reactTag: %@", reactTag);
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (!self->_scannerView) {
-            NSLog(@"[RNPdfScannerManager] ERROR: No scanner view available");
-            return;
-        }
-        NSLog(@"[RNPdfScannerManager] Calling capture on view: %@", self->_scannerView);
-        [self->_scannerView capture];
-    });
-}
+        DocumentScannerView *targetView = nil;
 
-// Alternative method that takes reactTag - for future use
-RCT_EXPORT_METHOD(captureWithTag:(nonnull NSNumber *)reactTag) {
-    NSLog(@"[RNPdfScannerManager] captureWithTag called with reactTag: %@", reactTag);
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIView *view = [self.bridge.uiManager viewForReactTag:reactTag];
-        if (!view || ![view isKindOfClass:[DocumentScannerView class]]) {
-            NSLog(@"[RNPdfScannerManager] Cannot find DocumentScannerView with tag #%@", reactTag);
+        if (reactTag) {
+            UIView *view = [self.bridge.uiManager viewForReactTag:reactTag];
+            if ([view isKindOfClass:[DocumentScannerView class]]) {
+                targetView = (DocumentScannerView *)view;
+                self->_scannerView = targetView;
+            } else if (view) {
+                NSLog(@"[RNPdfScannerManager] View for tag %@ is not DocumentScannerView: %@", reactTag, NSStringFromClass(view.class));
+            } else {
+                NSLog(@"[RNPdfScannerManager] No view found for tag %@", reactTag);
+            }
+        }
+
+        if (!targetView && self->_scannerView) {
+            NSLog(@"[RNPdfScannerManager] Falling back to last known scanner view");
+            targetView = self->_scannerView;
+        }
+
+        if (!targetView) {
+            NSLog(@"[RNPdfScannerManager] ERROR: No scanner view available for capture");
             return;
         }
-        DocumentScannerView *scannerView = (DocumentScannerView *)view;
-        NSLog(@"[RNPdfScannerManager] Calling capture on view: %@", scannerView);
-        [scannerView capture];
+
+        NSLog(@"[RNPdfScannerManager] Calling capture on view: %@", targetView);
+        [targetView capture];
     });
 }
 

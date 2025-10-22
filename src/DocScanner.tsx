@@ -150,6 +150,21 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
 
     const handlePictureTaken = useCallback(
       (event: PictureEvent) => {
+        const captureError = (event as any)?.error;
+        if (captureError) {
+          console.error('[DocScanner] Native capture error received:', captureError);
+          captureOriginRef.current = 'auto';
+          setIsAutoCapturing(false);
+          setDetectedRectangle(null);
+
+          if (captureResolvers.current) {
+            captureResolvers.current.reject(new Error(String(captureError)));
+            captureResolvers.current = null;
+          }
+
+          return;
+        }
+
         console.log('[DocScanner] handlePictureTaken called with event:', {
           hasInitialImage: !!event.initialImage,
           hasCroppedImage: !!event.croppedImage,

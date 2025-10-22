@@ -127,7 +127,28 @@
 - (void) capture {
     NSLog(@"[DocumentScanner] capture called");
     [self captureImageWithCompletionHander:^(UIImage *croppedImage, UIImage *initialImage, CIRectangleFeature *rectangleFeature) {
-      NSLog(@"[DocumentScanner] captureImageWithCompletionHander callback - croppedImage: %@, initialImage: %@", croppedImage ? @"YES" : @"NO", initialImage ? @"YES" : @"NO");
+    NSLog(@"[DocumentScanner] captureImageWithCompletionHander callback - croppedImage: %@, initialImage: %@", croppedImage ? @"YES" : @"NO", initialImage ? @"YES" : @"NO");
+
+      if (!croppedImage && initialImage) {
+        // Use initial image when cropping is not available
+        croppedImage = initialImage;
+      } else if (!initialImage && croppedImage) {
+        // Mirror cropped image so downstream logic continues to work
+        initialImage = croppedImage;
+      }
+
+      if (!croppedImage || !initialImage) {
+        NSLog(@"[DocumentScanner] capture failed - missing image data");
+        if (self.onPictureTaken) {
+          self.onPictureTaken(@{ @"error": @"capture_failed" });
+        }
+
+        if (!self.captureMultiple) {
+          [self stop];
+        }
+        return;
+      }
+
       if (self.onPictureTaken) {
             NSLog(@"[DocumentScanner] Calling onPictureTaken");
             // Use maximum JPEG quality (1.0) or user's quality setting, whichever is higher
