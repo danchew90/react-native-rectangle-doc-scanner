@@ -412,7 +412,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       const imageUri = result.assets[0].uri;
       console.log('[FullDocScanner] Gallery image selected:', imageUri);
 
-      await openCropper(imageUri);
+      // Skip waitForModalDismissal for gallery - go directly to cropper
+      await openCropper(imageUri, { waitForPickerDismissal: false });
     } catch (error) {
       console.error('[FullDocScanner] Gallery pick error:', error);
       setIsGalleryOpen(false);
@@ -578,12 +579,29 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           >
           <View style={styles.overlayTop} pointerEvents="box-none">
             <TouchableOpacity
-              style={styles.closeButton}
+              style={[
+                styles.iconButton,
+                processing && styles.buttonDisabled,
+                flashEnabled && styles.flashButtonActive
+              ]}
+              onPress={handleFlashToggle}
+              disabled={processing}
+              accessibilityLabel="Toggle flash"
+              accessibilityRole="button"
+            >
+              <View style={styles.iconContainer}>
+                <Text style={styles.iconText}>⚡️</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconButton}
               onPress={handleClose}
               accessibilityLabel={mergedStrings.cancel}
               accessibilityRole="button"
             >
-              <Text style={styles.closeButtonLabel}>×</Text>
+              <View style={styles.iconContainer}>
+                <Text style={styles.closeIconText}>×</Text>
+              </View>
             </TouchableOpacity>
           </View>
           {(mergedStrings.captureHint || mergedStrings.manualHint) && (
@@ -599,28 +617,19 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             </View>
           )}
           <View style={styles.shutterContainer} pointerEvents="box-none">
-            <View style={styles.leftButtonsContainer}>
-              {enableGallery && (
-                <TouchableOpacity
-                  style={[styles.galleryButton, processing && styles.buttonDisabled]}
-                  onPress={handleGalleryPick}
-                  disabled={processing}
-                  accessibilityLabel={mergedStrings.galleryButton}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.galleryButtonText}>📁</Text>
-                </TouchableOpacity>
-              )}
+            {enableGallery && (
               <TouchableOpacity
-                style={[styles.flashButton, processing && styles.buttonDisabled]}
-                onPress={handleFlashToggle}
+                style={[styles.iconButton, processing && styles.buttonDisabled]}
+                onPress={handleGalleryPick}
                 disabled={processing}
-                accessibilityLabel="Toggle flash"
+                accessibilityLabel={mergedStrings.galleryButton}
                 accessibilityRole="button"
               >
-                <Text style={styles.flashButtonText}>{flashEnabled ? '⚡' : '⚡️'}</Text>
+                <View style={styles.iconContainer}>
+                  <Text style={styles.iconText}>🖼️</Text>
+                </View>
               </TouchableOpacity>
-            </View>
+            )}
             <TouchableOpacity
               style={[styles.shutterButton, processing && styles.buttonDisabled]}
               onPress={triggerManualCapture}
@@ -662,7 +671,11 @@ const styles = StyleSheet.create({
   overlayTop: {
     position: 'absolute',
     top: 48,
+    left: 24,
     right: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     zIndex: 10,
   },
   instructionsContainer: {
@@ -684,28 +697,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     zIndex: 10,
   },
-  leftButtonsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'center',
-    flex: 1,
-  },
   rightButtonsPlaceholder: {
-    flex: 1,
+    width: 56,
   },
-  closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(50,50,50,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  iconContainer: {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  closeButtonLabel: {
+  iconText: {
+    fontSize: 22,
+  },
+  closeIconText: {
+    fontSize: 32,
+    fontWeight: '300',
     color: '#fff',
-    fontSize: 28,
-    lineHeight: 32,
-    marginTop: -3,
+  },
+  flashButtonActive: {
+    backgroundColor: 'rgba(255,215,0,0.5)',
+    borderColor: '#FFD700',
   },
   instructions: {
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -717,32 +736,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     textAlign: 'center',
-  },
-  galleryButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 3,
-    borderColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  galleryButtonText: {
-    fontSize: 24,
-  },
-  flashButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 3,
-    borderColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  flashButtonText: {
-    fontSize: 24,
   },
   shutterButton: {
     width: 80,

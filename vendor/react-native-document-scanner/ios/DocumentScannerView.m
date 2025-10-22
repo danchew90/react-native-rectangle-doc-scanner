@@ -3,6 +3,7 @@
 
 @implementation DocumentScannerView {
     BOOL _hasSetupCamera;
+    BOOL _cameraStarted;
     IPDFRectangeType _lastDetectionType;
 }
 
@@ -12,6 +13,7 @@
         [self setEnableBorderDetection:YES];
         [self setDelegate: self];
         _hasSetupCamera = NO;
+        _cameraStarted = NO;
         self.manualOnly = NO;  // Changed from YES to NO - allow manual capture to work
         self.detectionCountBeforeCapture = 99999;  // High threshold to prevent auto-capture
     }
@@ -28,25 +30,24 @@
         [self setupCameraView];
         [self start];
         _hasSetupCamera = YES;
-    } else if (_hasSetupCamera && self.window && !CGRectIsEmpty(self.bounds)) {
-        // Restart camera if needed (defensive check)
-        NSLog(@"[DocumentScanner] Layout update, ensuring camera is running");
-        [self start];
+        _cameraStarted = YES;
     }
 }
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
-    if (self.window && _hasSetupCamera) {
-        // Restart camera when view is added back to window
+    if (self.window && _hasSetupCamera && !_cameraStarted) {
+        // Restart camera when view is added back to window (only if it was stopped)
         NSLog(@"[DocumentScanner] View added to window, restarting camera...");
         dispatch_async(dispatch_get_main_queue(), ^{
             [self start];
+            self->_cameraStarted = YES;
         });
-    } else if (!self.window && _hasSetupCamera) {
+    } else if (!self.window && _hasSetupCamera && _cameraStarted) {
         // Stop camera when view is removed from window
         NSLog(@"[DocumentScanner] View removed from window, stopping camera");
         [self stop];
+        _cameraStarted = NO;
     }
 }
 
