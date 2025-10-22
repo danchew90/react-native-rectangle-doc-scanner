@@ -44,7 +44,7 @@ RCT_EXPORT_METHOD(capture:(nullable id)reactTag
         NSNumber *resolvedTag = ([reactTag isKindOfClass:[NSNumber class]]) ? (NSNumber *)reactTag : nil;
 
         if (!resolvedTag && reactTag) {
-            NSLog(@"[RNPdfScannerManager] Unexpected reactTag type %@ - falling back to last known view", NSStringFromClass([reactTag class]));
+            NSLog(@"[RNPdfScannerManager] Unexpected reactTag type %@ - ignoring reactTag", NSStringFromClass([reactTag class]));
         }
 
         if (resolvedTag) {
@@ -66,7 +66,9 @@ RCT_EXPORT_METHOD(capture:(nullable id)reactTag
 
         if (!targetView) {
             NSLog(@"[RNPdfScannerManager] ERROR: No scanner view available for capture");
-            reject(@"NO_VIEW", @"No scanner view available for capture", nil);
+            if (reject) {
+                reject(@"NO_VIEW", @"Document scanner view is not ready", nil);
+            }
             return;
         }
 

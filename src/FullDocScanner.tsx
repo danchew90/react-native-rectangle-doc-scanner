@@ -86,11 +86,13 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [croppedImageData, setCroppedImageData] = useState<{path: string; base64?: string} | null>(null);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [rectangleDetected, setRectangleDetected] = useState(false);
+  const [rectangleHint, setRectangleHint] = useState(false);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
   const captureInProgressRef = useRef(false);
-  const rectangleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rectangleCaptureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rectangleHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mergedStrings = useMemo(
     () => ({
@@ -226,6 +228,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       processing,
       hasRef: hasScanner,
       rectangleDetected,
+      rectangleHint,
       currentCaptureMode: captureModeRef.current,
       captureInProgress: captureInProgressRef.current,
     });
@@ -288,7 +291,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           );
         }
       });
-  }, [processing, rectangleDetected, emitError]);
+  }, [processing, rectangleDetected, rectangleHint, emitError]);
 
   const handleGalleryPick = useCallback(async () => {
     console.log('[FullDocScanner] handleGalleryPick called');
@@ -353,11 +356,16 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setCroppedImageData(null);
     setProcessing(false);
     setRectangleDetected(false);
+    setRectangleHint(false);
     captureModeRef.current = null;
     captureInProgressRef.current = false;
-    if (rectangleTimeoutRef.current) {
-      clearTimeout(rectangleTimeoutRef.current);
-      rectangleTimeoutRef.current = null;
+    if (rectangleCaptureTimeoutRef.current) {
+      clearTimeout(rectangleCaptureTimeoutRef.current);
+      rectangleCaptureTimeoutRef.current = null;
+    }
+    if (rectangleHintTimeoutRef.current) {
+      clearTimeout(rectangleHintTimeoutRef.current);
+      rectangleHintTimeoutRef.current = null;
     }
     // Reset DocScanner state
     if (docScannerRef.current?.reset) {
@@ -369,52 +377,70 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     const stableCounter = event.stableCounter ?? 0;
     const rectangleCoordinates = event.rectangleOnScreen ?? event.rectangleCoordinates;
     const hasRectangle = Boolean(rectangleCoordinates);
-    const isConfidentRectangle = hasRectangle && (event.lastDetectionType === 0 || stableCounter > 0);
+    const captureReady = hasRectangle && event.lastDetectionType === 0 && stableCounter >= 1;
 
-    const scheduleDetectionClear = () => {
-      if (rectangleTimeoutRef.current) {
-        clearTimeout(rectangleTimeoutRef.current);
+    const scheduleClear = (
+      ref: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
+      clearFn: () => void,
+    ) => {
+      if (ref.current) {
+        clearTimeout(ref.current);
       }
-
-      rectangleTimeoutRef.current = setTimeout(() => {
-        rectangleTimeoutRef.current = null;
-        setRectangleDetected((prev) => {
-          if (!prev) {
-            return prev;
-          }
-          console.log('[FullDocScanner] Rectangle timeout - clearing detection');
-          return false;
-        });
+      ref.current = setTimeout(() => {
+        ref.current = null;
+        clearFn();
       }, 350);
     };
 
-    if (isConfidentRectangle) {
-      scheduleDetectionClear();
-      setRectangleDetected((prev) => (prev ? prev : true));
+    if (hasRectangle) {
+      scheduleClear(rectangleHintTimeoutRef, () => setRectangleHint(false));
+      setRectangleHint(true);
+    } else {
+      if (rectangleHintTimeoutRef.current) {
+        clearTimeout(rectangleHintTimeoutRef.current);
+        rectangleHintTimeoutRef.current = null;
+      }
+      setRectangleHint(false);
+    }
+
+    if (captureReady) {
+      scheduleClear(rectangleCaptureTimeoutRef, () => {
+        console.log('[FullDocScanner] Rectangle timeout - clearing detection');
+        setRectangleDetected(false);
+      });
+      setRectangleDetected(true);
     } else if (!hasRectangle) {
-      if (rectangleTimeoutRef.current) {
-        clearTimeout(rectangleTimeoutRef.current);
-        rectangleTimeoutRef.current = null;
+      if (rectangleCaptureTimeoutRef.current) {
+        clearTimeout(rectangleCaptureTimeoutRef.current);
+        rectangleCaptureTimeoutRef.current = null;
       }
       setRectangleDetected(false);
-    } else {
-      // Rectangle is present but confidence is low – keep current state but schedule a clear
-      scheduleDetectionClear();
+    } else if (rectangleDetected) {
+      scheduleClear(rectangleCaptureTimeoutRef, () => {
+        console.log('[FullDocScanner] Rectangle timeout - clearing detection');
+        setRectangleDetected(false);
+      });
     }
 
     console.log('[FullDocScanner] Rectangle detection update', {
       lastDetectionType: event.lastDetectionType,
       stableCounter,
       hasRectangle,
-      isConfidentRectangle,
+      captureReady,
     });
-  }, []);
+  }, [rectangleDetected]);
 
-  useEffect(() => () => {
-    if (rectangleTimeoutRef.current) {
-      clearTimeout(rectangleTimeoutRef.current);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (rectangleCaptureTimeoutRef.current) {
+        clearTimeout(rectangleCaptureTimeoutRef.current);
+      }
+      if (rectangleHintTimeoutRef.current) {
+        clearTimeout(rectangleHintTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   return (
     <View style={styles.container}>
@@ -503,7 +529,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             >
               <View style={[
                 styles.shutterInner,
-                rectangleDetected && { backgroundColor: overlayColor }
+                rectangleHint && { backgroundColor: overlayColor }
               ]} />
             </TouchableOpacity>
           </View>
