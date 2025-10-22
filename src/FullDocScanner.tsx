@@ -402,17 +402,22 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         assetsLength: result.assets?.length,
       });
 
-      setIsGalleryOpen(false);
-
       if (result.didCancel || !result.assets?.[0]?.uri) {
         console.log('[FullDocScanner] User cancelled gallery picker or no image selected');
+        setIsGalleryOpen(false);
         return;
       }
 
       const imageUri = result.assets[0].uri;
       console.log('[FullDocScanner] Gallery image selected:', imageUri);
 
-      // Skip waitForModalDismissal for gallery - go directly to cropper
+      // Set gallery closed state immediately but wait for modal to dismiss
+      setIsGalleryOpen(false);
+
+      // Wait for the image picker modal to fully dismiss before opening cropper
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Now open cropper after picker is dismissed
       await openCropper(imageUri, { waitForPickerDismissal: false });
     } catch (error) {
       console.error('[FullDocScanner] Gallery pick error:', error);
