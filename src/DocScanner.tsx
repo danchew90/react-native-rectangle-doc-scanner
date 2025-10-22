@@ -8,7 +8,14 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  Platform,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+  NativeModules,
+  findNodeHandle,
+} from 'react-native';
 import DocumentScanner from 'react-native-document-scanner';
 import type { Rectangle as NativeRectangle, RectangleEventPayload } from 'react-native-document-scanner';
 import { rectangleToQuad } from './utils/coordinate';
@@ -41,6 +48,8 @@ export type DocScannerCapture = {
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
+
+const { RNPdfScannerManager } = NativeModules;
 
 const normalizePoint = (point?: { x?: number; y?: number } | null): Point | null => {
   if (!point || !isFiniteNumber(point.x) || !isFiniteNumber(point.y)) {
@@ -232,10 +241,10 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       captureOriginRef.current = 'manual';
       const instance = scannerRef.current;
 
-      if (!instance || typeof instance.capture !== 'function') {
+      if (!instance || (typeof instance.capture !== 'function' && Platform.OS !== 'ios')) {
         console.error('[DocScanner] Native instance not ready:', {
           hasInstance: !!instance,
-          hasCaptureMethod: instance ? typeof instance.capture : 'no instance',
+          hasCaptureMethod: instance ? typeof (instance as any).capture : 'no instance',
         });
         captureOriginRef.current = 'auto';
         return Promise.reject(new Error('DocumentScanner native instance is not ready'));
@@ -247,7 +256,57 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
         return Promise.reject(new Error('capture_in_progress'));
       }
 
-      console.log('[DocScanner] Calling native capture method (now returns Promise)...');
+      const attemptNativeManagerCapture = () => {
+        if (Platform.OS !== 'ios') {
+          return null;
+        }
+
+        if (!RNPdfScannerManager || typeof RNPdfScannerManager.capture !== 'function') {
+          console.warn('[DocScanner] RNPdfScannerManager.capture not available, falling back to instance method');
+          return null;
+        }
+
+        const nodeHandle = findNodeHandle(instance);
+
+        if (!nodeHandle) {
+          console.error('[DocScanner] Unable to resolve native tag for scanner view');
+          return Promise.reject(new Error('scanner_view_not_ready'));
+        }
+
+        console.log('[DocScanner] Calling RNPdfScannerManager.capture with tag:', nodeHandle);
+
+        const managerResult = RNPdfScannerManager.capture(nodeHandle);
+
+        if (!managerResult || typeof managerResult.then !== 'function') {
+          console.warn('[DocScanner] RNPdfScannerManager.capture did not return a promise, falling back to instance method');
+          return null;
+        }
+
+        return managerResult
+          .then((payload: PictureEvent) => {
+            console.log('[DocScanner] RNPdfScannerManager promise resolved');
+            handlePictureTaken(payload);
+            return payload;
+          })
+          .catch((error: unknown) => {
+            console.error('[DocScanner] RNPdfScannerManager promise rejected:', error);
+            captureOriginRef.current = 'auto';
+            throw error;
+          });
+      };
+
+      const managerPromise = attemptNativeManagerCapture();
+      if (managerPromise) {
+        return managerPromise;
+      }
+
+      if (!instance || typeof instance.capture !== 'function') {
+        console.error('[DocScanner] capture() fallback not available on instance');
+        captureOriginRef.current = 'auto';
+        return Promise.reject(new Error('capture_not_supported'));
+      }
+
+      console.log('[DocScanner] Calling native capture method (legacy/event-based)...');
       try {
         const result = instance.capture();
         console.log('[DocScanner] Native capture method called, result type:', typeof result, 'isPromise:', !!(result && typeof result.then === 'function'));
