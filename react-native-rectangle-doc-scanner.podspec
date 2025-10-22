@@ -12,7 +12,8 @@ Pod::Spec.new do |s|
   s.platforms    = { :ios => "11.0" }
   s.source       = { :git => package['repository']['url'], :tag => "v#{s.version}" }
 
-  s.source_files = "ios/**/*.{h,m,mm,swift}"
+  # Include vendor native iOS code
+  s.source_files = "vendor/react-native-document-scanner/ios/**/*.{h,m,mm,swift}"
 
   s.dependency "React-Core"
 
