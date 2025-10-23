@@ -12,7 +12,7 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 import ImageCropPicker from 'react-native-image-crop-picker';
 import RNFS from 'react-native-fs';
-import { Cv2 } from 'react-native-fast-opencv';
+import { OpenCV, RotateFlags } from 'react-native-fast-opencv';
 import { DocScanner } from './DocScanner';
 import type { CapturedDocument } from './types';
 import type {
@@ -487,16 +487,13 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
 
       // OpenCV 회전 코드 매핑
-      // ROTATE_90_CLOCKWISE = 0
-      // ROTATE_180 = 1
-      // ROTATE_90_COUNTERCLOCKWISE = 2
-      let rotateCode: number;
+      let rotateCode: RotateFlags;
       if (rotationNormalized === 90) {
-        rotateCode = 0; // ROTATE_90_CLOCKWISE
+        rotateCode = RotateFlags.ROTATE_90_CLOCKWISE;
       } else if (rotationNormalized === 180) {
-        rotateCode = 1; // ROTATE_180
+        rotateCode = RotateFlags.ROTATE_180;
       } else if (rotationNormalized === 270 || rotationNormalized === -90) {
-        rotateCode = 2; // ROTATE_90_COUNTERCLOCKWISE
+        rotateCode = RotateFlags.ROTATE_90_COUNTERCLOCKWISE;
       } else {
         // 회전 없음
         onResult({
@@ -507,8 +504,22 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         return;
       }
 
+      // 이미지 파일을 Mat 객체로 로드
+      const srcMat = await OpenCV.invoke('imread', croppedImageData.path);
+
+      // 빈 Mat 객체 생성 (회전된 이미지 저장용)
+      const dstMat = new OpenCV.Mat();
+
       // OpenCV로 이미지 회전
-      const rotatedPath = await Cv2.rotate(croppedImageData.path, rotateCode);
+      OpenCV.invoke('rotate', srcMat, dstMat, rotateCode);
+
+      // 회전된 이미지를 임시 파일로 저장
+      const rotatedPath = `${RNFS.CachesDirectoryPath}/rotated_${Date.now()}.jpg`;
+      await OpenCV.invoke('imwrite', rotatedPath, dstMat);
+
+      // Mat 객체 메모리 해제
+      srcMat.delete();
+      dstMat.delete();
 
       // 회전된 이미지를 base64로 변환
       const base64Data = await RNFS.readFile(rotatedPath, 'base64');
