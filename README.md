@@ -120,7 +120,7 @@ Manual capture exposes an imperative `capture()` method via `ref`. Children rend
 ## Convenience APIs
 
 - `CropEditor` – wraps `react-native-perspective-image-cropper` for manual corner adjustment.
-- `FullDocScanner` – puts the scanner and crop editor into a single modal-like flow. If the host app has the `expo-image-manipulator` native module installed, the confirmation screen exposes 90° rotation buttons; otherwise rotation controls remain hidden.
+- `FullDocScanner` – puts the scanner and crop editor into a single modal-like flow. If the host app links either `expo-image-manipulator` or `react-native-image-rotate`, the confirmation screen exposes 90° rotation buttons; otherwise rotation controls remain hidden.
 
 ## License
 
