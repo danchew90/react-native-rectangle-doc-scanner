@@ -12,6 +12,7 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 import ImageCropPicker from 'react-native-image-crop-picker';
 import RNFS from 'react-native-fs';
+import { Cv2 } from 'react-native-fast-opencv';
 import { DocScanner } from './DocScanner';
 import type { CapturedDocument } from './types';
 import type {
@@ -455,66 +456,78 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setFlashEnabled(prev => !prev);
   }, []);
 
-  const handleRotateImage = useCallback(async (degrees: -90 | 90) => {
+  const handleRotateImage = useCallback((degrees: -90 | 90) => {
+    // UI만 회전 (실제 파일 회전은 confirm 시 처리)
+    setRotationDegrees(prev => {
+      const newRotation = prev + degrees;
+      // -360 ~ 360 범위로 정규화
+      if (newRotation <= -360) return newRotation + 360;
+      if (newRotation >= 360) return newRotation - 360;
+      return newRotation;
+    });
+  }, []);
+
+  const handleConfirm = useCallback(async () => {
     if (!croppedImageData) return;
 
-    console.log('[FullDocScanner] Starting image rotation...', {
-      path: croppedImageData.path,
-      hasBase64: !!croppedImageData.base64,
-      base64Length: croppedImageData.base64?.length,
-    });
-
-    try {
-      // 원본 파일을 ImageCropPicker로 열어서 회전 적용
-      // 사용자가 수동으로 회전 버튼을 클릭하고 완료를 눌러야 함
-      const rotatedImage = await ImageCropPicker.openCropper({
+    // 회전이 없으면 기존 데이터 그대로 전달
+    if (rotationDegrees === 0) {
+      onResult({
         path: croppedImageData.path,
-        mediaType: 'photo',
-        cropping: true,
-        freeStyleCropEnabled: true,
-        includeBase64: true,
-        compressImageQuality: 0.9,
-        cropperToolbarTitle: degrees === 90 ? '우측 90° 회전 → 회전 버튼 클릭 → 완료' : '좌측 90° 회전 → 회전 버튼 클릭 → 완료',
-        cropperChooseText: '완료',
-        cropperCancelText: '취소',
-        cropperRotateButtonsHidden: false,
-        enableRotationGesture: true,
+        base64: croppedImageData.base64,
       });
-
-      console.log('[FullDocScanner] Rotated image saved:', {
-        path: rotatedImage.path,
-        hasBase64: !!rotatedImage.data,
-        base64Length: rotatedImage.data?.length,
-      });
-
-      // 회전된 이미지로 교체
-      setCroppedImageData({
-        path: rotatedImage.path,
-        base64: rotatedImage.data ?? undefined,
-      });
-
-      // rotation degrees는 0으로 리셋
-      setRotationDegrees(0);
-    } catch (error) {
-      console.error('[FullDocScanner] Image rotation error:', error);
-
-      // 사용자가 취소했으면 아무것도 안함
-      const errorMessage = error && typeof error === 'object' && 'message' in error ? (error as Error).message : '';
-      if (!errorMessage.includes('cancel') && !errorMessage.includes('User cancelled')) {
-        // 에러 메시지 표시
-        Alert.alert('회전 실패', '이미지 회전 중 오류가 발생했습니다.');
-      }
+      return;
     }
-  }, [croppedImageData]);
 
-  const handleConfirm = useCallback(() => {
-    if (!croppedImageData) return;
+    // 회전이 있으면 실제 파일 회전 처리
+    try {
+      setProcessing(true);
 
-    onResult({
-      path: croppedImageData.path,
-      base64: croppedImageData.base64,
-    });
-  }, [croppedImageData, onResult]);
+      // 회전 각도 정규화 (0, 90, 180, 270)
+      const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
+
+      // OpenCV 회전 코드 매핑
+      // ROTATE_90_CLOCKWISE = 0
+      // ROTATE_180 = 1
+      // ROTATE_90_COUNTERCLOCKWISE = 2
+      let rotateCode: number;
+      if (rotationNormalized === 90) {
+        rotateCode = 0; // ROTATE_90_CLOCKWISE
+      } else if (rotationNormalized === 180) {
+        rotateCode = 1; // ROTATE_180
+      } else if (rotationNormalized === 270 || rotationNormalized === -90) {
+        rotateCode = 2; // ROTATE_90_COUNTERCLOCKWISE
+      } else {
+        // 회전 없음
+        onResult({
+          path: croppedImageData.path,
+          base64: croppedImageData.base64,
+        });
+        setProcessing(false);
+        return;
+      }
+
+      // OpenCV로 이미지 회전
+      const rotatedPath = await Cv2.rotate(croppedImageData.path, rotateCode);
+
+      // 회전된 이미지를 base64로 변환
+      const base64Data = await RNFS.readFile(rotatedPath, 'base64');
+
+      setProcessing(false);
+
+      // 회전된 이미지로 결과 전달
+      onResult({
+        path: rotatedPath,
+        base64: base64Data,
+      });
+    } catch (error) {
+      console.error('[FullDocScanner] Image rotation error on confirm:', error);
+      setProcessing(false);
+
+      const errorMessage = error && typeof error === 'object' && 'message' in error ? (error as Error).message : '';
+      Alert.alert('회전 실패', '이미지 회전 중 오류가 발생했습니다: ' + errorMessage);
+    }
+  }, [croppedImageData, rotationDegrees, onResult]);
 
   const handleRetake = useCallback(() => {
     console.log('[FullDocScanner] Retake - clearing cropped image and resetting scanner');
