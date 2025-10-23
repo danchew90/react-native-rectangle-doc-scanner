@@ -36,7 +36,8 @@
     "react-native-fs": "*",
     "react-native-image-crop-picker": "*",
     "react-native-image-picker": "*",
-    "react-native-svg": "*"
+    "react-native-svg": "*",
+    "expo-modules-core": "*"
   },
   "devDependencies": {
     "@types/react": "^18.2.41",
@@ -47,7 +48,6 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "expo-image-manipulator": "^12.0.5",
-    "expo-modules-core": "^2.1.0"
+    "expo-image-manipulator": "^12.0.5"
   }
 }
