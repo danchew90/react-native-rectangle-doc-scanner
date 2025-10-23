@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import ImageCropPicker from 'react-native-image-crop-picker';
+import ImageRotate from 'react-native-image-rotate';
 import { DocScanner } from './DocScanner';
 import type { CapturedDocument } from './types';
 import type {
@@ -102,8 +103,6 @@ export interface FullDocScannerResult {
   base64?: string;
   /** Original captured document info */
   original?: CapturedDocument;
-  /** Rotation degrees (0, 90, 180, 270) */
-  rotation?: number;
 }
 
 export interface FullDocScannerStrings {
@@ -442,14 +441,42 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setFlashEnabled(prev => !prev);
   }, []);
 
-  const handleRotateImage = useCallback((degrees: -90 | 90) => {
+  const handleRotateImage = useCallback(async (degrees: -90 | 90) => {
     if (!croppedImageData) return;
 
-    // UI에서만 회전 (실제 파일은 confirm 시에 처리)
-    setRotationDegrees(prev => {
-      const newRotation = (prev + degrees + 360) % 360;
-      return newRotation;
-    });
+    try {
+      // UI 회전 상태 먼저 업데이트 (즉각 반응)
+      setRotationDegrees(prev => {
+        const newRotation = (prev + degrees + 360) % 360;
+        return newRotation;
+      });
+
+      console.log('[FullDocScanner] Starting image rotation...');
+
+      // ImageRotate를 사용해서 실제로 이미지 회전 (UI 없이)
+      const rotatedImagePath = await ImageRotate.rotateImage(
+        croppedImageData.path,
+        degrees,
+      );
+
+      console.log('[FullDocScanner] Image rotated successfully:', rotatedImagePath);
+
+      // 회전된 이미지로 교체
+      setCroppedImageData({
+        path: rotatedImagePath,
+        base64: undefined, // base64는 다시 읽어야 함
+      });
+
+      // rotation degrees는 0으로 리셋 (이미 실제 파일에 적용되었으므로)
+      setRotationDegrees(0);
+    } catch (error) {
+      console.error('[FullDocScanner] Image rotation error:', error);
+      // 에러 발생 시 UI rotation 원복
+      setRotationDegrees(prev => {
+        const revertRotation = (prev - degrees + 360) % 360;
+        return revertRotation;
+      });
+    }
   }, [croppedImageData]);
 
   const handleConfirm = useCallback(() => {
@@ -458,9 +485,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     onResult({
       path: croppedImageData.path,
       base64: croppedImageData.base64,
-      rotation: rotationDegrees !== 0 ? rotationDegrees : undefined,
     });
-  }, [croppedImageData, rotationDegrees, onResult]);
+  }, [croppedImageData, onResult]);
 
   const handleRetake = useCallback(() => {
     console.log('[FullDocScanner] Retake - clearing cropped image and resetting scanner');

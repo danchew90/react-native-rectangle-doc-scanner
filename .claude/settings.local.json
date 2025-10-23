@@ -5,7 +5,8 @@
       "Read(//Users/tt-mac-03/Documents/workspace/tdb/**)",
       "Bash(npm run build:*)",
       "Bash(npx react-native codegen)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(npm uninstall:*)"
     ],
     "deny": [],
     "ask": []
