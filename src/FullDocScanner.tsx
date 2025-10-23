@@ -102,6 +102,8 @@ export interface FullDocScannerResult {
   base64?: string;
   /** Original captured document info */
   original?: CapturedDocument;
+  /** Rotation degrees (0, 90, 180, 270) */
+  rotation?: number;
 }
 
 export interface FullDocScannerStrings {
@@ -443,49 +445,21 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const handleRotateImage = useCallback((degrees: -90 | 90) => {
     if (!croppedImageData) return;
 
+    // UI에서만 회전 (실제 파일은 confirm 시에 처리)
     setRotationDegrees(prev => {
       const newRotation = (prev + degrees + 360) % 360;
       return newRotation;
     });
   }, [croppedImageData]);
 
-  const handleConfirm = useCallback(async () => {
+  const handleConfirm = useCallback(() => {
     if (!croppedImageData) return;
 
-    // 회전이 필요한 경우 실제로 이미지를 회전
-    if (rotationDegrees !== 0) {
-      try {
-        const rotatedImage = await ImageCropPicker.openCropper({
-          path: croppedImageData.path,
-          mediaType: 'photo',
-          cropping: true,
-          freeStyleCropEnabled: true,
-          includeBase64: true,
-          compressImageQuality: 0.9,
-          cropperToolbarTitle: ' ',
-          cropperChooseText: '완료',
-          cropperCancelText: '취소',
-          cropperRotateButtonsHidden: false,
-        });
-
-        onResult({
-          path: rotatedImage.path,
-          base64: rotatedImage.data ?? undefined,
-        });
-      } catch (error) {
-        console.error('[FullDocScanner] Image rotation error:', error);
-        // 에러 발생 시 원본 이미지 전송
-        onResult({
-          path: croppedImageData.path,
-          base64: croppedImageData.base64,
-        });
-      }
-    } else {
-      onResult({
-        path: croppedImageData.path,
-        base64: croppedImageData.base64,
-      });
-    }
+    onResult({
+      path: croppedImageData.path,
+      base64: croppedImageData.base64,
+      rotation: rotationDegrees !== 0 ? rotationDegrees : undefined,
+    });
   }, [croppedImageData, rotationDegrees, onResult]);
 
   const handleRetake = useCallback(() => {
