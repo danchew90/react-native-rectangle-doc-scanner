@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import ImageCropPicker from 'react-native-image-crop-picker';
-import ImageRotate from 'react-native-image-rotate';
 import RNFS from 'react-native-fs';
 import { DocScanner } from './DocScanner';
 import type { CapturedDocument } from './types';
@@ -459,72 +458,52 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const handleRotateImage = useCallback(async (degrees: -90 | 90) => {
     if (!croppedImageData) return;
 
-    // UI 회전 상태 먼저 업데이트 (즉각 반응)
-    setRotationDegrees(prev => {
-      const newRotation = (prev + degrees + 360) % 360;
-      return newRotation;
-    });
-
     console.log('[FullDocScanner] Starting image rotation...', {
       path: croppedImageData.path,
       hasBase64: !!croppedImageData.base64,
+      base64Length: croppedImageData.base64?.length,
     });
 
     try {
-      // file:// prefix 제거
-      const cleanPath = croppedImageData.path.replace(/^file:\/\//, '');
+      // 원본 파일을 ImageCropPicker로 열어서 회전 적용
+      // 사용자가 수동으로 회전 버튼을 클릭하고 완료를 눌러야 함
+      const rotatedImage = await ImageCropPicker.openCropper({
+        path: croppedImageData.path,
+        mediaType: 'photo',
+        cropping: true,
+        freeStyleCropEnabled: true,
+        includeBase64: true,
+        compressImageQuality: 0.9,
+        cropperToolbarTitle: degrees === 90 ? '우측 90° 회전 → 회전 버튼 클릭 → 완료' : '좌측 90° 회전 → 회전 버튼 클릭 → 완료',
+        cropperChooseText: '완료',
+        cropperCancelText: '취소',
+        cropperRotateButtonsHidden: false,
+        enableRotationGesture: true,
+      });
 
-      // ImageRotate를 사용해서 이미지 회전
-      ImageRotate.rotateImage(
-        cleanPath,
-        degrees,
-        async (rotatedImageUri: string) => {
-          console.log('[FullDocScanner] Image rotated, URI:', rotatedImageUri);
+      console.log('[FullDocScanner] Rotated image saved:', {
+        path: rotatedImage.path,
+        hasBase64: !!rotatedImage.data,
+        base64Length: rotatedImage.data?.length,
+      });
 
-          try {
-            // 회전된 이미지를 실제 파일로 저장하기 위해 ImageCropPicker 사용
-            // cropping: true이지만 전체 이미지를 선택하면 됨
-            const savedImage = await ImageCropPicker.openCropper({
-              path: rotatedImageUri,
-              mediaType: 'photo',
-              cropping: true,
-              freeStyleCropEnabled: true,
-              includeBase64: true,
-              compressImageQuality: 0.9,
-              cropperToolbarTitle: '회전 완료 - 확인을 눌러주세요',
-              cropperChooseText: '확인',
-              cropperCancelText: '취소',
-              cropperRotateButtonsHidden: true,
-            });
+      // 회전된 이미지로 교체
+      setCroppedImageData({
+        path: rotatedImage.path,
+        base64: rotatedImage.data ?? undefined,
+      });
 
-            console.log('[FullDocScanner] Rotated image saved with base64');
-
-            // 회전된 이미지로 교체
-            setCroppedImageData({
-              path: savedImage.path,
-              base64: savedImage.data ?? undefined,
-            });
-
-            // rotation degrees는 0으로 리셋
-            setRotationDegrees(0);
-          } catch (cropError) {
-            console.error('[FullDocScanner] Failed to save rotated image:', cropError);
-            // 사용자가 취소한 경우 rotation 원복
-            setRotationDegrees(prev => (prev - degrees + 360) % 360);
-          }
-        },
-        (error: Error) => {
-          console.error('[FullDocScanner] Image rotation error:', error);
-          // 에러 발생 시 UI rotation 원복
-          setRotationDegrees(prev => {
-            const revertRotation = (prev - degrees + 360) % 360;
-            return revertRotation;
-          });
-        }
-      );
+      // rotation degrees는 0으로 리셋
+      setRotationDegrees(0);
     } catch (error) {
-      console.error('[FullDocScanner] Rotation setup error:', error);
-      setRotationDegrees(prev => (prev - degrees + 360) % 360);
+      console.error('[FullDocScanner] Image rotation error:', error);
+
+      // 사용자가 취소했으면 아무것도 안함
+      const errorMessage = error && typeof error === 'object' && 'message' in error ? (error as Error).message : '';
+      if (!errorMessage.includes('cancel') && !errorMessage.includes('User cancelled')) {
+        // 에러 메시지 표시
+        Alert.alert('회전 실패', '이미지 회전 중 오류가 발생했습니다.');
+      }
     }
   }, [croppedImageData]);
 

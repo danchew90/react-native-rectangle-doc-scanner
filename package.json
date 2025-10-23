@@ -36,7 +36,6 @@
     "react-native-fs": "*",
     "react-native-image-crop-picker": "*",
     "react-native-image-picker": "*",
-    "react-native-image-rotate": "*",
     "react-native-svg": "*"
   },
   "devDependencies": {
@@ -47,7 +46,5 @@
     "react-native-image-picker": "^7.1.2",
     "typescript": "^5.3.3"
   },
-  "dependencies": {
-    "react-native-image-rotate": "*"
-  }
+  "dependencies": {}
 }
