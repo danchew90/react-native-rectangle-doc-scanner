@@ -450,11 +450,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       return newRotation;
     });
 
-    console.log('[FullDocScanner] Starting image rotation...');
+    console.log('[FullDocScanner] Starting image rotation...', {
+      path: croppedImageData.path,
+      hasBase64: !!croppedImageData.base64,
+    });
+
+    // file:// prefix 제거
+    const cleanPath = croppedImageData.path.replace(/^file:\/\//, '');
 
     // ImageRotate를 사용해서 실제로 이미지 회전 (callback 기반)
     ImageRotate.rotateImage(
-      croppedImageData.path,
+      cleanPath,
       degrees,
       async (rotatedImageUri: string) => {
         console.log('[FullDocScanner] Image rotated successfully:', rotatedImageUri);
@@ -471,7 +477,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             // "data:image/jpeg;base64," 부분 제거
             const base64Data = base64String.split(',')[1];
 
-            console.log('[FullDocScanner] Converted to base64, length:', base64Data?.length);
+            console.log('[FullDocScanner] Converted rotated image to base64, length:', base64Data?.length);
 
             // 회전된 이미지로 교체 (base64 포함)
             setCroppedImageData({
