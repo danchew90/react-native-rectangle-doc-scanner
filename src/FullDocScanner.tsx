@@ -456,17 +456,42 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     ImageRotate.rotateImage(
       croppedImageData.path,
       degrees,
-      (rotatedImagePath: string) => {
-        console.log('[FullDocScanner] Image rotated successfully:', rotatedImagePath);
+      async (rotatedImageUri: string) => {
+        console.log('[FullDocScanner] Image rotated successfully:', rotatedImageUri);
 
-        // 회전된 이미지로 교체
-        setCroppedImageData({
-          path: rotatedImagePath,
-          base64: undefined, // base64는 다시 읽어야 함
-        });
+        try {
+          // rct-image-store:// URI를 base64로 변환
+          const response = await fetch(rotatedImageUri);
+          const blob = await response.blob();
 
-        // rotation degrees는 0으로 리셋 (이미 실제 파일에 적용되었으므로)
-        setRotationDegrees(0);
+          // Blob to base64
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64String = reader.result as string;
+            // "data:image/jpeg;base64," 부분 제거
+            const base64Data = base64String.split(',')[1];
+
+            console.log('[FullDocScanner] Converted to base64, length:', base64Data?.length);
+
+            // 회전된 이미지로 교체 (base64 포함)
+            setCroppedImageData({
+              path: rotatedImageUri,
+              base64: base64Data,
+            });
+
+            // rotation degrees는 0으로 리셋
+            setRotationDegrees(0);
+          };
+          reader.readAsDataURL(blob);
+        } catch (convertError) {
+          console.error('[FullDocScanner] Failed to convert to base64:', convertError);
+          // base64 변환 실패 시 URI만 저장
+          setCroppedImageData({
+            path: rotatedImageUri,
+            base64: undefined,
+          });
+          setRotationDegrees(0);
+        }
       },
       (error: Error) => {
         console.error('[FullDocScanner] Image rotation error:', error);
