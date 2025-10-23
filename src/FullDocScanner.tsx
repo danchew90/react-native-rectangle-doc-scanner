@@ -12,7 +12,6 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 import ImageCropPicker from 'react-native-image-crop-picker';
 import RNFS from 'react-native-fs';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { DocScanner } from './DocScanner';
 import type { CapturedDocument } from './types';
 import type {
@@ -21,6 +20,21 @@ import type {
   DocScannerCapture,
   RectangleDetectEvent,
 } from './DocScanner';
+
+type ImageManipulatorModule = typeof import('expo-image-manipulator');
+
+let ImageManipulator: ImageManipulatorModule | null = null;
+
+try {
+  ImageManipulator = require('expo-image-manipulator') as ImageManipulatorModule;
+} catch (error) {
+  console.warn(
+    '[FullDocScanner] expo-image-manipulator module unavailable. Image rotation will be disabled.',
+    error,
+  );
+}
+
+const isImageRotationSupported = !!ImageManipulator?.manipulateAsync;
 
 const stripFileUri = (value: string) => value.replace(/^file:\/\//, '');
 
@@ -457,8 +471,15 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   }, []);
 
   const handleRotateImage = useCallback((degrees: -90 | 90) => {
+    if (!isImageRotationSupported) {
+      console.warn(
+        '[FullDocScanner] Image rotation requested but expo-image-manipulator is unavailable.',
+      );
+      return;
+    }
+
     // UI만 회전 (실제 파일 회전은 confirm 시 처리)
-    setRotationDegrees(prev => {
+    setRotationDegrees((prev) => {
       const newRotation = prev + degrees;
       // -360 ~ 360 범위로 정규화
       if (newRotation <= -360) return newRotation + 360;
@@ -468,10 +489,18 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   }, []);
 
   const handleConfirm = useCallback(async () => {
-    if (!croppedImageData) return;
+    if (!croppedImageData) {
+      return;
+    }
 
-    // 회전이 없으면 기존 데이터 그대로 전달
-    if (rotationDegrees === 0) {
+    // 회전이 없거나 모듈을 사용할 수 없으면 기존 데이터 그대로 전달
+    if (rotationDegrees === 0 || !isImageRotationSupported || !ImageManipulator) {
+      if (rotationDegrees !== 0 && !isImageRotationSupported) {
+        console.warn(
+          '[FullDocScanner] Confirm requested with rotation but expo-image-manipulator is unavailable. Returning original image.',
+        );
+      }
+
       onResult({
         path: croppedImageData.path,
         base64: croppedImageData.base64,
@@ -479,25 +508,35 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       return;
     }
 
-    // 회전이 있으면 실제 파일 회전 처리
     try {
       setProcessing(true);
 
       // 회전 각도 정규화 (0, 90, 180, 270)
       const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
 
+      const manipulator = ImageManipulator;
+
+      if (!manipulator?.manipulateAsync) {
+        console.warn(
+          '[FullDocScanner] expo-image-manipulator is unavailable at runtime. Returning original image.',
+        );
+        onResult({
+          path: croppedImageData.path,
+          base64: croppedImageData.base64,
+        });
+        return;
+      }
+
       // expo-image-manipulator로 이미지 회전
-      const result = await ImageManipulator.manipulateAsync(
+      const result = await manipulator.manipulateAsync(
         croppedImageData.path,
         [{ rotate: rotationNormalized }],
         {
           compress: 0.9,
-          format: ImageManipulator.SaveFormat.JPEG,
+          format: manipulator.SaveFormat.JPEG,
           base64: true,
-        }
+        },
       );
-
-      setProcessing(false);
 
       // 회전된 이미지로 결과 전달
       onResult({
@@ -506,10 +545,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       });
     } catch (error) {
       console.error('[FullDocScanner] Image rotation error on confirm:', error);
-      setProcessing(false);
 
-      const errorMessage = error && typeof error === 'object' && 'message' in error ? (error as Error).message : '';
+      const errorMessage =
+        error && typeof error === 'object' && 'message' in error ? (error as Error).message : '';
       Alert.alert('회전 실패', '이미지 회전 중 오류가 발생했습니다: ' + errorMessage);
+    } finally {
+      setProcessing(false);
     }
   }, [croppedImageData, rotationDegrees, onResult]);
 
@@ -599,26 +640,28 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         // check_DP: Show confirmation screen
         <View style={styles.confirmationContainer}>
           {/* 회전 버튼들 - 가운데 정렬 */}
-          <View style={styles.rotateButtonsCenter}>
-            <TouchableOpacity
-              style={styles.rotateButtonTop}
-              onPress={() => handleRotateImage(-90)}
-              accessibilityLabel="왼쪽으로 90도 회전"
-              accessibilityRole="button"
-            >
-              <Text style={styles.rotateIconText}>↺</Text>
-              <Text style={styles.rotateButtonLabel}>좌로 90°</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.rotateButtonTop}
-              onPress={() => handleRotateImage(90)}
-              accessibilityLabel="오른쪽으로 90도 회전"
-              accessibilityRole="button"
-            >
-              <Text style={styles.rotateIconText}>↻</Text>
-              <Text style={styles.rotateButtonLabel}>우로 90°</Text>
-            </TouchableOpacity>
-          </View>
+          {isImageRotationSupported ? (
+            <View style={styles.rotateButtonsCenter}>
+              <TouchableOpacity
+                style={styles.rotateButtonTop}
+                onPress={() => handleRotateImage(-90)}
+                accessibilityLabel="왼쪽으로 90도 회전"
+                accessibilityRole="button"
+              >
+                <Text style={styles.rotateIconText}>↺</Text>
+                <Text style={styles.rotateButtonLabel}>좌로 90°</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.rotateButtonTop}
+                onPress={() => handleRotateImage(90)}
+                accessibilityLabel="오른쪽으로 90도 회전"
+                accessibilityRole="button"
+              >
+                <Text style={styles.rotateIconText}>↻</Text>
+                <Text style={styles.rotateButtonLabel}>우로 90°</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
           <Image
             source={{ uri: croppedImageData.path }}
             style={[

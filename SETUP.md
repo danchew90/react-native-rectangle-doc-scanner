@@ -117,6 +117,8 @@ function MyComponent() {
 }
 ```
 
+> 참고: 최종 확인 화면의 회전 버튼은 프로젝트에 `expo-image-manipulator` 네이티브 모듈이 설치되어 있을 때만 노출됩니다. 모듈이 없으면 버튼이 자동으로 숨겨지고 원본 각도로 결과가 반환됩니다.
+
 ## API 변경사항
 
 ### FullDocScannerResult (변경됨)
