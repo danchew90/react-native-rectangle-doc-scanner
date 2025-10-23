@@ -152,7 +152,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [rectangleDetected, setRectangleDetected] = useState(false);
   const [rectangleHint, setRectangleHint] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(false);
-  const [isRotating, setIsRotating] = useState(false);
+  const [rotationDegrees, setRotationDegrees] = useState(0);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
@@ -440,59 +440,58 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setFlashEnabled(prev => !prev);
   }, []);
 
-  const handleRotateImage = useCallback(async (degrees: -90 | 90) => {
-    if (isRotating || !croppedImageData) return;
+  const handleRotateImage = useCallback((degrees: -90 | 90) => {
+    if (!croppedImageData) return;
 
-    setIsRotating(true);
-    try {
-      console.log('[FullDocScanner] Rotating image by', degrees, 'degrees');
+    setRotationDegrees(prev => {
+      const newRotation = (prev + degrees + 360) % 360;
+      return newRotation;
+    });
+  }, [croppedImageData]);
 
-      const rotatedImage = await ImageCropPicker.openCropper({
-        path: croppedImageData.path,
-        mediaType: 'photo',
-        cropping: true,
-        freeStyleCropEnabled: true,
-        includeBase64: true,
-        compressImageQuality: 0.9,
-        cropperToolbarTitle: degrees === 90 ? '↻' : '↺',
-        cropperChooseText: '완료',
-        cropperCancelText: '취소',
-        cropperRotateButtonsHidden: false,
-      });
+  const handleConfirm = useCallback(async () => {
+    if (!croppedImageData) return;
 
-      console.log('[FullDocScanner] Image rotated successfully');
-      setCroppedImageData({
-        path: rotatedImage.path,
-        base64: rotatedImage.data ?? undefined,
-      });
-    } catch (error) {
-      console.error('[FullDocScanner] Image rotation error:', error);
-      if (error && typeof error === 'object' && 'message' in error) {
-        const errorMessage = (error as Error).message;
-        if (!errorMessage.includes('cancel') && !errorMessage.includes('User cancelled')) {
-          emitError(
-            error instanceof Error ? error : new Error(String(error)),
-            'Failed to rotate image.',
-          );
-        }
+    // 회전이 필요한 경우 실제로 이미지를 회전
+    if (rotationDegrees !== 0) {
+      try {
+        const rotatedImage = await ImageCropPicker.openCropper({
+          path: croppedImageData.path,
+          mediaType: 'photo',
+          cropping: true,
+          freeStyleCropEnabled: true,
+          includeBase64: true,
+          compressImageQuality: 0.9,
+          cropperToolbarTitle: ' ',
+          cropperChooseText: '완료',
+          cropperCancelText: '취소',
+          cropperRotateButtonsHidden: false,
+        });
+
+        onResult({
+          path: rotatedImage.path,
+          base64: rotatedImage.data ?? undefined,
+        });
+      } catch (error) {
+        console.error('[FullDocScanner] Image rotation error:', error);
+        // 에러 발생 시 원본 이미지 전송
+        onResult({
+          path: croppedImageData.path,
+          base64: croppedImageData.base64,
+        });
       }
-    } finally {
-      setIsRotating(false);
-    }
-  }, [isRotating, croppedImageData, emitError]);
-
-  const handleConfirm = useCallback(() => {
-    if (croppedImageData) {
+    } else {
       onResult({
         path: croppedImageData.path,
         base64: croppedImageData.base64,
       });
     }
-  }, [croppedImageData, onResult]);
+  }, [croppedImageData, rotationDegrees, onResult]);
 
   const handleRetake = useCallback(() => {
     console.log('[FullDocScanner] Retake - clearing cropped image and resetting scanner');
     setCroppedImageData(null);
+    setRotationDegrees(0);
     setProcessing(false);
     setRectangleDetected(false);
     setRectangleHint(false);
@@ -574,12 +573,11 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       {croppedImageData ? (
         // check_DP: Show confirmation screen
         <View style={styles.confirmationContainer}>
-          {/* 상단 회전 버튼들 */}
-          <View style={styles.rotateButtonsTop}>
+          {/* 회전 버튼들 - 가운데 정렬 */}
+          <View style={styles.rotateButtonsCenter}>
             <TouchableOpacity
-              style={[styles.rotateButtonTop, isRotating && styles.buttonDisabled]}
+              style={styles.rotateButtonTop}
               onPress={() => handleRotateImage(-90)}
-              disabled={isRotating}
               accessibilityLabel="왼쪽으로 90도 회전"
               accessibilityRole="button"
             >
@@ -587,9 +585,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               <Text style={styles.rotateButtonLabel}>좌로 90°</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.rotateButtonTop, isRotating && styles.buttonDisabled]}
+              style={styles.rotateButtonTop}
               onPress={() => handleRotateImage(90)}
-              disabled={isRotating}
               accessibilityLabel="오른쪽으로 90도 회전"
               accessibilityRole="button"
             >
@@ -599,7 +596,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           </View>
           <Image
             source={{ uri: croppedImageData.path }}
-            style={styles.previewImage}
+            style={[
+              styles.previewImage,
+              { transform: [{ rotate: `${rotationDegrees}deg` }] }
+            ]}
             resizeMode="contain"
           />
           <View style={styles.confirmationButtons}>
@@ -839,6 +839,17 @@ const styles = StyleSheet.create({
     top: 60,
     left: 20,
     flexDirection: 'row',
+    gap: 12,
+    zIndex: 10,
+  },
+  rotateButtonsCenter: {
+    position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
     gap: 12,
     zIndex: 10,
   },

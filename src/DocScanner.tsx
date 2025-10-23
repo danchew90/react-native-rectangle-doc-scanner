@@ -142,12 +142,22 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
     const [detectedRectangle, setDetectedRectangle] = useState<RectangleDetectEvent | null>(null);
     const lastRectangleRef = useRef<Rectangle | null>(null);
     const captureOriginRef = useRef<'auto' | 'manual'>('auto');
+    const rectangleClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
       if (!autoCapture) {
         setIsAutoCapturing(false);
       }
     }, [autoCapture]);
+
+    // Cleanup timeout on unmount
+    useEffect(() => {
+      return () => {
+        if (rectangleClearTimeoutRef.current) {
+          clearTimeout(rectangleClearTimeoutRef.current);
+        }
+      };
+    }, []);
 
     const normalizedQuality = useMemo(() => {
       if (Platform.OS === 'ios') {
@@ -385,7 +395,29 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
         }
 
         const isGoodRectangle = payload.lastDetectionType === 0;
-        setDetectedRectangle(isGoodRectangle && rectangleOnScreen ? payload : null);
+        const hasValidRectangle = isGoodRectangle && rectangleOnScreen;
+
+        // 그리드를 표시할 조건: 좋은 품질의 사각형이 화면에 있을 때만
+        if (hasValidRectangle) {
+          // 기존 타임아웃 클리어
+          if (rectangleClearTimeoutRef.current) {
+            clearTimeout(rectangleClearTimeoutRef.current);
+          }
+          setDetectedRectangle(payload);
+          // 500ms 후에 그리드 자동 클리어 (새로운 이벤트가 없으면)
+          rectangleClearTimeoutRef.current = setTimeout(() => {
+            setDetectedRectangle(null);
+            rectangleClearTimeoutRef.current = null;
+          }, 500);
+        } else {
+          // 즉시 클리어
+          if (rectangleClearTimeoutRef.current) {
+            clearTimeout(rectangleClearTimeoutRef.current);
+            rectangleClearTimeoutRef.current = null;
+          }
+          setDetectedRectangle(null);
+        }
+
         onRectangleDetect?.(payload);
       },
       [autoCapture, minStableFrames, onRectangleDetect],
