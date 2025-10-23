@@ -12,6 +12,7 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 import ImageCropPicker from 'react-native-image-crop-picker';
 import ImageRotate from 'react-native-image-rotate';
+import RNFS from 'react-native-fs';
 import { DocScanner } from './DocScanner';
 import type { CapturedDocument } from './types';
 import type {
@@ -299,9 +300,23 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
       if (normalizedDoc.croppedPath) {
         console.log('[FullDocScanner] Grid detected: using pre-cropped image', normalizedDoc.croppedPath);
-        setCroppedImageData({
-          path: normalizedDoc.croppedPath,
-        });
+
+        // RNFS를 사용해서 base64 생성
+        try {
+          const base64Data = await RNFS.readFile(normalizedDoc.croppedPath, 'base64');
+          console.log('[FullDocScanner] Generated base64 for pre-cropped image, length:', base64Data.length);
+
+          setCroppedImageData({
+            path: normalizedDoc.croppedPath,
+            base64: base64Data,
+          });
+        } catch (error) {
+          console.error('[FullDocScanner] Failed to generate base64:', error);
+          // base64 생성 실패 시 경로만 저장
+          setCroppedImageData({
+            path: normalizedDoc.croppedPath,
+          });
+        }
         return;
       }
 
@@ -441,7 +456,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setFlashEnabled(prev => !prev);
   }, []);
 
-  const handleRotateImage = useCallback((degrees: -90 | 90) => {
+  const handleRotateImage = useCallback(async (degrees: -90 | 90) => {
     if (!croppedImageData) return;
 
     // UI 회전 상태 먼저 업데이트 (즉각 반응)
@@ -455,59 +470,62 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       hasBase64: !!croppedImageData.base64,
     });
 
-    // file:// prefix 제거
-    const cleanPath = croppedImageData.path.replace(/^file:\/\//, '');
+    try {
+      // file:// prefix 제거
+      const cleanPath = croppedImageData.path.replace(/^file:\/\//, '');
 
-    // ImageRotate를 사용해서 실제로 이미지 회전 (callback 기반)
-    ImageRotate.rotateImage(
-      cleanPath,
-      degrees,
-      async (rotatedImageUri: string) => {
-        console.log('[FullDocScanner] Image rotated successfully:', rotatedImageUri);
+      // ImageRotate를 사용해서 이미지 회전
+      ImageRotate.rotateImage(
+        cleanPath,
+        degrees,
+        async (rotatedImageUri: string) => {
+          console.log('[FullDocScanner] Image rotated, URI:', rotatedImageUri);
 
-        try {
-          // rct-image-store:// URI를 base64로 변환
-          const response = await fetch(rotatedImageUri);
-          const blob = await response.blob();
-
-          // Blob to base64
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64String = reader.result as string;
-            // "data:image/jpeg;base64," 부분 제거
-            const base64Data = base64String.split(',')[1];
-
-            console.log('[FullDocScanner] Converted rotated image to base64, length:', base64Data?.length);
-
-            // 회전된 이미지로 교체 (base64 포함)
-            setCroppedImageData({
+          try {
+            // 회전된 이미지를 실제 파일로 저장하기 위해 ImageCropPicker 사용
+            // cropping: true이지만 전체 이미지를 선택하면 됨
+            const savedImage = await ImageCropPicker.openCropper({
               path: rotatedImageUri,
-              base64: base64Data,
+              mediaType: 'photo',
+              cropping: true,
+              freeStyleCropEnabled: true,
+              includeBase64: true,
+              compressImageQuality: 0.9,
+              cropperToolbarTitle: '회전 완료 - 확인을 눌러주세요',
+              cropperChooseText: '확인',
+              cropperCancelText: '취소',
+              cropperRotateButtonsHidden: true,
+            });
+
+            console.log('[FullDocScanner] Rotated image saved with base64');
+
+            // 회전된 이미지로 교체
+            setCroppedImageData({
+              path: savedImage.path,
+              base64: savedImage.data ?? undefined,
             });
 
             // rotation degrees는 0으로 리셋
             setRotationDegrees(0);
-          };
-          reader.readAsDataURL(blob);
-        } catch (convertError) {
-          console.error('[FullDocScanner] Failed to convert to base64:', convertError);
-          // base64 변환 실패 시 URI만 저장
-          setCroppedImageData({
-            path: rotatedImageUri,
-            base64: undefined,
+          } catch (cropError) {
+            console.error('[FullDocScanner] Failed to save rotated image:', cropError);
+            // 사용자가 취소한 경우 rotation 원복
+            setRotationDegrees(prev => (prev - degrees + 360) % 360);
+          }
+        },
+        (error: Error) => {
+          console.error('[FullDocScanner] Image rotation error:', error);
+          // 에러 발생 시 UI rotation 원복
+          setRotationDegrees(prev => {
+            const revertRotation = (prev - degrees + 360) % 360;
+            return revertRotation;
           });
-          setRotationDegrees(0);
         }
-      },
-      (error: Error) => {
-        console.error('[FullDocScanner] Image rotation error:', error);
-        // 에러 발생 시 UI rotation 원복
-        setRotationDegrees(prev => {
-          const revertRotation = (prev - degrees + 360) % 360;
-          return revertRotation;
-        });
-      }
-    );
+      );
+    } catch (error) {
+      console.error('[FullDocScanner] Rotation setup error:', error);
+      setRotationDegrees(prev => (prev - degrees + 360) % 360);
+    }
   }, [croppedImageData]);
 
   const handleConfirm = useCallback(() => {
