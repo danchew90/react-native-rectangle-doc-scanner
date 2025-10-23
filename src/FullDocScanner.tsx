@@ -441,42 +441,42 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setFlashEnabled(prev => !prev);
   }, []);
 
-  const handleRotateImage = useCallback(async (degrees: -90 | 90) => {
+  const handleRotateImage = useCallback((degrees: -90 | 90) => {
     if (!croppedImageData) return;
 
-    try {
-      // UI 회전 상태 먼저 업데이트 (즉각 반응)
-      setRotationDegrees(prev => {
-        const newRotation = (prev + degrees + 360) % 360;
-        return newRotation;
-      });
+    // UI 회전 상태 먼저 업데이트 (즉각 반응)
+    setRotationDegrees(prev => {
+      const newRotation = (prev + degrees + 360) % 360;
+      return newRotation;
+    });
 
-      console.log('[FullDocScanner] Starting image rotation...');
+    console.log('[FullDocScanner] Starting image rotation...');
 
-      // ImageRotate를 사용해서 실제로 이미지 회전 (UI 없이)
-      const rotatedImagePath = await ImageRotate.rotateImage(
-        croppedImageData.path,
-        degrees,
-      );
+    // ImageRotate를 사용해서 실제로 이미지 회전 (callback 기반)
+    ImageRotate.rotateImage(
+      croppedImageData.path,
+      degrees,
+      (rotatedImagePath: string) => {
+        console.log('[FullDocScanner] Image rotated successfully:', rotatedImagePath);
 
-      console.log('[FullDocScanner] Image rotated successfully:', rotatedImagePath);
+        // 회전된 이미지로 교체
+        setCroppedImageData({
+          path: rotatedImagePath,
+          base64: undefined, // base64는 다시 읽어야 함
+        });
 
-      // 회전된 이미지로 교체
-      setCroppedImageData({
-        path: rotatedImagePath,
-        base64: undefined, // base64는 다시 읽어야 함
-      });
-
-      // rotation degrees는 0으로 리셋 (이미 실제 파일에 적용되었으므로)
-      setRotationDegrees(0);
-    } catch (error) {
-      console.error('[FullDocScanner] Image rotation error:', error);
-      // 에러 발생 시 UI rotation 원복
-      setRotationDegrees(prev => {
-        const revertRotation = (prev - degrees + 360) % 360;
-        return revertRotation;
-      });
-    }
+        // rotation degrees는 0으로 리셋 (이미 실제 파일에 적용되었으므로)
+        setRotationDegrees(0);
+      },
+      (error: Error) => {
+        console.error('[FullDocScanner] Image rotation error:', error);
+        // 에러 발생 시 UI rotation 원복
+        setRotationDegrees(prev => {
+          const revertRotation = (prev - degrees + 360) % 360;
+          return revertRotation;
+        });
+      }
+    );
   }, [croppedImageData]);
 
   const handleConfirm = useCallback(() => {

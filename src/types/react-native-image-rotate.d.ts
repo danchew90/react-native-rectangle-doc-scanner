@@ -3,6 +3,8 @@ declare module 'react-native-image-rotate' {
     static rotateImage(
       imagePath: string,
       degrees: number,
-    ): Promise<string>;
+      successCallback: (rotatedImagePath: string) => void,
+      errorCallback: (error: Error) => void,
+    ): void;
   }
 }
