@@ -544,29 +544,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
     if (captureReady) {
       scheduleClear(rectangleCaptureTimeoutRef, () => {
-        console.log('[FullDocScanner] Rectangle timeout - clearing detection');
         setRectangleDetected(false);
       });
       setRectangleDetected(true);
-    } else if (!hasRectangle) {
+    } else {
+      // 그리드가 없거나 품질이 좋지 않으면 즉시 상태 해제
       if (rectangleCaptureTimeoutRef.current) {
         clearTimeout(rectangleCaptureTimeoutRef.current);
         rectangleCaptureTimeoutRef.current = null;
       }
       setRectangleDetected(false);
-    } else if (rectangleDetected) {
-      scheduleClear(rectangleCaptureTimeoutRef, () => {
-        console.log('[FullDocScanner] Rectangle timeout - clearing detection');
-        setRectangleDetected(false);
-      });
     }
-
-    console.log('[FullDocScanner] Rectangle detection update', {
-      lastDetectionType: event.lastDetectionType,
-      stableCounter,
-      hasRectangle,
-      captureReady,
-    });
   }, [rectangleDetected]);
 
   useEffect(
