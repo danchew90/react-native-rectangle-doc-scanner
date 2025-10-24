@@ -291,6 +291,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           errorMessage.includes('cancel')
         ) {
           console.log('[FullDocScanner] User cancelled cropper');
+          // DocScanner 상태를 리셋하여 카메라가 다시 작동하도록 함
+          if (docScannerRef.current?.reset) {
+            docScannerRef.current.reset();
+          }
         } else {
           emitError(
             error instanceof Error ? error : new Error(errorMessage),
@@ -672,17 +676,40 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       {croppedImageData ? (
         // check_DP: Show confirmation screen
         <View style={styles.confirmationContainer}>
-          {/* 헤더 - 앞면/뒷면 표시 */}
-          {isBusinessMode && (
+          {/* Business 모드: 회전 버튼(왼쪽/오른쪽) + 헤더(가운데) 한 줄 배치 */}
+          {isBusinessMode && isImageRotationSupported() ? (
+            <View style={styles.businessHeaderRow}>
+              <TouchableOpacity
+                style={styles.rotateButtonLeft}
+                onPress={() => handleRotateImage(-90)}
+                accessibilityLabel="왼쪽으로 90도 회전"
+                accessibilityRole="button"
+              >
+                <Text style={styles.rotateIconText}>↺</Text>
+              </TouchableOpacity>
+
+              <View style={styles.photoHeaderCenter}>
+                <Text style={styles.photoHeaderText}>
+                  {currentPhotoIndex === 0 ? mergedStrings.first : mergedStrings.second}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.rotateButtonRight}
+                onPress={() => handleRotateImage(90)}
+                accessibilityLabel="오른쪽으로 90도 회전"
+                accessibilityRole="button"
+              >
+                <Text style={styles.rotateIconText}>↻</Text>
+              </TouchableOpacity>
+            </View>
+          ) : isBusinessMode ? (
             <View style={styles.photoHeader}>
               <Text style={styles.photoHeaderText}>
                 {currentPhotoIndex === 0 ? mergedStrings.first : mergedStrings.second}
               </Text>
             </View>
-          )}
-
-          {/* 회전 버튼들 - 가운데 정렬 */}
-          {isImageRotationSupported() ? (
+          ) : isImageRotationSupported() ? (
             <View style={styles.rotateButtonsCenter}>
               <TouchableOpacity
                 style={styles.rotateButtonTop}
@@ -1104,5 +1131,39 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#fff',
     overflow: 'hidden',
+  },
+  businessHeaderRow: {
+    position: 'absolute',
+    top: 80,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    zIndex: 10,
+  },
+  rotateButtonLeft: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(50,50,50,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  rotateButtonRight: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(50,50,50,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  photoHeaderCenter: {
+    alignItems: 'center',
   },
 });
