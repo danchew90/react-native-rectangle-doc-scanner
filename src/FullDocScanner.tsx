@@ -22,33 +22,14 @@ import type {
 } from './DocScanner';
 
 type ImageManipulatorModule = typeof import('expo-image-manipulator');
-type ImageRotateModule = {
-  rotateImage: (
-    uri: string,
-    angle: number,
-    onSuccess: (uri: string) => void,
-    onError: (error: unknown) => void,
-  ) => void;
-} | null;
 
 let ImageManipulator: ImageManipulatorModule | null = null;
-let ImageRotate: ImageRotateModule = null;
 
 try {
   ImageManipulator = require('expo-image-manipulator') as ImageManipulatorModule;
 } catch (error) {
   console.warn(
-    '[FullDocScanner] expo-image-manipulator module unavailable. Checking fallback options.',
-    error,
-  );
-}
-
-try {
-  const rotateModule = require('react-native-image-rotate');
-  ImageRotate = (rotateModule?.default ?? rotateModule) as ImageRotateModule;
-} catch (error) {
-  console.warn(
-    '[FullDocScanner] react-native-image-rotate module unavailable. Image rotation fallback disabled.',
+    '[FullDocScanner] expo-image-manipulator module unavailable.',
     error,
   );
 }
@@ -56,8 +37,7 @@ try {
 let expoManipulatorUnavailable = false;
 const isExpoImageManipulatorAvailable = () =>
   !!ImageManipulator?.manipulateAsync && !expoManipulatorUnavailable;
-const isImageRotateAvailable = !!ImageRotate?.rotateImage;
-const isImageRotationSupported = () => isExpoImageManipulatorAvailable() || isImageRotateAvailable;
+const isImageRotationSupported = () => isExpoImageManipulatorAvailable();
 
 const stripFileUri = (value: string) => value.replace(/^file:\/\//, '');
 const ensureFileUri = (value: string) => (value.startsWith('file://') ? value : `file://${value}`);
@@ -494,30 +474,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setFlashEnabled(prev => !prev);
   }, []);
 
-  const rotateImageWithFallback = useCallback((uri: string, angle: number) => {
-    return new Promise<string>((resolve, reject) => {
-      if (!ImageRotate?.rotateImage) {
-        reject(new Error('react-native-image-rotate unavailable'));
-        return;
-      }
-
-      ImageRotate.rotateImage(
-        uri,
-        angle,
-        (rotatedUri) => resolve(rotatedUri),
-        (error) => {
-          const message =
-            typeof error === 'string'
-              ? error
-              : error && typeof error === 'object' && 'message' in error
-                ? String((error as any).message)
-                : 'Unknown rotation error';
-          reject(new Error(message));
-        },
-      );
-    });
-  }, []);
-
   const handleRotateImage = useCallback(
     (degrees: -90 | 90) => {
       if (!isImageRotationSupported()) {
@@ -617,55 +573,30 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         }
       }
 
-      // react-native-image-rotate 시도 (ImageStore 사용 안 함)
-      if (isImageRotateAvailable && ImageRotate?.rotateImage) {
-        console.log('[FullDocScanner] Using react-native-image-rotate for rotation');
-        const sourceUri = ensureFileUri(croppedImageData.path);
-
-        try {
-          const rotatedUri = await rotateImageWithFallback(sourceUri, rotationNormalized);
-          console.log('[FullDocScanner] Image rotated via react-native-image-rotate:', rotatedUri);
-
-          // rotatedUri를 파일로 저장하고 base64 생성
-          const destinationPath = `${RNFS.CachesDirectoryPath}/rotated_img_${Date.now()}.jpeg`;
-
-          // rotatedUri는 이미 file://로 시작하므로 stripFileUri로 정리
-          const cleanRotatedUri = stripFileUri(rotatedUri);
-
-          // 파일 복사
-          await RNFS.copyFile(cleanRotatedUri, destinationPath);
-          console.log('[FullDocScanner] Copied rotated file to:', destinationPath);
-
-          // Base64 생성
-          const base64Data = await RNFS.readFile(destinationPath, 'base64');
-          console.log('[FullDocScanner] Got result:', {
-            path: destinationPath,
-            hasBase64: true,
-            base64Length: base64Data.length,
-          });
-
-          onResult({
-            path: destinationPath,
-            base64: base64Data,
-          });
-          setProcessing(false);
-          return;
-        } catch (rotateError) {
-          console.error('[FullDocScanner] react-native-image-rotate error:', rotateError);
-          throw rotateError;
-        }
-      }
-
-      // 회전 불가능한 경우 경고 후 원본 반환
-      console.warn(
-        '[FullDocScanner] Rotation requested but no supported rotation module is available. Returning original image.',
+      // expo-image-manipulator를 사용할 수 없는 경우 에러 처리
+      console.error(
+        '[FullDocScanner] Rotation requested but expo-image-manipulator is not available.',
       );
-      Alert.alert('알림', '이미지 회전 기능을 사용할 수 없습니다. 원본 이미지를 사용합니다.');
-      onResult({
-        path: croppedImageData.path,
-        base64: croppedImageData.base64,
-      });
       setProcessing(false);
+      Alert.alert(
+        '회전 불가',
+        'expo-image-manipulator가 설치되지 않아 이미지 회전을 수행할 수 없습니다.\n\n패키지를 설치해주세요:\nnpm install expo-image-manipulator',
+        [
+          {
+            text: '원본 사용',
+            onPress: () => {
+              onResult({
+                path: croppedImageData.path,
+                base64: croppedImageData.base64,
+              });
+            },
+          },
+          {
+            text: '취소',
+            style: 'cancel',
+          },
+        ],
+      );
     } catch (error) {
       console.error('[FullDocScanner] Image rotation error on confirm:', error);
       setProcessing(false);
@@ -680,7 +611,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         base64: croppedImageData.base64,
       });
     }
-  }, [croppedImageData, rotationDegrees, onResult, rotateImageWithFallback]);
+  }, [croppedImageData, rotationDegrees, onResult]);
 
   const handleRetake = useCallback(() => {
     console.log('[FullDocScanner] Retake - clearing cropped image and resetting scanner');
