@@ -8,6 +8,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  NativeModules,
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import ImageCropPicker from 'react-native-image-crop-picker';
@@ -31,8 +32,18 @@ type ImageRotateModule = {
   ) => void;
 } | null;
 
+type ImageStoreModule = {
+  getBase64ForTag?: (
+    uri: string,
+    success: (base64: string) => void,
+    failure: (error: unknown) => void,
+  ) => void;
+  removeImageForTag?: (uri: string) => void;
+} | undefined;
+
 let ImageManipulator: ImageManipulatorModule | null = null;
 let ImageRotate: ImageRotateModule = null;
+const ImageStoreManager: ImageStoreModule = NativeModules.ImageStoreManager;
 
 try {
   ImageManipulator = require('expo-image-manipulator') as ImageManipulatorModule;
@@ -59,6 +70,32 @@ const isImageRotationSupported = isExpoImageManipulatorAvailable || isImageRotat
 
 const stripFileUri = (value: string) => value.replace(/^file:\/\//, '');
 const ensureFileUri = (value: string) => (value.startsWith('file://') ? value : `file://${value}`);
+
+const getBase64FromImageStore = async (uri: string): Promise<string> => {
+  const getBase64ForTag = ImageStoreManager?.getBase64ForTag?.bind(ImageStoreManager);
+
+  if (!getBase64ForTag) {
+    throw new Error('ImageStoreManager.getBase64ForTag unavailable');
+  }
+
+  return new Promise<string>((resolve, reject) => {
+    getBase64ForTag(
+      uri,
+      (base64: string) => resolve(base64),
+      (error: unknown) => {
+        const message =
+          typeof error === 'string'
+            ? error
+            : error && typeof error === 'object' && 'message' in error
+              ? String((error as any).message)
+              : 'Failed to read from ImageStore';
+        reject(new Error(message));
+      },
+    );
+  }).finally(() => {
+    ImageStoreManager?.removeImageForTag?.(uri);
+  });
+};
 
 const CROPPER_TIMEOUT_MS = 8000;
 const CROPPER_TIMEOUT_CODE = 'cropper_timeout';
@@ -587,17 +624,23 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       if (isImageRotateAvailable && ImageRotate?.rotateImage) {
         const sourceUri = ensureFileUri(croppedImageData.path);
         const rotatedUri = await rotateImageWithFallback(sourceUri, rotationNormalized);
-        let base64Result = croppedImageData.base64;
+
+        let finalPath = croppedImageData.path;
+        let base64Result: string | undefined = croppedImageData.base64;
 
         try {
-          base64Result = await RNFS.readFile(stripFileUri(rotatedUri), 'base64');
+          const base64FromStore = await getBase64FromImageStore(rotatedUri);
+          const destinationPath = `${RNFS.CachesDirectoryPath}/full-doc-scanner-rotated-${Date.now()}-${Math.floor(Math.random() * 10000)}.jpg`;
+
+          await RNFS.writeFile(destinationPath, base64FromStore, 'base64');
+          finalPath = destinationPath;
+          base64Result = base64FromStore;
         } catch (readError) {
-          console.warn('[FullDocScanner] Failed to generate base64 for rotated image:', readError);
-          base64Result = undefined;
+          console.warn('[FullDocScanner] Failed to persist rotated image from ImageStore:', readError);
         }
 
         onResult({
-          path: rotatedUri,
+          path: finalPath,
           base64: base64Result,
         });
         return;
