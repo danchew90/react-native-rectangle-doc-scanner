@@ -138,6 +138,7 @@ export interface FullDocScannerStrings {
   first?: string;
   second?: string;
   secondBtn?: string;
+  secondPrompt?: string;
 }
 
 export interface FullDocScannerProps {
@@ -182,15 +183,21 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [rotationDegrees, setRotationDegrees] = useState(0);
   const [capturedPhotos, setCapturedPhotos] = useState<FullDocScannerResult[]>([]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [previewPhotoIndex, setPreviewPhotoIndex] = useState(0);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
   const captureInProgressRef = useRef(false);
   const rectangleCaptureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rectangleHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentPhotoIndexRef = useRef(currentPhotoIndex);
 
   const isBusinessMode = type === 'business';
   const maxPhotos = isBusinessMode ? 2 : 1;
+
+  useEffect(() => {
+    currentPhotoIndexRef.current = currentPhotoIndex;
+  }, [currentPhotoIndex]);
 
   const mergedStrings = useMemo(
     () => ({
@@ -205,6 +212,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       first: strings?.first ?? 'Front',
       second: strings?.second ?? 'Back',
       secondBtn: strings?.secondBtn ?? 'Capture Back Side?',
+      secondPrompt: strings?.secondPrompt ?? strings?.secondBtn ?? 'Capture Back Side?',
     }),
     [strings],
   );
@@ -260,6 +268,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         });
 
         setProcessing(false);
+
+        setPreviewPhotoIndex(currentPhotoIndexRef.current);
 
         // Show confirmation screen
         setCroppedImageData({
@@ -322,6 +332,9 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         console.warn('[FullDocScanner] Missing capture mode for capture result, ignoring');
         return;
       }
+
+      const previewIndex = currentPhotoIndexRef.current;
+      setPreviewPhotoIndex(previewIndex);
 
       const normalizedDoc = normalizeCapturedDocument(document);
 
@@ -574,6 +587,21 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   const handleRetake = useCallback(() => {
     console.log('[FullDocScanner] Retake - clearing cropped image and resetting scanner');
+
+    if (isBusinessMode) {
+      if (currentPhotoIndex === 1 && previewPhotoIndex === 0 && capturedPhotos.length === 1) {
+        console.log('[FullDocScanner] Retake detected on front preview after confirmation - reverting to front capture');
+        setCapturedPhotos([]);
+        setCurrentPhotoIndex(0);
+        setPreviewPhotoIndex(0);
+      } else if (previewPhotoIndex === 1 && capturedPhotos.length === 2) {
+        console.log('[FullDocScanner] Retake detected on back preview after final confirmation - removing back photo');
+        setCapturedPhotos(capturedPhotos.slice(0, 1));
+        setCurrentPhotoIndex(1);
+        setPreviewPhotoIndex(1);
+      }
+    }
+
     setCroppedImageData(null);
     setRotationDegrees(0);
     setProcessing(false);
@@ -593,7 +621,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     if (docScannerRef.current?.reset) {
       docScannerRef.current.reset();
     }
-  }, []);
+  }, [capturedPhotos, currentPhotoIndex, isBusinessMode, previewPhotoIndex]);
 
   const handleRectangleDetect = useCallback((event: RectangleDetectEvent) => {
     const stableCounter = event.stableCounter ?? 0;
@@ -661,7 +689,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           {isBusinessMode && (
             <View style={styles.photoHeader}>
               <Text style={styles.photoHeaderText}>
-                {currentPhotoIndex === 0 ? mergedStrings.first : mergedStrings.second}
+                {previewPhotoIndex === 0 ? mergedStrings.first : mergedStrings.second}
               </Text>
             </View>
           )}
@@ -697,6 +725,13 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             ]}
             resizeMode="contain"
           />
+          {isBusinessMode &&
+            capturedPhotos.length === 1 &&
+            currentPhotoIndex === 1 &&
+            previewPhotoIndex === 0 &&
+            mergedStrings.secondPrompt ? (
+            <Text style={styles.confirmationPromptText}>{mergedStrings.secondPrompt}</Text>
+          ) : null}
           <View style={styles.confirmationButtons}>
             <TouchableOpacity
               style={[styles.confirmButton, styles.retakeButton]}
@@ -708,7 +743,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             </TouchableOpacity>
 
             {/* Business 모드이고 첫 번째 사진을 찍은 후: 뒷면 촬영 버튼 또는 확인 버튼 */}
-            {isBusinessMode && capturedPhotos.length === 1 && currentPhotoIndex === 1 ? (
+            {isBusinessMode &&
+              capturedPhotos.length === 1 &&
+              currentPhotoIndex === 1 &&
+              previewPhotoIndex === 0 ? (
               <>
                 <TouchableOpacity
                   style={[styles.confirmButton, styles.confirmButtonPrimary]}
@@ -1007,6 +1045,14 @@ const styles = StyleSheet.create({
   previewImage: {
     width: '100%',
     height: '80%',
+  },
+  confirmationPromptText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingHorizontal: 32,
+    marginTop: 24,
   },
   confirmationButtons: {
     flexDirection: 'row',
