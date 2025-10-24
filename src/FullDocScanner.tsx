@@ -64,9 +64,11 @@ try {
   );
 }
 
-const isExpoImageManipulatorAvailable = !!ImageManipulator?.manipulateAsync;
+let expoManipulatorUnavailable = false;
+const isExpoImageManipulatorAvailable = () =>
+  !!ImageManipulator?.manipulateAsync && !expoManipulatorUnavailable;
 const isImageRotateAvailable = !!ImageRotate?.rotateImage;
-const isImageRotationSupported = isExpoImageManipulatorAvailable || isImageRotateAvailable;
+const isImageRotationSupported = () => isExpoImageManipulatorAvailable() || isImageRotateAvailable;
 
 const stripFileUri = (value: string) => value.replace(/^file:\/\//, '');
 const ensureFileUri = (value: string) => (value.startsWith('file://') ? value : `file://${value}`);
@@ -555,7 +557,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   const handleRotateImage = useCallback(
     (degrees: -90 | 90) => {
-      if (!isImageRotationSupported) {
+      if (!isImageRotationSupported()) {
         console.warn(
           '[FullDocScanner] Image rotation requested but no rotation module is available.',
         );
@@ -602,23 +604,39 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         return;
       }
 
-      if (isExpoImageManipulatorAvailable && ImageManipulator?.manipulateAsync) {
-        // expo-image-manipulator로 이미지 회전
-        const result = await ImageManipulator.manipulateAsync(
-          croppedImageData.path,
-          [{ rotate: rotationNormalized }],
-          {
-            compress: 0.9,
-            format: ImageManipulator.SaveFormat.JPEG,
-            base64: true,
-          },
-        );
+      if (isExpoImageManipulatorAvailable() && ImageManipulator?.manipulateAsync) {
+        try {
+          // expo-image-manipulator로 이미지 회전
+          const result = await ImageManipulator.manipulateAsync(
+            croppedImageData.path,
+            [{ rotate: rotationNormalized }],
+            {
+              compress: 0.9,
+              format: ImageManipulator.SaveFormat.JPEG,
+              base64: true,
+            },
+          );
 
-        onResult({
-          path: result.uri,
-          base64: result.base64,
-        });
-        return;
+          onResult({
+            path: result.uri,
+            base64: result.base64,
+          });
+          return;
+        } catch (manipulatorError) {
+          const code =
+            manipulatorError && typeof manipulatorError === 'object' && 'code' in manipulatorError
+              ? String((manipulatorError as any).code)
+              : undefined;
+
+          if (code === 'ERR_UNAVAILABLE') {
+            expoManipulatorUnavailable = true;
+            console.warn(
+              '[FullDocScanner] expo-image-manipulator unavailable at runtime. Falling back to react-native-image-rotate if possible.',
+            );
+          } else {
+            throw manipulatorError;
+          }
+        }
       }
 
       if (isImageRotateAvailable && ImageRotate?.rotateImage) {
@@ -750,7 +768,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         // check_DP: Show confirmation screen
         <View style={styles.confirmationContainer}>
           {/* 회전 버튼들 - 가운데 정렬 */}
-          {isImageRotationSupported ? (
+          {isImageRotationSupported() ? (
             <View style={styles.rotateButtonsCenter}>
               <TouchableOpacity
                 style={styles.rotateButtonTop}
