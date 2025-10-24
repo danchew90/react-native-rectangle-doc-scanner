@@ -191,7 +191,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const rectangleHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isBusinessMode = type === 'business';
-  const maxPhotos = isBusinessMode ? 2 : 1;
 
   const mergedStrings = useMemo(
     () => ({
@@ -529,10 +528,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     };
 
     const updatedPhotos = [...capturedPhotos, currentPhoto];
-    console.log('[FullDocScanner] Photos captured:', updatedPhotos.length, 'of', maxPhotos);
+    console.log('[FullDocScanner] Photos captured:', updatedPhotos.length);
 
-    // 모든 사진 촬영 완료 - 결과 반환
-    console.log('[FullDocScanner] All photos captured, returning results');
+    // 결과 반환
+    console.log('[FullDocScanner] Returning results');
     onResult(updatedPhotos);
   }, [croppedImageData, rotationDegrees, capturedPhotos, onResult]);
 
@@ -575,23 +574,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     }
   }, [croppedImageData, rotationDegrees]);
 
-  const handleSkipSecondPhoto = useCallback(() => {
-    console.log('[FullDocScanner] Skipping second photo - saving current photo only');
-
-    if (!croppedImageData) {
-      return;
-    }
-
-    // 현재 사진만 저장하고 완료
-    const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
-    const currentPhoto: FullDocScannerResult = {
-      path: croppedImageData.path,
-      base64: croppedImageData.base64,
-      rotationDegrees: rotationNormalized,
-    };
-
-    onResult([currentPhoto]);
-  }, [croppedImageData, rotationDegrees, onResult]);
 
   const handleRetake = useCallback(() => {
     console.log('[FullDocScanner] Retake - clearing cropped image and resetting scanner');
@@ -722,6 +704,19 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               </TouchableOpacity>
             </View>
           ) : null}
+
+          {/* 뒷면 촬영 버튼 - 상단에 표시 (Business 모드이고 첫 번째 사진일 때만) */}
+          {isBusinessMode && capturedPhotos.length === 0 && (
+            <TouchableOpacity
+              style={styles.captureBackButton}
+              onPress={handleCaptureSecondPhoto}
+              accessibilityLabel={mergedStrings.secondBtn}
+              accessibilityRole="button"
+            >
+              <Text style={styles.captureBackButtonText}>{mergedStrings.secondBtn}</Text>
+            </TouchableOpacity>
+          )}
+
           <Image
             source={{ uri: croppedImageData.path }}
             style={[
@@ -740,36 +735,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               <Text style={styles.confirmButtonText}>{mergedStrings.retake}</Text>
             </TouchableOpacity>
 
-            {/* Business 모드이고 첫 번째 사진일 때: 뒷면 촬영 버튼과 확인 버튼 동시 표시 */}
-            {isBusinessMode && capturedPhotos.length === 0 ? (
-              <>
-                <TouchableOpacity
-                  style={[styles.confirmButton, styles.confirmButtonPrimary]}
-                  onPress={handleCaptureSecondPhoto}
-                  accessibilityLabel={mergedStrings.secondBtn}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.confirmButtonText}>{mergedStrings.secondBtn}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.confirmButton, styles.skipButton]}
-                  onPress={handleSkipSecondPhoto}
-                  accessibilityLabel={mergedStrings.confirm}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.confirmButtonText}>{mergedStrings.confirm}</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <TouchableOpacity
-                style={[styles.confirmButton, styles.confirmButtonPrimary]}
-                onPress={handleConfirm}
-                accessibilityLabel={mergedStrings.confirm}
-                accessibilityRole="button"
-              >
-                <Text style={styles.confirmButtonText}>{mergedStrings.confirm}</Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              style={[styles.confirmButton, styles.confirmButtonPrimary]}
+              onPress={handleConfirm}
+              accessibilityLabel={mergedStrings.confirm}
+              accessibilityRole="button"
+            >
+              <Text style={styles.confirmButtonText}>{mergedStrings.confirm}</Text>
+            </TouchableOpacity>
           </View>
         </View>
       ) : (
@@ -1111,5 +1084,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 6,
     borderRadius: 16,
+  },
+  captureBackButton: {
+    position: 'absolute',
+    bottom: 140,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 15,
+  },
+  captureBackButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    // backgroundColor: 'rgba(255,100,50,0.9)',
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: '#fff',
+    overflow: 'hidden',
   },
 });
