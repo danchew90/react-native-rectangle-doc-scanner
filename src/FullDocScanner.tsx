@@ -37,10 +37,10 @@ try {
 let expoManipulatorUnavailable = false;
 const isExpoImageManipulatorAvailable = () =>
   !!ImageManipulator?.manipulateAsync && !expoManipulatorUnavailable;
-const isImageRotationSupported = () => isExpoImageManipulatorAvailable();
+// 회전은 항상 지원됨 (회전 각도를 반환하고 tdb 앱에서 처리)
+const isImageRotationSupported = () => true;
 
 const stripFileUri = (value: string) => value.replace(/^file:\/\//, '');
-const ensureFileUri = (value: string) => (value.startsWith('file://') ? value : `file://${value}`);
 
 const CROPPER_TIMEOUT_MS = 8000;
 const CROPPER_TIMEOUT_CODE = 'cropper_timeout';
@@ -122,6 +122,8 @@ export interface FullDocScannerResult {
   base64?: string;
   /** Original captured document info */
   original?: CapturedDocument;
+  /** Rotation angle applied by user (0, 90, 180, 270) */
+  rotationDegrees?: number;
 }
 
 export interface FullDocScannerStrings {
@@ -500,117 +502,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       return;
     }
 
-    // 회전이 없으면 기존 데이터 그대로 전달
-    if (rotationDegrees === 0) {
-      console.log('[FullDocScanner] No rotation, returning original image');
-      onResult({
-        path: croppedImageData.path,
-        base64: croppedImageData.base64,
-      });
-      return;
-    }
+    // 회전 각도 정규화 (0, 90, 180, 270)
+    const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
+    console.log('[FullDocScanner] Confirm - rotation degrees:', rotationDegrees, 'normalized:', rotationNormalized);
 
-    try {
-      setProcessing(true);
-
-      // 회전 각도 정규화 (0, 90, 180, 270)
-      const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
-      console.log('[FullDocScanner] Rotation degrees:', rotationDegrees, 'normalized:', rotationNormalized);
-
-      if (rotationNormalized === 0) {
-        console.log('[FullDocScanner] Normalized to 0, returning original image');
-        onResult({
-          path: croppedImageData.path,
-          base64: croppedImageData.base64,
-        });
-        setProcessing(false);
-        return;
-      }
-
-      // expo-image-manipulator 시도
-      if (isExpoImageManipulatorAvailable() && ImageManipulator?.manipulateAsync) {
-        try {
-          console.log('[FullDocScanner] Using expo-image-manipulator for rotation');
-          const inputUri = ensureFileUri(croppedImageData.path);
-
-          const result = await ImageManipulator.manipulateAsync(
-            inputUri,
-            [{ rotate: rotationNormalized }],
-            {
-              compress: 0.9,
-              format: ImageManipulator.SaveFormat.JPEG,
-              base64: true,
-            },
-          );
-
-          console.log('[FullDocScanner] Rotation complete via expo-image-manipulator:', {
-            path: result.uri,
-            hasBase64: !!result.base64,
-          });
-
-          onResult({
-            path: stripFileUri(result.uri),
-            base64: result.base64,
-          });
-          setProcessing(false);
-          return;
-        } catch (manipulatorError) {
-          const code =
-            manipulatorError && typeof manipulatorError === 'object' && 'code' in manipulatorError
-              ? String((manipulatorError as any).code)
-              : undefined;
-
-          console.error('[FullDocScanner] expo-image-manipulator error:', manipulatorError);
-
-          if (code === 'ERR_UNAVAILABLE') {
-            expoManipulatorUnavailable = true;
-            console.warn(
-              '[FullDocScanner] expo-image-manipulator unavailable at runtime. Trying react-native-image-rotate.',
-            );
-          } else {
-            throw manipulatorError;
-          }
-        }
-      }
-
-      // expo-image-manipulator를 사용할 수 없는 경우 에러 처리
-      console.error(
-        '[FullDocScanner] Rotation requested but expo-image-manipulator is not available.',
-      );
-      setProcessing(false);
-      Alert.alert(
-        '회전 불가',
-        'expo-image-manipulator가 설치되지 않아 이미지 회전을 수행할 수 없습니다.\n\n패키지를 설치해주세요:\nnpm install expo-image-manipulator',
-        [
-          {
-            text: '원본 사용',
-            onPress: () => {
-              onResult({
-                path: croppedImageData.path,
-                base64: croppedImageData.base64,
-              });
-            },
-          },
-          {
-            text: '취소',
-            style: 'cancel',
-          },
-        ],
-      );
-    } catch (error) {
-      console.error('[FullDocScanner] Image rotation error on confirm:', error);
-      setProcessing(false);
-
-      const errorMessage =
-        error && typeof error === 'object' && 'message' in error ? (error as Error).message : String(error);
-      Alert.alert('회전 실패', `이미지 회전 중 오류가 발생했습니다.\n원본 이미지를 사용합니다.\n\n오류: ${errorMessage}`);
-
-      // 에러 발생 시 원본 이미지 반환
-      onResult({
-        path: croppedImageData.path,
-        base64: croppedImageData.base64,
-      });
-    }
+    // 원본 이미지와 회전 각도를 함께 반환
+    // tdb 앱에서 expo-image-manipulator를 사용해서 회전 처리
+    onResult({
+      path: croppedImageData.path,
+      base64: croppedImageData.base64,
+      rotationDegrees: rotationNormalized,
+    });
   }, [croppedImageData, rotationDegrees, onResult]);
 
   const handleRetake = useCallback(() => {
