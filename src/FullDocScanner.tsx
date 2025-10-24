@@ -183,21 +183,15 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [rotationDegrees, setRotationDegrees] = useState(0);
   const [capturedPhotos, setCapturedPhotos] = useState<FullDocScannerResult[]>([]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
-  const [previewPhotoIndex, setPreviewPhotoIndex] = useState(0);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
   const captureInProgressRef = useRef(false);
   const rectangleCaptureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rectangleHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const currentPhotoIndexRef = useRef(currentPhotoIndex);
 
   const isBusinessMode = type === 'business';
   const maxPhotos = isBusinessMode ? 2 : 1;
-
-  useEffect(() => {
-    currentPhotoIndexRef.current = currentPhotoIndex;
-  }, [currentPhotoIndex]);
 
   const mergedStrings = useMemo(
     () => ({
@@ -269,8 +263,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
         setProcessing(false);
 
-        setPreviewPhotoIndex(currentPhotoIndexRef.current);
-
         // Show confirmation screen
         setCroppedImageData({
           path: croppedImage.path,
@@ -332,9 +324,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         console.warn('[FullDocScanner] Missing capture mode for capture result, ignoring');
         return;
       }
-
-      const previewIndex = currentPhotoIndexRef.current;
-      setPreviewPhotoIndex(previewIndex);
 
       const normalizedDoc = normalizeCapturedDocument(document);
 
@@ -542,22 +531,29 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     const updatedPhotos = [...capturedPhotos, currentPhoto];
     console.log('[FullDocScanner] Photos captured:', updatedPhotos.length, 'of', maxPhotos);
 
-    // Business 모드이고 아직 첫 번째 사진만 찍은 경우
-    if (isBusinessMode && updatedPhotos.length === 1) {
-      // 두 번째 사진 촬영 여부를 물어봄 (UI에서 버튼으로 표시)
-      setCapturedPhotos(updatedPhotos);
-      setCurrentPhotoIndex(1);
-      // 확인 화면을 유지하고 "뒷면 촬영" 버튼을 표시
-      return;
-    }
-
     // 모든 사진 촬영 완료 - 결과 반환
     console.log('[FullDocScanner] All photos captured, returning results');
     onResult(updatedPhotos);
-  }, [croppedImageData, rotationDegrees, capturedPhotos, isBusinessMode, maxPhotos, onResult]);
+  }, [croppedImageData, rotationDegrees, capturedPhotos, onResult]);
 
   const handleCaptureSecondPhoto = useCallback(() => {
     console.log('[FullDocScanner] Capturing second photo');
+
+    if (!croppedImageData) {
+      return;
+    }
+
+    // 현재 사진(앞면)을 먼저 저장
+    const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
+    const currentPhoto: FullDocScannerResult = {
+      path: croppedImageData.path,
+      base64: croppedImageData.base64,
+      rotationDegrees: rotationNormalized,
+    };
+
+    setCapturedPhotos([currentPhoto]);
+    setCurrentPhotoIndex(1);
+
     // 확인 화면을 닫고 카메라로 돌아감
     setCroppedImageData(null);
     setRotationDegrees(0);
@@ -577,29 +573,38 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     if (docScannerRef.current?.reset) {
       docScannerRef.current.reset();
     }
-  }, []);
+  }, [croppedImageData, rotationDegrees]);
 
   const handleSkipSecondPhoto = useCallback(() => {
-    console.log('[FullDocScanner] Skipping second photo');
-    // 첫 번째 사진만 반환
-    onResult(capturedPhotos);
-  }, [capturedPhotos, onResult]);
+    console.log('[FullDocScanner] Skipping second photo - saving current photo only');
+
+    if (!croppedImageData) {
+      return;
+    }
+
+    // 현재 사진만 저장하고 완료
+    const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
+    const currentPhoto: FullDocScannerResult = {
+      path: croppedImageData.path,
+      base64: croppedImageData.base64,
+      rotationDegrees: rotationNormalized,
+    };
+
+    onResult([currentPhoto]);
+  }, [croppedImageData, rotationDegrees, onResult]);
 
   const handleRetake = useCallback(() => {
     console.log('[FullDocScanner] Retake - clearing cropped image and resetting scanner');
 
-    if (isBusinessMode) {
-      if (currentPhotoIndex === 1 && previewPhotoIndex === 0 && capturedPhotos.length === 1) {
-        console.log('[FullDocScanner] Retake detected on front preview after confirmation - reverting to front capture');
-        setCapturedPhotos([]);
-        setCurrentPhotoIndex(0);
-        setPreviewPhotoIndex(0);
-      } else if (previewPhotoIndex === 1 && capturedPhotos.length === 2) {
-        console.log('[FullDocScanner] Retake detected on back preview after final confirmation - removing back photo');
-        setCapturedPhotos(capturedPhotos.slice(0, 1));
-        setCurrentPhotoIndex(1);
-        setPreviewPhotoIndex(1);
-      }
+    // Business 모드에서 두 번째 사진을 다시 찍는 경우, 첫 번째 사진 유지
+    if (isBusinessMode && capturedPhotos.length === 1) {
+      console.log('[FullDocScanner] Retake detected on back photo - keeping front photo');
+      setCurrentPhotoIndex(1);
+    } else {
+      // 첫 번째 사진 또는 일반 모드: 모든 상태 초기화
+      console.log('[FullDocScanner] Retake detected - resetting all photos');
+      setCapturedPhotos([]);
+      setCurrentPhotoIndex(0);
     }
 
     setCroppedImageData(null);
@@ -621,7 +626,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     if (docScannerRef.current?.reset) {
       docScannerRef.current.reset();
     }
-  }, [capturedPhotos, currentPhotoIndex, isBusinessMode, previewPhotoIndex]);
+  }, [capturedPhotos.length, isBusinessMode]);
 
   const handleRectangleDetect = useCallback((event: RectangleDetectEvent) => {
     const stableCounter = event.stableCounter ?? 0;
@@ -689,7 +694,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           {isBusinessMode && (
             <View style={styles.photoHeader}>
               <Text style={styles.photoHeaderText}>
-                {previewPhotoIndex === 0 ? mergedStrings.first : mergedStrings.second}
+                {currentPhotoIndex === 0 ? mergedStrings.first : mergedStrings.second}
               </Text>
             </View>
           )}
@@ -725,13 +730,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             ]}
             resizeMode="contain"
           />
-          {isBusinessMode &&
-            capturedPhotos.length === 1 &&
-            currentPhotoIndex === 1 &&
-            previewPhotoIndex === 0 &&
-            mergedStrings.secondPrompt ? (
-            <Text style={styles.confirmationPromptText}>{mergedStrings.secondPrompt}</Text>
-          ) : null}
           <View style={styles.confirmationButtons}>
             <TouchableOpacity
               style={[styles.confirmButton, styles.retakeButton]}
@@ -742,11 +740,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               <Text style={styles.confirmButtonText}>{mergedStrings.retake}</Text>
             </TouchableOpacity>
 
-            {/* Business 모드이고 첫 번째 사진을 찍은 후: 뒷면 촬영 버튼 또는 확인 버튼 */}
-            {isBusinessMode &&
-              capturedPhotos.length === 1 &&
-              currentPhotoIndex === 1 &&
-              previewPhotoIndex === 0 ? (
+            {/* Business 모드이고 첫 번째 사진일 때: 뒷면 촬영 버튼과 확인 버튼 동시 표시 */}
+            {isBusinessMode && capturedPhotos.length === 0 ? (
               <>
                 <TouchableOpacity
                   style={[styles.confirmButton, styles.confirmButtonPrimary]}
