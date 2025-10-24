@@ -135,10 +135,13 @@ export interface FullDocScannerStrings {
   retake?: string;
   confirm?: string;
   cropTitle?: string;
+  first?: string;
+  second?: string;
+  secondBtn?: string;
 }
 
 export interface FullDocScannerProps {
-  onResult: (result: FullDocScannerResult) => void;
+  onResult: (results: FullDocScannerResult[]) => void;
   onClose?: () => void;
   detectionConfig?: DetectionConfig;
   overlayColor?: string;
@@ -151,6 +154,7 @@ export interface FullDocScannerProps {
   enableGallery?: boolean;
   cropWidth?: number;
   cropHeight?: number;
+  type?: 'business';
 }
 
 export const FullDocScanner: React.FC<FullDocScannerProps> = ({
@@ -167,6 +171,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   enableGallery = true,
   cropWidth = 1200,
   cropHeight = 1600,
+  type,
 }) => {
   const [processing, setProcessing] = useState(false);
   const [croppedImageData, setCroppedImageData] = useState<{path: string; base64?: string} | null>(null);
@@ -175,12 +180,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [rectangleHint, setRectangleHint] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [rotationDegrees, setRotationDegrees] = useState(0);
+  const [capturedPhotos, setCapturedPhotos] = useState<FullDocScannerResult[]>([]);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
   const captureInProgressRef = useRef(false);
   const rectangleCaptureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rectangleHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isBusinessMode = type === 'business';
+  const maxPhotos = isBusinessMode ? 2 : 1;
 
   const mergedStrings = useMemo(
     () => ({
@@ -192,6 +202,9 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       retake: strings?.retake ?? 'Retake',
       confirm: strings?.confirm ?? 'Confirm',
       cropTitle: strings?.cropTitle ?? 'Crop Document',
+      first: strings?.first ?? 'Front',
+      second: strings?.second ?? 'Back',
+      secondBtn: strings?.secondBtn ?? 'Capture Back Side?',
     }),
     [strings],
   );
@@ -506,14 +519,58 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
     console.log('[FullDocScanner] Confirm - rotation degrees:', rotationDegrees, 'normalized:', rotationNormalized);
 
-    // 원본 이미지와 회전 각도를 함께 반환
-    // tdb 앱에서 expo-image-manipulator를 사용해서 회전 처리
-    onResult({
+    // 현재 사진을 capturedPhotos에 추가
+    const currentPhoto: FullDocScannerResult = {
       path: croppedImageData.path,
       base64: croppedImageData.base64,
       rotationDegrees: rotationNormalized,
-    });
-  }, [croppedImageData, rotationDegrees, onResult]);
+    };
+
+    const updatedPhotos = [...capturedPhotos, currentPhoto];
+    console.log('[FullDocScanner] Photos captured:', updatedPhotos.length, 'of', maxPhotos);
+
+    // Business 모드이고 아직 첫 번째 사진만 찍은 경우
+    if (isBusinessMode && updatedPhotos.length === 1) {
+      // 두 번째 사진 촬영 여부를 물어봄 (UI에서 버튼으로 표시)
+      setCapturedPhotos(updatedPhotos);
+      setCurrentPhotoIndex(1);
+      // 확인 화면을 유지하고 "뒷면 촬영" 버튼을 표시
+      return;
+    }
+
+    // 모든 사진 촬영 완료 - 결과 반환
+    console.log('[FullDocScanner] All photos captured, returning results');
+    onResult(updatedPhotos);
+  }, [croppedImageData, rotationDegrees, capturedPhotos, isBusinessMode, maxPhotos, onResult]);
+
+  const handleCaptureSecondPhoto = useCallback(() => {
+    console.log('[FullDocScanner] Capturing second photo');
+    // 확인 화면을 닫고 카메라로 돌아감
+    setCroppedImageData(null);
+    setRotationDegrees(0);
+    setProcessing(false);
+    setRectangleDetected(false);
+    setRectangleHint(false);
+    captureModeRef.current = null;
+    captureInProgressRef.current = false;
+    if (rectangleCaptureTimeoutRef.current) {
+      clearTimeout(rectangleCaptureTimeoutRef.current);
+      rectangleCaptureTimeoutRef.current = null;
+    }
+    if (rectangleHintTimeoutRef.current) {
+      clearTimeout(rectangleHintTimeoutRef.current);
+      rectangleHintTimeoutRef.current = null;
+    }
+    if (docScannerRef.current?.reset) {
+      docScannerRef.current.reset();
+    }
+  }, []);
+
+  const handleSkipSecondPhoto = useCallback(() => {
+    console.log('[FullDocScanner] Skipping second photo');
+    // 첫 번째 사진만 반환
+    onResult(capturedPhotos);
+  }, [capturedPhotos, onResult]);
 
   const handleRetake = useCallback(() => {
     console.log('[FullDocScanner] Retake - clearing cropped image and resetting scanner');
@@ -600,6 +657,15 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       {croppedImageData ? (
         // check_DP: Show confirmation screen
         <View style={styles.confirmationContainer}>
+          {/* 헤더 - 앞면/뒷면 표시 */}
+          {isBusinessMode && (
+            <View style={styles.photoHeader}>
+              <Text style={styles.photoHeaderText}>
+                {currentPhotoIndex === 0 ? mergedStrings.first : mergedStrings.second}
+              </Text>
+            </View>
+          )}
+
           {/* 회전 버튼들 - 가운데 정렬 */}
           {isImageRotationSupported() ? (
             <View style={styles.rotateButtonsCenter}>
@@ -640,14 +706,37 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             >
               <Text style={styles.confirmButtonText}>{mergedStrings.retake}</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.confirmButton, styles.confirmButtonPrimary]}
-              onPress={handleConfirm}
-              accessibilityLabel={mergedStrings.confirm}
-              accessibilityRole="button"
-            >
-              <Text style={styles.confirmButtonText}>{mergedStrings.confirm}</Text>
-            </TouchableOpacity>
+
+            {/* Business 모드이고 첫 번째 사진을 찍은 후: 뒷면 촬영 버튼 또는 확인 버튼 */}
+            {isBusinessMode && capturedPhotos.length === 1 && currentPhotoIndex === 1 ? (
+              <>
+                <TouchableOpacity
+                  style={[styles.confirmButton, styles.confirmButtonPrimary]}
+                  onPress={handleCaptureSecondPhoto}
+                  accessibilityLabel={mergedStrings.secondBtn}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.confirmButtonText}>{mergedStrings.secondBtn}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.confirmButton, styles.skipButton]}
+                  onPress={handleSkipSecondPhoto}
+                  accessibilityLabel={mergedStrings.confirm}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.confirmButtonText}>{mergedStrings.confirm}</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity
+                style={[styles.confirmButton, styles.confirmButtonPrimary]}
+                onPress={handleConfirm}
+                accessibilityLabel={mergedStrings.confirm}
+                accessibilityRole="button"
+              >
+                <Text style={styles.confirmButtonText}>{mergedStrings.confirm}</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       ) : (
@@ -667,6 +756,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             enableTorch={flashEnabled}
           >
           <View style={styles.overlayTop} pointerEvents="box-none">
+            {/* 좌측: 플래시 버튼 */}
             <TouchableOpacity
               style={[
                 styles.iconButton,
@@ -682,6 +772,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
                 <Text style={styles.iconText}>⚡️</Text>
               </View>
             </TouchableOpacity>
+
+            {/* 중앙: 앞면/뒷면 헤더 */}
+            {isBusinessMode && (
+              <View style={styles.cameraHeaderContainer}>
+                <Text style={styles.cameraHeaderText}>
+                  {currentPhotoIndex === 0 ? mergedStrings.first : mergedStrings.second}
+                </Text>
+              </View>
+            )}
+
+            {/* 우측: 닫기 버튼 */}
             <TouchableOpacity
               style={styles.iconButton}
               onPress={handleClose}
@@ -930,9 +1031,44 @@ const styles = StyleSheet.create({
   confirmButtonPrimary: {
     backgroundColor: '#3170f3',
   },
+  skipButton: {
+    backgroundColor: 'rgba(100,100,100,0.8)',
+  },
   confirmButtonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
+  },
+  photoHeader: {
+    position: 'absolute',
+    top: 20,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  photoHeaderText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  cameraHeaderContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  cameraHeaderText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 20,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
 });
