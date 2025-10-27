@@ -268,7 +268,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           base64: croppedImage.data ?? undefined,
         });
       } catch (error) {
-        console.error('[FullDocScanner] openCropper error:', error);
         setProcessing(false);
 
         // Reset capture state when cropper fails or is cancelled
@@ -281,7 +280,20 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         }
 
         const errorCode = (error as any)?.code;
-        const errorMessage = (error as any)?.message || String(error);
+        const errorMessageRaw = (error as any)?.message ?? String(error);
+        const errorMessage = typeof errorMessageRaw === 'string' ? errorMessageRaw : String(errorMessageRaw);
+        const normalizedMessage = errorMessage.toLowerCase();
+        const isUserCancelled =
+          errorCode === 'E_PICKER_CANCELLED' ||
+          normalizedMessage === 'user cancelled image selection' ||
+          normalizedMessage.includes('cancel');
+
+        if (isUserCancelled) {
+          console.log('[FullDocScanner] User cancelled cropper');
+          return;
+        }
+
+        console.error('[FullDocScanner] openCropper error:', error);
 
         if (errorCode === CROPPER_TIMEOUT_CODE || errorMessage === CROPPER_TIMEOUT_CODE) {
           console.error('[FullDocScanner] Cropper timed out waiting for presentation');
@@ -289,17 +301,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             error instanceof Error ? error : new Error('Cropper timed out'),
             'Failed to open crop editor. Please try again.',
           );
-        } else if (
-          errorCode === 'E_PICKER_CANCELLED' ||
-          errorMessage === 'User cancelled image selection' ||
-          errorMessage.includes('cancelled') ||
-          errorMessage.includes('cancel')
-        ) {
-          console.log('[FullDocScanner] User cancelled cropper');
-          // DocScanner 상태를 리셋하여 카메라가 다시 작동하도록 함
-          if (docScannerRef.current?.reset) {
-            docScannerRef.current.reset();
-          }
         } else {
           emitError(
             error instanceof Error ? error : new Error(errorMessage),
