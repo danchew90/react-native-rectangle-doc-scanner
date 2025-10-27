@@ -28,6 +28,7 @@ type PictureEvent = {
   width?: number;
   height?: number;
   rectangleCoordinates?: NativeRectangle | null;
+  rectangleOnScreen?: NativeRectangle | null;
 };
 
 export type RectangleDetectEvent = Omit<RectangleEventPayload, 'rectangleCoordinates' | 'rectangleOnScreen'> & {
@@ -195,7 +196,9 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
         setIsAutoCapturing(false);
 
         const normalizedRectangle =
-          normalizeRectangle(event.rectangleCoordinates ?? null) ?? lastRectangleRef.current;
+          normalizeRectangle(event.rectangleCoordinates ?? null) ??
+          normalizeRectangle(event.rectangleOnScreen ?? null) ??
+          lastRectangleRef.current;
         const quad = normalizedRectangle ? rectangleToQuad(normalizedRectangle) : null;
         const origin = captureOriginRef.current;
         captureOriginRef.current = 'auto';
@@ -390,8 +393,8 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
           }
         }
 
-        if (payload.rectangleCoordinates) {
-          lastRectangleRef.current = payload.rectangleCoordinates;
+        if (payload.rectangleCoordinates || payload.rectangleOnScreen) {
+          lastRectangleRef.current = payload.rectangleCoordinates ?? payload.rectangleOnScreen ?? null;
         }
 
         const isGoodRectangle = payload.lastDetectionType === 0;
@@ -432,6 +435,15 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
             captureResolvers.current.reject(new Error('reset'));
             captureResolvers.current = null;
           }
+
+          if (rectangleClearTimeoutRef.current) {
+            clearTimeout(rectangleClearTimeoutRef.current);
+            rectangleClearTimeoutRef.current = null;
+          }
+
+          lastRectangleRef.current = null;
+          setDetectedRectangle(null);
+          setIsAutoCapturing(false);
           captureOriginRef.current = 'auto';
         },
       }),
