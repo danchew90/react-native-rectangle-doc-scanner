@@ -834,32 +834,34 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             />
           ) : null}
           {croppedImageData.enhanced ? (
-            <TouchableOpacity
-              style={[
-                styles.originalToggleButton,
-                croppedImageData.useOriginal
-                  ? styles.originalToggleButtonActive
-                  : styles.originalToggleButtonInactive,
-              ]}
-              onPress={() =>
-                setCroppedImageData((prev) =>
-                  prev ? { ...prev, useOriginal: !prev.useOriginal } : prev,
-                )
-              }
-              accessibilityRole="button"
-              accessibilityLabel={mergedStrings.originalBtn}
-            >
-              <Text
+            <View style={styles.originalToggleContainer}>
+              <TouchableOpacity
                 style={[
-                  styles.originalToggleButtonText,
+                  styles.originalToggleButton,
                   croppedImageData.useOriginal
-                    ? styles.originalToggleButtonTextActive
-                    : styles.originalToggleButtonTextInactive,
+                    ? styles.originalToggleButtonActive
+                    : styles.originalToggleButtonInactive,
                 ]}
+                onPress={() =>
+                  setCroppedImageData((prev) =>
+                    prev ? { ...prev, useOriginal: !prev.useOriginal } : prev,
+                  )
+                }
+                accessibilityRole="button"
+                accessibilityLabel={mergedStrings.originalBtn}
               >
-                {mergedStrings.originalBtn}
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    styles.originalToggleButtonText,
+                    croppedImageData.useOriginal
+                      ? styles.originalToggleButtonTextActive
+                      : styles.originalToggleButtonTextInactive,
+                  ]}
+                >
+                  {mergedStrings.originalBtn}
+                </Text>
+              </TouchableOpacity>
+            </View>
           ) : null}
           <View style={styles.confirmationButtons}>
             <TouchableOpacity
@@ -1168,12 +1170,15 @@ const styles = StyleSheet.create({
   },
   originalToggleButton: {
     alignSelf: 'center',
-    marginTop: 12,
-    marginBottom: 4,
     paddingVertical: 10,
     paddingHorizontal: 28,
     borderRadius: 999,
     borderWidth: 1,
+  },
+  originalToggleContainer: {
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 20,
   },
   originalToggleButtonActive: {
     backgroundColor: '#3170f3',
