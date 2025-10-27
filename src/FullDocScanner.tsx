@@ -183,6 +183,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [rotationDegrees, setRotationDegrees] = useState(0);
   const [capturedPhotos, setCapturedPhotos] = useState<FullDocScannerResult[]>([]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [scannerSession, setScannerSession] = useState(0);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
@@ -191,6 +192,37 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const rectangleHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isBusinessMode = type === 'business';
+
+  const resetScannerView = useCallback(
+    (options?: { remount?: boolean }) => {
+      setProcessing(false);
+      setCroppedImageData(null);
+      setRotationDegrees(0);
+      setRectangleDetected(false);
+      setRectangleHint(false);
+      captureModeRef.current = null;
+      captureInProgressRef.current = false;
+
+      if (rectangleCaptureTimeoutRef.current) {
+        clearTimeout(rectangleCaptureTimeoutRef.current);
+        rectangleCaptureTimeoutRef.current = null;
+      }
+
+      if (rectangleHintTimeoutRef.current) {
+        clearTimeout(rectangleHintTimeoutRef.current);
+        rectangleHintTimeoutRef.current = null;
+      }
+
+      if (docScannerRef.current?.reset) {
+        docScannerRef.current.reset();
+      }
+
+      if (options?.remount) {
+        setScannerSession((prev) => prev + 1);
+      }
+    },
+    [],
+  );
 
   const mergedStrings = useMemo(
     () => ({
@@ -268,20 +300,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           base64: croppedImage.data ?? undefined,
         });
       } catch (error) {
-        setProcessing(false);
-
-        // Reset capture state when cropper fails or is cancelled
-        captureInProgressRef.current = false;
-        captureModeRef.current = null;
-        setRectangleDetected(false);
-        setRectangleHint(false);
-        if (docScannerRef.current?.reset) {
-          docScannerRef.current.reset();
-        }
+        resetScannerView({ remount: true });
 
         const errorCode = (error as any)?.code;
         const errorMessageRaw = (error as any)?.message ?? String(error);
-        const errorMessage = typeof errorMessageRaw === 'string' ? errorMessageRaw : String(errorMessageRaw);
+        const errorMessage =
+          typeof errorMessageRaw === 'string' ? errorMessageRaw : String(errorMessageRaw);
         const normalizedMessage = errorMessage.toLowerCase();
         const isUserCancelled =
           errorCode === 'E_PICKER_CANCELLED' ||
@@ -309,7 +333,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         }
       }
     },
-    [cropWidth, cropHeight, emitError],
+    [cropWidth, cropHeight, emitError, resetScannerView],
   );
 
   const handleCapture = useCallback(
@@ -564,25 +588,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setCurrentPhotoIndex(1);
 
     // 확인 화면을 닫고 카메라로 돌아감
-    setCroppedImageData(null);
-    setRotationDegrees(0);
-    setProcessing(false);
-    setRectangleDetected(false);
-    setRectangleHint(false);
-    captureModeRef.current = null;
-    captureInProgressRef.current = false;
-    if (rectangleCaptureTimeoutRef.current) {
-      clearTimeout(rectangleCaptureTimeoutRef.current);
-      rectangleCaptureTimeoutRef.current = null;
-    }
-    if (rectangleHintTimeoutRef.current) {
-      clearTimeout(rectangleHintTimeoutRef.current);
-      rectangleHintTimeoutRef.current = null;
-    }
-    if (docScannerRef.current?.reset) {
-      docScannerRef.current.reset();
-    }
-  }, [croppedImageData, rotationDegrees]);
+    resetScannerView({ remount: true });
+  }, [croppedImageData, resetScannerView, rotationDegrees]);
 
 
   const handleRetake = useCallback(() => {
@@ -599,26 +606,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       setCurrentPhotoIndex(0);
     }
 
-    setCroppedImageData(null);
-    setRotationDegrees(0);
-    setProcessing(false);
-    setRectangleDetected(false);
-    setRectangleHint(false);
-    captureModeRef.current = null;
-    captureInProgressRef.current = false;
-    if (rectangleCaptureTimeoutRef.current) {
-      clearTimeout(rectangleCaptureTimeoutRef.current);
-      rectangleCaptureTimeoutRef.current = null;
-    }
-    if (rectangleHintTimeoutRef.current) {
-      clearTimeout(rectangleHintTimeoutRef.current);
-      rectangleHintTimeoutRef.current = null;
-    }
-    // Reset DocScanner state
-    if (docScannerRef.current?.reset) {
-      docScannerRef.current.reset();
-    }
-  }, [capturedPhotos.length, isBusinessMode]);
+    resetScannerView({ remount: true });
+  }, [capturedPhotos.length, isBusinessMode, resetScannerView]);
 
   const handleRectangleDetect = useCallback((event: RectangleDetectEvent) => {
     const stableCounter = event.stableCounter ?? 0;
@@ -781,6 +770,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       ) : (
         <View style={styles.flex}>
           <DocScanner
+            key={scannerSession}
             ref={docScannerRef}
             autoCapture={false}
             overlayColor={overlayColor}
