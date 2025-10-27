@@ -274,6 +274,11 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         // Reset capture state when cropper fails or is cancelled
         captureInProgressRef.current = false;
         captureModeRef.current = null;
+        setRectangleDetected(false);
+        setRectangleHint(false);
+        if (docScannerRef.current?.reset) {
+          docScannerRef.current.reset();
+        }
 
         const errorCode = (error as any)?.code;
         const errorMessage = (error as any)?.message || String(error);
