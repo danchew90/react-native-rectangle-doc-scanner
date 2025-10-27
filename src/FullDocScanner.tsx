@@ -96,9 +96,9 @@ type PreviewImageData = {
 };
 
 const AUTO_ENHANCE_PARAMS = {
-  brightness: 0.08,
-  contrast: 1.05,
-  saturation: 0.92,
+  brightness: 0.18,
+  contrast: 1.12,
+  saturation: 0.78,
 };
 
 const normalizeCapturedDocument = (document: DocScannerCapture): CapturedDocument => {
@@ -811,6 +811,35 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             </View>
           ) : null}
 
+          {croppedImageData.enhanced ? (
+            <TouchableOpacity
+              style={[
+                styles.originalToggleButton,
+                croppedImageData.useOriginal
+                  ? styles.originalToggleButtonActive
+                  : styles.originalToggleButtonInactive,
+              ]}
+              onPress={() =>
+                setCroppedImageData((prev) =>
+                  prev ? { ...prev, useOriginal: !prev.useOriginal } : prev,
+                )
+              }
+              accessibilityRole="button"
+              accessibilityLabel={mergedStrings.originalBtn}
+            >
+              <Text
+                style={[
+                  styles.originalToggleButtonText,
+                  croppedImageData.useOriginal
+                    ? styles.originalToggleButtonTextActive
+                    : styles.originalToggleButtonTextInactive,
+                ]}
+              >
+                {mergedStrings.originalBtn}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+
           {/* 뒷면 촬영 버튼 - 상단에 표시 (Business 모드이고 첫 번째 사진일 때만) */}
           {isBusinessMode && capturedPhotos.length === 0 && (
             <TouchableOpacity
@@ -832,30 +861,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               ]}
               resizeMode="contain"
             />
-          ) : null}
-          {croppedImageData.enhanced ? (
-            <TouchableOpacity
-              style={[
-                styles.originalToggleButton,
-                croppedImageData.useOriginal && styles.originalToggleButtonActive,
-              ]}
-              onPress={() =>
-                setCroppedImageData((prev) =>
-                  prev ? { ...prev, useOriginal: !prev.useOriginal } : prev,
-                )
-              }
-              accessibilityRole="button"
-              accessibilityLabel={mergedStrings.originalBtn}
-            >
-              <Text
-                style={[
-                  styles.originalToggleButtonText,
-                  croppedImageData.useOriginal && styles.originalToggleButtonTextActive,
-                ]}
-              >
-                {mergedStrings.originalBtn}
-              </Text>
-            </TouchableOpacity>
           ) : null}
           <View style={styles.confirmationButtons}>
             <TouchableOpacity
@@ -1164,25 +1169,30 @@ const styles = StyleSheet.create({
   },
   originalToggleButton: {
     alignSelf: 'center',
-    marginTop: 16,
+    marginTop: 12,
+    marginBottom: 4,
     paddingVertical: 10,
-    paddingHorizontal: 24,
-    borderRadius: 24,
+    paddingHorizontal: 28,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.4)',
-    backgroundColor: 'rgba(30,30,30,0.7)',
   },
   originalToggleButtonActive: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderColor: '#fff',
+    backgroundColor: '#3170f3',
+    borderColor: '#3170f3',
+  },
+  originalToggleButtonInactive: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   originalToggleButtonText: {
-    color: '#fff',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   originalToggleButtonTextActive: {
     color: '#fff',
+  },
+  originalToggleButtonTextInactive: {
+    color: 'rgba(255,255,255,0.65)',
   },
   confirmButton: {
     paddingHorizontal: 40,
