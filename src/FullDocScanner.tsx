@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   InteractionManager,
+  NativeModules,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -20,23 +21,6 @@ import type {
   DocScannerCapture,
   RectangleDetectEvent,
 } from './DocScanner';
-
-type ImageManipulatorModule = typeof import('expo-image-manipulator');
-
-let ImageManipulator: ImageManipulatorModule | null = null;
-
-try {
-  ImageManipulator = require('expo-image-manipulator') as ImageManipulatorModule;
-} catch (error) {
-  console.warn(
-    '[FullDocScanner] expo-image-manipulator module unavailable.',
-    error,
-  );
-}
-
-let expoManipulatorUnavailable = false;
-const isExpoImageManipulatorAvailable = () =>
-  !!ImageManipulator?.manipulateAsync && !expoManipulatorUnavailable;
 // 회전은 항상 지원됨 (회전 각도를 반환하고 tdb 앱에서 처리)
 const isImageRotationSupported = () => true;
 
@@ -104,6 +88,19 @@ type OpenCropperOptions = {
   waitForPickerDismissal?: boolean;
 };
 
+type PreviewImageInfo = { path: string; base64?: string };
+type PreviewImageData = {
+  original: PreviewImageInfo;
+  enhanced?: PreviewImageInfo;
+  useOriginal: boolean;
+};
+
+const AUTO_ENHANCE_PARAMS = {
+  brightness: 0.08,
+  contrast: 1.05,
+  saturation: 0.92,
+};
+
 const normalizeCapturedDocument = (document: DocScannerCapture): CapturedDocument => {
   const { origin: _origin, ...rest } = document;
   const normalizedPath = stripFileUri(document.initialPath ?? document.path);
@@ -139,6 +136,7 @@ export interface FullDocScannerStrings {
   second?: string;
   secondBtn?: string;
   secondPrompt?: string;
+  originalBtn?: string;
 }
 
 export interface FullDocScannerProps {
@@ -175,7 +173,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   type,
 }) => {
   const [processing, setProcessing] = useState(false);
-  const [croppedImageData, setCroppedImageData] = useState<{path: string; base64?: string} | null>(null);
+  const [croppedImageData, setCroppedImageData] = useState<PreviewImageData | null>(null);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [rectangleDetected, setRectangleDetected] = useState(false);
   const [rectangleHint, setRectangleHint] = useState(false);
@@ -238,8 +236,88 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       second: strings?.second ?? 'Back',
       secondBtn: strings?.secondBtn ?? 'Capture Back Side?',
       secondPrompt: strings?.secondPrompt ?? strings?.secondBtn ?? 'Capture Back Side?',
+      originalBtn: strings?.originalBtn ?? 'Use Original',
     }),
     [strings],
+  );
+
+  const pdfScannerManager = (NativeModules as any)?.RNPdfScannerManager;
+
+  const autoEnhancementEnabled = useMemo(
+    () => typeof pdfScannerManager?.applyColorControls === 'function',
+    [pdfScannerManager],
+  );
+
+  const ensureBase64ForImage = useCallback(
+    async (image: PreviewImageInfo): Promise<PreviewImageInfo> => {
+      if (image.base64) {
+        return image;
+      }
+      try {
+        const base64Data = await RNFS.readFile(image.path, 'base64');
+        return {
+          ...image,
+          base64: base64Data,
+        };
+      } catch (error) {
+        console.warn('[FullDocScanner] Failed to generate base64 for image:', error);
+        return image;
+      }
+    },
+    [],
+  );
+
+  const applyAutoEnhancement = useCallback(
+    async (image: PreviewImageInfo): Promise<PreviewImageInfo | null> => {
+      if (!autoEnhancementEnabled || !pdfScannerManager?.applyColorControls) {
+        return null;
+      }
+
+      try {
+        const outputPath: string = await pdfScannerManager.applyColorControls(
+          image.path,
+          AUTO_ENHANCE_PARAMS.brightness,
+          AUTO_ENHANCE_PARAMS.contrast,
+          AUTO_ENHANCE_PARAMS.saturation,
+        );
+
+        return {
+          path: stripFileUri(outputPath),
+        };
+      } catch (error) {
+        console.error('[FullDocScanner] Auto enhancement failed:', error);
+        return null;
+      }
+    },
+    [autoEnhancementEnabled, pdfScannerManager],
+  );
+
+  const preparePreviewImage = useCallback(
+    async (image: PreviewImageInfo): Promise<PreviewImageData> => {
+      const original = await ensureBase64ForImage(image);
+      const enhancedCandidate = await applyAutoEnhancement(original);
+
+      if (enhancedCandidate) {
+        const enhanced = await ensureBase64ForImage(enhancedCandidate);
+        return {
+          original,
+          enhanced,
+          useOriginal: false,
+        };
+      }
+
+      return {
+        original,
+        useOriginal: true,
+      };
+    },
+    [applyAutoEnhancement, ensureBase64ForImage],
+  );
+
+  const getActivePreviewImage = useCallback(
+    (preview: PreviewImageData): PreviewImageInfo =>
+      preview.useOriginal || !preview.enhanced ? preview.original : preview.enhanced,
+    [],
   );
 
   const emitError = useCallback(
@@ -292,13 +370,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           hasBase64: !!croppedImage.data,
         });
 
-        setProcessing(false);
-
-        // Show confirmation screen
-        setCroppedImageData({
-          path: croppedImage.path,
+        const sanitizedPath = stripFileUri(croppedImage.path);
+        const preview = await preparePreviewImage({
+          path: sanitizedPath,
           base64: croppedImage.data ?? undefined,
         });
+
+        setCroppedImageData(preview);
+        setProcessing(false);
       } catch (error) {
         resetScannerView({ remount: true });
 
@@ -333,7 +412,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         }
       }
     },
-    [cropWidth, cropHeight, emitError, resetScannerView],
+    [cropWidth, cropHeight, emitError, preparePreviewImage, resetScannerView],
   );
 
   const handleCapture = useCallback(
@@ -369,21 +448,21 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       if (normalizedDoc.croppedPath) {
         console.log('[FullDocScanner] Grid detected: using pre-cropped image', normalizedDoc.croppedPath);
 
-        // RNFS를 사용해서 base64 생성
+        setProcessing(true);
         try {
-          const base64Data = await RNFS.readFile(normalizedDoc.croppedPath, 'base64');
-          console.log('[FullDocScanner] Generated base64 for pre-cropped image, length:', base64Data.length);
-
-          setCroppedImageData({
+          const preview = await preparePreviewImage({
             path: normalizedDoc.croppedPath,
-            base64: base64Data,
           });
+          setCroppedImageData(preview);
         } catch (error) {
-          console.error('[FullDocScanner] Failed to generate base64:', error);
-          // base64 생성 실패 시 경로만 저장
-          setCroppedImageData({
-            path: normalizedDoc.croppedPath,
-          });
+          console.error('[FullDocScanner] Failed to prepare preview image:', error);
+          resetScannerView({ remount: true });
+          emitError(
+            error instanceof Error ? error : new Error(String(error)),
+            'Failed to process captured image.',
+          );
+        } finally {
+          setProcessing(false);
         }
         return;
       }
@@ -391,7 +470,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       console.log('[FullDocScanner] Fallback to manual crop (no croppedPath available)');
       await openCropper(normalizedDoc.path, { waitForPickerDismissal: false });
     },
-    [openCropper],
+    [emitError, openCropper, preparePreviewImage, resetScannerView],
   );
 
   const triggerManualCapture = useCallback(() => {
@@ -550,14 +629,16 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       return;
     }
 
+    const activeImage = getActivePreviewImage(croppedImageData);
+
     // 회전 각도 정규화 (0, 90, 180, 270)
     const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
     console.log('[FullDocScanner] Confirm - rotation degrees:', rotationDegrees, 'normalized:', rotationNormalized);
 
     // 현재 사진을 capturedPhotos에 추가
     const currentPhoto: FullDocScannerResult = {
-      path: croppedImageData.path,
-      base64: croppedImageData.base64,
+      path: activeImage.path,
+      base64: activeImage.base64,
       rotationDegrees: rotationNormalized,
     };
 
@@ -567,7 +648,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     // 결과 반환
     console.log('[FullDocScanner] Returning results');
     onResult(updatedPhotos);
-  }, [croppedImageData, rotationDegrees, capturedPhotos, onResult]);
+  }, [croppedImageData, rotationDegrees, capturedPhotos, getActivePreviewImage, onResult]);
 
   const handleCaptureSecondPhoto = useCallback(() => {
     console.log('[FullDocScanner] Capturing second photo');
@@ -578,9 +659,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
     // 현재 사진(앞면)을 먼저 저장
     const rotationNormalized = ((rotationDegrees % 360) + 360) % 360;
+    const activeImage = getActivePreviewImage(croppedImageData);
     const currentPhoto: FullDocScannerResult = {
-      path: croppedImageData.path,
-      base64: croppedImageData.base64,
+      path: activeImage.path,
+      base64: activeImage.base64,
       rotationDegrees: rotationNormalized,
     };
 
@@ -589,7 +671,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
     // 확인 화면을 닫고 카메라로 돌아감
     resetScannerView({ remount: true });
-  }, [croppedImageData, resetScannerView, rotationDegrees]);
+  }, [croppedImageData, getActivePreviewImage, resetScannerView, rotationDegrees]);
 
 
   const handleRetake = useCallback(() => {
@@ -666,6 +748,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     [],
   );
 
+  const activePreviewImage = croppedImageData ? getActivePreviewImage(croppedImageData) : null;
+
   return (
     <View style={styles.container}>
       {croppedImageData ? (
@@ -739,14 +823,40 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             </TouchableOpacity>
           )}
 
-          <Image
-            source={{ uri: croppedImageData.path }}
-            style={[
-              styles.previewImage,
-              { transform: [{ rotate: `${rotationDegrees}deg` }] }
-            ]}
-            resizeMode="contain"
-          />
+          {activePreviewImage ? (
+            <Image
+              source={{ uri: activePreviewImage.path }}
+              style={[
+                styles.previewImage,
+                { transform: [{ rotate: `${rotationDegrees}deg` }] }
+              ]}
+              resizeMode="contain"
+            />
+          ) : null}
+          {croppedImageData.enhanced ? (
+            <TouchableOpacity
+              style={[
+                styles.originalToggleButton,
+                croppedImageData.useOriginal && styles.originalToggleButtonActive,
+              ]}
+              onPress={() =>
+                setCroppedImageData((prev) =>
+                  prev ? { ...prev, useOriginal: !prev.useOriginal } : prev,
+                )
+              }
+              accessibilityRole="button"
+              accessibilityLabel={mergedStrings.originalBtn}
+            >
+              <Text
+                style={[
+                  styles.originalToggleButtonText,
+                  croppedImageData.useOriginal && styles.originalToggleButtonTextActive,
+                ]}
+              >
+                {mergedStrings.originalBtn}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
           <View style={styles.confirmationButtons}>
             <TouchableOpacity
               style={[styles.confirmButton, styles.retakeButton]}
@@ -1051,6 +1161,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 24,
     paddingVertical: 32,
+  },
+  originalToggleButton: {
+    alignSelf: 'center',
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
+    backgroundColor: 'rgba(30,30,30,0.7)',
+  },
+  originalToggleButtonActive: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderColor: '#fff',
+  },
+  originalToggleButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  originalToggleButtonTextActive: {
+    color: '#fff',
   },
   confirmButton: {
     paddingHorizontal: 40,
