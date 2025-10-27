@@ -834,7 +834,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             />
           ) : null}
           {croppedImageData.enhanced ? (
-            <View style={styles.originalToggleContainer}>
+            <View
+              style={[
+                styles.originalToggleContainer,
+                isBusinessMode &&
+                  capturedPhotos.length === 0 &&
+                  styles.originalToggleContainerAboveCapture,
+              ]}
+            >
               <TouchableOpacity
                 style={[
                   styles.originalToggleButton,
@@ -1179,6 +1186,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 16,
     marginBottom: 20,
+  },
+  originalToggleContainerAboveCapture: {
+    position: 'absolute',
+    bottom: 210,
+    left: 0,
+    right: 0,
+    zIndex: 16,
+    marginTop: 0,
+    marginBottom: 0,
   },
   originalToggleButtonActive: {
     backgroundColor: '#3170f3',
