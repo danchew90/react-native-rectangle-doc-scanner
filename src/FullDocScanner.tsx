@@ -811,6 +811,28 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             </View>
           ) : null}
 
+          {/* 뒷면 촬영 버튼 - 상단에 표시 (Business 모드이고 첫 번째 사진일 때만) */}
+          {isBusinessMode && capturedPhotos.length === 0 && (
+            <TouchableOpacity
+              style={styles.captureBackButton}
+              onPress={handleCaptureSecondPhoto}
+              accessibilityLabel={mergedStrings.secondBtn}
+              accessibilityRole="button"
+            >
+              <Text style={styles.captureBackButtonText}>{mergedStrings.secondBtn}</Text>
+            </TouchableOpacity>
+          )}
+
+          {activePreviewImage ? (
+            <Image
+              source={{ uri: activePreviewImage.path }}
+              style={[
+                styles.previewImage,
+                { transform: [{ rotate: `${rotationDegrees}deg` }] }
+              ]}
+              resizeMode="contain"
+            />
+          ) : null}
           {croppedImageData.enhanced ? (
             <TouchableOpacity
               style={[
@@ -838,29 +860,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
                 {mergedStrings.originalBtn}
               </Text>
             </TouchableOpacity>
-          ) : null}
-
-          {/* 뒷면 촬영 버튼 - 상단에 표시 (Business 모드이고 첫 번째 사진일 때만) */}
-          {isBusinessMode && capturedPhotos.length === 0 && (
-            <TouchableOpacity
-              style={styles.captureBackButton}
-              onPress={handleCaptureSecondPhoto}
-              accessibilityLabel={mergedStrings.secondBtn}
-              accessibilityRole="button"
-            >
-              <Text style={styles.captureBackButtonText}>{mergedStrings.secondBtn}</Text>
-            </TouchableOpacity>
-          )}
-
-          {activePreviewImage ? (
-            <Image
-              source={{ uri: activePreviewImage.path }}
-              style={[
-                styles.previewImage,
-                { transform: [{ rotate: `${rotationDegrees}deg` }] }
-              ]}
-              resizeMode="contain"
-            />
           ) : null}
           <View style={styles.confirmationButtons}>
             <TouchableOpacity
