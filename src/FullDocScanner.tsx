@@ -5,6 +5,7 @@ import {
   Image,
   InteractionManager,
   NativeModules,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -750,6 +751,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   const activePreviewImage = croppedImageData ? getActivePreviewImage(croppedImageData) : null;
 
+  // Android: 카메라 컴포넌트가 없으므로 자동으로 갤러리 열기
+  useEffect(() => {
+    if (Platform.OS === 'android' && !croppedImageData && !isGalleryOpen) {
+      console.log('[FullDocScanner] Android detected - opening gallery automatically');
+      handleGalleryPick();
+    }
+  }, []);
+
   return (
     <View style={styles.container}>
       {croppedImageData ? (
@@ -890,7 +899,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             </TouchableOpacity>
           </View>
         </View>
-      ) : (
+      ) : Platform.OS === 'ios' ? (
         <View style={styles.flex}>
           <DocScanner
             key={scannerSession}
@@ -987,6 +996,13 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             <View style={styles.rightButtonsPlaceholder} />
           </View>
         </DocScanner>
+        </View>
+      ) : (
+        <View style={styles.flex}>
+          <View style={styles.processingOverlay}>
+            <ActivityIndicator size="large" color={overlayColor} />
+            <Text style={styles.processingText}>갤러리에서 이미지를 선택해주세요...</Text>
+          </View>
         </View>
       )}
 
