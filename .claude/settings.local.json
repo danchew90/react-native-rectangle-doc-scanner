@@ -6,7 +6,8 @@
       "Bash(npm run build:*)",
       "Bash(npx react-native codegen)",
       "Bash(cat:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(patch:*)"
     ],
     "deny": [],
     "ask": []
