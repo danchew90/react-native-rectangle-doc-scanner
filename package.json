@@ -49,5 +49,9 @@
   },
   "dependencies": {
     "expo-image-manipulator": "^12.0.5"
+  },
+  "react-native": {
+    "android": "./android",
+    "ios": "./ios"
   }
 }
