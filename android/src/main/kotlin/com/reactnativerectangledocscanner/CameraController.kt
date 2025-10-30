@@ -1,6 +1,7 @@
 package com.reactnativerectangledocscanner
 
 import android.content.Context
+import android.graphics.ImageFormat
 import android.util.Log
 import android.util.Size
 import androidx.camera.core.*
@@ -26,7 +27,7 @@ class CameraController(
     private var useFrontCamera = false
     private var torchEnabled = false
 
-    var onFrameAnalyzed: ((Rectangle?) -> Unit)? = null
+    var onFrameAnalyzed: ((Rectangle?, Int, Int) -> Unit)? = null
 
     companion object {
         private const val TAG = "CameraController"
@@ -93,6 +94,7 @@ class CameraController(
             ImageAnalysis.Builder()
                 .setTargetResolution(Size(720, 1280))
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build()
                 .also { analysis ->
                     analysis.setAnalyzer(cameraExecutor) { imageProxy ->
@@ -135,18 +137,96 @@ class CameraController(
      */
     private fun analyzeFrame(imageProxy: ImageProxy) {
         try {
-            val buffer = imageProxy.planes[0].buffer
-            val bytes = ByteArray(buffer.remaining())
-            buffer.get(bytes)
+            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+            val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) {
+                imageProxy.height
+            } else {
+                imageProxy.width
+            }
+            val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) {
+                imageProxy.width
+            } else {
+                imageProxy.height
+            }
 
-            // Note: Simplified - in production you'd convert ImageProxy to proper format
-            // For now, we'll skip real-time detection in the analyzer and do it on capture
-            onFrameAnalyzed?.invoke(null)
+            if (imageProxy.format != ImageFormat.YUV_420_888 || imageProxy.planes.size < 3) {
+                onFrameAnalyzed?.invoke(null, frameWidth, frameHeight)
+                return
+            }
+
+            val nv21 = imageProxyToNV21(imageProxy)
+            val rectangle = DocumentDetector.detectRectangleInYUV(
+                nv21,
+                imageProxy.width,
+                imageProxy.height,
+                rotationDegrees
+            )
+
+            onFrameAnalyzed?.invoke(rectangle, frameWidth, frameHeight)
         } catch (e: Exception) {
             Log.e(TAG, "Error analyzing frame", e)
+            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+            val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) {
+                imageProxy.height
+            } else {
+                imageProxy.width
+            }
+            val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) {
+                imageProxy.width
+            } else {
+                imageProxy.height
+            }
+            onFrameAnalyzed?.invoke(null, frameWidth, frameHeight)
         } finally {
             imageProxy.close()
         }
+    }
+
+    /**
+     * Convert ImageProxy (YUV_420_888) to NV21 byte array
+     */
+    private fun imageProxyToNV21(image: ImageProxy): ByteArray {
+        val width = image.width
+        val height = image.height
+
+        val ySize = width * height
+        val uvSize = width * height / 2
+        val nv21 = ByteArray(ySize + uvSize)
+
+        val yBuffer = image.planes[0].buffer
+        val uBuffer = image.planes[1].buffer
+        val vBuffer = image.planes[2].buffer
+
+        val yRowStride = image.planes[0].rowStride
+        val yPixelStride = image.planes[0].pixelStride
+        var outputOffset = 0
+        for (row in 0 until height) {
+            var inputOffset = row * yRowStride
+            for (col in 0 until width) {
+                nv21[outputOffset++] = yBuffer.get(inputOffset)
+                inputOffset += yPixelStride
+            }
+        }
+
+        val uvRowStride = image.planes[1].rowStride
+        val uvPixelStride = image.planes[1].pixelStride
+        val vRowStride = image.planes[2].rowStride
+        val vPixelStride = image.planes[2].pixelStride
+
+        val uvHeight = height / 2
+        val uvWidth = width / 2
+        for (row in 0 until uvHeight) {
+            var uInputOffset = row * uvRowStride
+            var vInputOffset = row * vRowStride
+            for (col in 0 until uvWidth) {
+                nv21[outputOffset++] = vBuffer.get(vInputOffset)
+                nv21[outputOffset++] = uBuffer.get(uInputOffset)
+                uInputOffset += uvPixelStride
+                vInputOffset += vPixelStride
+            }
+        }
+
+        return nv21
     }
 
     /**

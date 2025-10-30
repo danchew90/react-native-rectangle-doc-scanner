@@ -7,9 +7,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
-import android.os.Handler
-import android.os.Looper
-import android.util.Base64
 import android.util.Log
 import android.view.View
 import android.widget.FrameLayout
@@ -21,7 +18,7 @@ import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.events.RCTEventEmitter
 import kotlinx.coroutines.*
 import java.io.File
-import kotlin.math.max
+import kotlin.math.min
 
 class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
     private val themedContext = context
@@ -46,10 +43,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
 
     // State
     private var stableCounter = 0
-    private var lastDetectedRectangle: Rectangle? = null
-    private var lastDetectionQuality: RectangleQuality = RectangleQuality.TOO_FAR
-    private val detectionHandler = Handler(Looper.getMainLooper())
-    private var detectionRunnable: Runnable? = null
+    private var lastDetectionTimestamp: Long = 0L
     private var isCapturing = false
 
     // Coroutine scope for async operations
@@ -85,10 +79,11 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
             }
 
             cameraController = CameraController(context, lifecycleOwner, previewView)
-            cameraController?.startCamera(useFrontCam, !manualOnly)
-
-            // Start detection loop
-            startDetectionLoop()
+            cameraController?.onFrameAnalyzed = { rectangle, imageWidth, imageHeight ->
+                handleDetectionResult(rectangle, imageWidth, imageHeight)
+            }
+            lastDetectionTimestamp = 0L
+            cameraController?.startCamera(useFrontCam, true)
 
             Log.d(TAG, "Camera setup completed")
         } catch (e: Exception) {
@@ -96,56 +91,66 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
         }
     }
 
-    private fun startDetectionLoop() {
-        detectionRunnable?.let { detectionHandler.removeCallbacks(it) }
+    private fun handleDetectionResult(rectangle: Rectangle?, imageWidth: Int, imageHeight: Int) {
+        val now = System.currentTimeMillis()
+        if (now - lastDetectionTimestamp < detectionRefreshRateInMS) {
+            return
+        }
+        lastDetectionTimestamp = now
 
-        detectionRunnable = object : Runnable {
-            override fun run() {
-                // Perform detection
-                performDetection()
-
-                // Schedule next detection
-                detectionHandler.postDelayed(this, detectionRefreshRateInMS.toLong())
-            }
+        val quality = if (rectangle != null) {
+            DocumentDetector.evaluateRectangleQuality(rectangle, imageWidth, imageHeight)
+        } else {
+            RectangleQuality.TOO_FAR
         }
 
-        detectionHandler.post(detectionRunnable!!)
+        val rectangleOnScreen = if (rectangle != null && width > 0 && height > 0) {
+            DocumentDetector.transformRectangleToViewCoordinates(rectangle, imageWidth, imageHeight, width, height)
+        } else {
+            null
+        }
+
+        post {
+            onRectangleDetected(rectangleOnScreen, rectangle, quality, imageWidth, imageHeight)
+        }
     }
 
-    private fun performDetection() {
-        // In a real implementation, we'd analyze the camera frames
-        // For now, we'll simulate detection based on capture
-        // The actual detection happens during capture in this simplified version
-    }
-
-    private fun onRectangleDetected(rectangle: Rectangle?, quality: RectangleQuality) {
-        lastDetectedRectangle = rectangle
-        lastDetectionQuality = quality
-
+    private fun onRectangleDetected(
+        rectangleOnScreen: Rectangle?,
+        rectangleCoordinates: Rectangle?,
+        quality: RectangleQuality,
+        imageWidth: Int,
+        imageHeight: Int
+    ) {
         // Update overlay
-        overlayView.setRectangle(rectangle, overlayColor)
+        overlayView.setRectangle(rectangleOnScreen, overlayColor)
 
         // Update stable counter based on quality
-        when (quality) {
-            RectangleQuality.GOOD -> {
-                if (rectangle != null) {
-                    stableCounter++
+        if (rectangleCoordinates == null) {
+            if (stableCounter != 0) {
+                Log.d(TAG, "Rectangle lost, resetting stableCounter")
+            }
+            stableCounter = 0
+        } else {
+            when (quality) {
+                RectangleQuality.GOOD -> {
+                    stableCounter = min(stableCounter + 1, detectionCountBeforeCapture)
                     Log.d(TAG, "Good rectangle detected, stableCounter: $stableCounter/$detectionCountBeforeCapture")
                 }
-            }
-            RectangleQuality.BAD_ANGLE, RectangleQuality.TOO_FAR -> {
-                if (stableCounter > 0) {
-                    stableCounter--
+                RectangleQuality.BAD_ANGLE, RectangleQuality.TOO_FAR -> {
+                    if (stableCounter > 0) {
+                        stableCounter--
+                    }
+                    Log.d(TAG, "Bad rectangle detected (type: $quality), stableCounter: $stableCounter")
                 }
-                Log.d(TAG, "Bad rectangle detected (type: $quality), stableCounter: $stableCounter")
             }
         }
 
         // Send event to JavaScript
-        sendRectangleDetectEvent(rectangle, quality)
+        sendRectangleDetectEvent(rectangleOnScreen, rectangleCoordinates, quality, imageWidth, imageHeight)
 
         // Auto-capture if threshold reached
-        if (!manualOnly && stableCounter >= detectionCountBeforeCapture && rectangle != null) {
+        if (!manualOnly && rectangleCoordinates != null && stableCounter >= detectionCountBeforeCapture) {
             Log.d(TAG, "Auto-capture triggered! stableCounter: $stableCounter >= threshold: $detectionCountBeforeCapture")
             stableCounter = 0
             capture()
@@ -278,14 +283,25 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
             .receiveEvent(id, "onPictureTaken", event)
     }
 
-    private fun sendRectangleDetectEvent(rectangle: Rectangle?, quality: RectangleQuality) {
+    private fun sendRectangleDetectEvent(
+        rectangleOnScreen: Rectangle?,
+        rectangleCoordinates: Rectangle?,
+        quality: RectangleQuality,
+        imageWidth: Int,
+        imageHeight: Int
+    ) {
         val event = Arguments.createMap().apply {
             putInt("stableCounter", stableCounter)
             putInt("lastDetectionType", quality.ordinal)
-            putMap("rectangleCoordinates", rectangle?.toMap()?.toWritableMap())
+            putMap("rectangleCoordinates", rectangleCoordinates?.toMap()?.toWritableMap())
+            putMap("rectangleOnScreen", rectangleOnScreen?.toMap()?.toWritableMap())
             putMap("previewSize", Arguments.createMap().apply {
                 putInt("width", width)
                 putInt("height", height)
+            })
+            putMap("imageSize", Arguments.createMap().apply {
+                putInt("width", imageWidth)
+                putInt("height", imageHeight)
             })
         }
         themedContext.getJSModule(RCTEventEmitter::class.java)
@@ -314,13 +330,17 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
     }
 
     fun startCamera() {
-        cameraController?.startCamera(useFrontCam, !manualOnly)
-        startDetectionLoop()
+        lastDetectionTimestamp = 0L
+        cameraController?.onFrameAnalyzed = { rectangle, imageWidth, imageHeight ->
+            handleDetectionResult(rectangle, imageWidth, imageHeight)
+        }
+        cameraController?.startCamera(useFrontCam, true)
     }
 
     fun stopCamera() {
-        detectionRunnable?.let { detectionHandler.removeCallbacks(it) }
         cameraController?.stopCamera()
+        overlayView.setRectangle(null, overlayColor)
+        stableCounter = 0
     }
 
     override fun onDetachedFromWindow() {
