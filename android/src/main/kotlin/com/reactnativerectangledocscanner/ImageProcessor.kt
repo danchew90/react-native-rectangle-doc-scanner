@@ -125,7 +125,8 @@ object ImageProcessor {
         val dstMat = Mat()
         srcMat.convertTo(dstMat, -1, contrast.toDouble(), brightness * 255.0)
 
-        val resultBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, bitmap.config)
+        val safeConfig = bitmap.config ?: Bitmap.Config.ARGB_8888
+        val resultBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, safeConfig)
         Utils.matToBitmap(dstMat, resultBitmap)
 
         srcMat.release()
