@@ -52,8 +52,9 @@ class PdfScanner extends React.Component {
       return;
     }
     const { onPictureTaken, onProcessing } = this.props;
-    DeviceEventEmitter.addListener('onPictureTaken', onPictureTaken);
-    DeviceEventEmitter.addListener('onProcessingChange', onProcessing);
+    // React Native 0.76+ returns a subscription object from addListener
+    this.pictureListener = DeviceEventEmitter.addListener('onPictureTaken', onPictureTaken);
+    this.processingListener = DeviceEventEmitter.addListener('onProcessingChange', onProcessing);
     this.eventsSubscribed = true;
   }
 
@@ -61,9 +62,15 @@ class PdfScanner extends React.Component {
     if (Platform.OS !== 'android') {
       return;
     }
-    const { onPictureTaken, onProcessing } = this.props;
-    DeviceEventEmitter.removeListener('onPictureTaken', onPictureTaken);
-    DeviceEventEmitter.removeListener('onProcessingChange', onProcessing);
+    // React Native 0.76+ uses removeAllListeners instead of removeListener
+    if (this.pictureListener) {
+      this.pictureListener.remove();
+      this.pictureListener = null;
+    }
+    if (this.processingListener) {
+      this.processingListener.remove();
+      this.processingListener = null;
+    }
     this.eventsSubscribed = false;
   }
 
@@ -73,10 +80,14 @@ class PdfScanner extends React.Component {
     }
     try {
       const granted = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.CAMERA,
         PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
         PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
       ]);
 
+      const cameraGranted =
+        granted['android.permission.CAMERA'] ===
+        PermissionsAndroid.RESULTS.GRANTED;
       const readGranted =
         granted['android.permission.READ_EXTERNAL_STORAGE'] ===
         PermissionsAndroid.RESULTS.GRANTED;
@@ -84,7 +95,7 @@ class PdfScanner extends React.Component {
         granted['android.permission.WRITE_EXTERNAL_STORAGE'] ===
         PermissionsAndroid.RESULTS.GRANTED;
 
-      if (readGranted && writeGranted) {
+      if (cameraGranted && readGranted && writeGranted) {
         this.setState({ permissionsAuthorized: true });
       } else {
         this.onPermissionsDenied();
