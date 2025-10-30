@@ -751,14 +751,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   const activePreviewImage = croppedImageData ? getActivePreviewImage(croppedImageData) : null;
 
-  // Android: 카메라 컴포넌트가 없으므로 자동으로 갤러리 열기
-  useEffect(() => {
-    if (Platform.OS === 'android' && !croppedImageData && !isGalleryOpen) {
-      console.log('[FullDocScanner] Android detected - opening gallery automatically');
-      handleGalleryPick();
-    }
-  }, []);
-
   return (
     <View style={styles.container}>
       {croppedImageData ? (
