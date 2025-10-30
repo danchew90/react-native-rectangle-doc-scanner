@@ -43,18 +43,11 @@ class DocumentScannerModule(reactContext: ReactApplicationContext) :
                     val view = uiManager.resolveView(tag)
 
                     if (view is DocumentScannerView) {
-                        Log.d(TAG, "Found DocumentScannerView, triggering capture")
+                        Log.d(TAG, "Found DocumentScannerView, triggering capture with promise")
 
-                        // Store promise to be resolved when capture completes
-                        // For simplicity, we'll trigger the capture which will emit the event
-                        view.capture()
-
-                        // Note: In the current implementation, we use events (onPictureTaken)
-                        // iOS also uses events for the main flow, but has a promise-based method too
-                        // For consistency with the event-based approach, resolve immediately
-                        promise.resolve(Arguments.createMap().apply {
-                            putString("status", "capturing")
-                        })
+                        // Pass promise to view so it can be resolved when capture completes
+                        // This matches iOS behavior where promise is resolved with actual image data
+                        view.captureWithPromise(promise)
                     } else {
                         Log.e(TAG, "View with tag $tag is not DocumentScannerView: ${view?.javaClass?.simpleName}")
                         promise.reject("INVALID_VIEW", "View is not a DocumentScannerView")

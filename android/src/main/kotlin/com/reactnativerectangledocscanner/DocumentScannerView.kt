@@ -153,13 +153,22 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
     }
 
     fun capture() {
+        captureWithPromise(null)
+    }
+
+    /**
+     * Capture image with promise support (matches iOS captureWithResolver:rejecter:)
+     * @param promise Optional promise to resolve with capture result
+     */
+    fun captureWithPromise(promise: com.facebook.react.bridge.Promise?) {
         if (isCapturing) {
             Log.d(TAG, "Already capturing, ignoring request")
+            promise?.reject("CAPTURE_IN_PROGRESS", "Capture already in progress")
             return
         }
 
         isCapturing = true
-        Log.d(TAG, "Capture initiated")
+        Log.d(TAG, "Capture initiated with promise: ${promise != null}")
 
         val outputDir = if (saveInAppDocument) {
             context.filesDir
@@ -171,18 +180,23 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
             outputDirectory = outputDir,
             onImageCaptured = { file ->
                 scope.launch {
-                    processAndEmitImage(file)
+                    processAndEmitImage(file, promise)
                 }
             },
             onError = { exception ->
                 Log.e(TAG, "Capture failed", exception)
                 isCapturing = false
+
+                // Reject promise if provided
+                promise?.reject("CAPTURE_FAILED", "Failed to capture image", exception)
+
+                // Also send event for backwards compatibility
                 sendErrorEvent("capture_failed")
             }
         )
     }
 
-    private suspend fun processAndEmitImage(imageFile: File) = withContext(Dispatchers.IO) {
+    private suspend fun processAndEmitImage(imageFile: File, promise: com.facebook.react.bridge.Promise? = null) = withContext(Dispatchers.IO) {
         try {
             // Detect rectangle in captured image
             val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath)
@@ -229,7 +243,14 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
             }
 
             withContext(Dispatchers.Main) {
+                Log.d(TAG, "Processing completed, resolving promise: ${promise != null}")
+
+                // Resolve promise first (if provided) - matches iOS behavior
+                promise?.resolve(result)
+
+                // Then send event for backwards compatibility
                 sendPictureTakenEvent(result)
+
                 isCapturing = false
 
                 if (!captureMultiple) {
@@ -239,6 +260,10 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to process image", e)
             withContext(Dispatchers.Main) {
+                // Reject promise if provided
+                promise?.reject("PROCESSING_FAILED", "Failed to process image: ${e.message}", e)
+
+                // Also send error event for backwards compatibility
                 sendErrorEvent("processing_failed")
                 isCapturing = false
             }
