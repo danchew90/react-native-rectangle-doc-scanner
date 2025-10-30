@@ -28,8 +28,8 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
 
     // Props (matching iOS)
     var overlayColor: Int = Color.parseColor("#80FFFFFF")
-    var enableTorch: Boolean = false
-    var useFrontCam: Boolean = false
+    private var isTorchEnabled: Boolean = false
+    private var isUsingFrontCamera: Boolean = false
     var useBase64: Boolean = false
     var saveInAppDocument: Boolean = false
     var captureMultiple: Boolean = false
@@ -83,7 +83,10 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
                 handleDetectionResult(rectangle, imageWidth, imageHeight)
             }
             lastDetectionTimestamp = 0L
-            cameraController?.startCamera(useFrontCam, true)
+            cameraController?.startCamera(isUsingFrontCamera, true)
+            if (isTorchEnabled) {
+                cameraController?.setTorchEnabled(true)
+            }
 
             Log.d(TAG, "Camera setup completed")
         } catch (e: Exception) {
@@ -317,13 +320,13 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
     }
 
     fun setEnableTorch(enabled: Boolean) {
-        this.enableTorch = enabled
+        isTorchEnabled = enabled
         cameraController?.setTorchEnabled(enabled)
     }
 
     fun setUseFrontCam(enabled: Boolean) {
-        if (this.useFrontCam != enabled) {
-            this.useFrontCam = enabled
+        if (isUsingFrontCamera != enabled) {
+            isUsingFrontCamera = enabled
             cameraController?.stopCamera()
             setupCamera()
         }
@@ -334,7 +337,10 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
         cameraController?.onFrameAnalyzed = { rectangle, imageWidth, imageHeight ->
             handleDetectionResult(rectangle, imageWidth, imageHeight)
         }
-        cameraController?.startCamera(useFrontCam, true)
+        cameraController?.startCamera(isUsingFrontCamera, true)
+        if (isTorchEnabled) {
+            cameraController?.setTorchEnabled(true)
+        }
     }
 
     fun stopCamera() {
