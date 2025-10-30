@@ -5,7 +5,6 @@ import {
   Image,
   InteractionManager,
   NativeModules,
-  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -891,7 +890,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             </TouchableOpacity>
           </View>
         </View>
-      ) : Platform.OS === 'ios' ? (
+      ) : (
         <View style={styles.flex}>
           <DocScanner
             key={scannerSession}
@@ -988,13 +987,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             <View style={styles.rightButtonsPlaceholder} />
           </View>
         </DocScanner>
-        </View>
-      ) : (
-        <View style={styles.flex}>
-          <View style={styles.processingOverlay}>
-            <ActivityIndicator size="large" color={overlayColor} />
-            <Text style={styles.processingText}>갤러리에서 이미지를 선택해주세요...</Text>
-          </View>
         </View>
       )}
 
