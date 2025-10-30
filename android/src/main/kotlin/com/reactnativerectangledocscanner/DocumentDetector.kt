@@ -6,6 +6,7 @@ import org.opencv.android.Utils
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.sqrt
 
 data class Rectangle(
@@ -249,14 +250,34 @@ class DocumentDetector {
             viewWidth: Int,
             viewHeight: Int
         ): Rectangle {
-            val scaleX = viewWidth.toDouble() / imageWidth
-            val scaleY = viewHeight.toDouble() / imageHeight
+            if (imageWidth == 0 || imageHeight == 0 || viewWidth == 0 || viewHeight == 0) {
+                return rectangle
+            }
+
+            val scale = max(
+                viewWidth.toDouble() / imageWidth.toDouble(),
+                viewHeight.toDouble() / imageHeight.toDouble()
+            )
+
+            val scaledImageWidth = imageWidth * scale
+            val scaledImageHeight = imageHeight * scale
+            val offsetX = (scaledImageWidth - viewWidth) / 2.0
+            val offsetY = (scaledImageHeight - viewHeight) / 2.0
+
+            fun mapPoint(point: Point): Point {
+                val x = (point.x * scale) - offsetX
+                val y = (point.y * scale) - offsetY
+                return Point(
+                    x.coerceIn(0.0, viewWidth.toDouble()),
+                    y.coerceIn(0.0, viewHeight.toDouble())
+                )
+            }
 
             return Rectangle(
-                Point(rectangle.topLeft.x * scaleX, rectangle.topLeft.y * scaleY),
-                Point(rectangle.topRight.x * scaleX, rectangle.topRight.y * scaleY),
-                Point(rectangle.bottomLeft.x * scaleX, rectangle.bottomLeft.y * scaleY),
-                Point(rectangle.bottomRight.x * scaleX, rectangle.bottomRight.y * scaleY)
+                mapPoint(rectangle.topLeft),
+                mapPoint(rectangle.topRight),
+                mapPoint(rectangle.bottomLeft),
+                mapPoint(rectangle.bottomRight)
             )
         }
     }
