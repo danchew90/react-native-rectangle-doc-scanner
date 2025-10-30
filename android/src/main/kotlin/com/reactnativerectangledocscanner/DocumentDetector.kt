@@ -248,7 +248,8 @@ class DocumentDetector {
             imageWidth: Int,
             imageHeight: Int,
             viewWidth: Int,
-            viewHeight: Int
+            viewHeight: Int,
+            rotationDegrees: Int = 0
         ): Rectangle {
             if (imageWidth == 0 || imageHeight == 0 || viewWidth == 0 || viewHeight == 0) {
                 return rectangle

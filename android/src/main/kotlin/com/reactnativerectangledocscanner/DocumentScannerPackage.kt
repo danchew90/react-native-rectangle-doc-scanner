@@ -11,6 +11,9 @@ class DocumentScannerPackage : ReactPackage {
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
-        return listOf(DocumentScannerViewManager())
+        return listOf(
+            DocumentScannerViewManager(),
+            CameraViewManager()
+        )
     }
 }

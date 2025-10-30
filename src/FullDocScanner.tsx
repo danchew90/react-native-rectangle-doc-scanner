@@ -5,6 +5,7 @@ import {
   Image,
   InteractionManager,
   NativeModules,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -337,11 +338,20 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         console.log('[FullDocScanner] openCropper called with path:', imagePath);
         setProcessing(true);
 
-        // Clean path - remove file:// prefix for react-native-image-crop-picker
-        // The library handles the prefix internally and double prefixing causes issues
+        // Clean path handling differs by platform
+        // iOS: react-native-image-crop-picker handles file:// prefix internally
+        // Android: needs file:// prefix for proper URI handling
         let cleanPath = imagePath;
-        if (cleanPath.startsWith('file://')) {
-          cleanPath = cleanPath.replace('file://', '');
+        if (Platform.OS === 'ios') {
+          // iOS: remove file:// prefix as the library adds it
+          if (cleanPath.startsWith('file://')) {
+            cleanPath = cleanPath.replace('file://', '');
+          }
+        } else {
+          // Android: ensure file:// prefix exists
+          if (!cleanPath.startsWith('file://')) {
+            cleanPath = 'file://' + cleanPath;
+          }
         }
         console.log('[FullDocScanner] Clean path for cropper:', cleanPath);
 
