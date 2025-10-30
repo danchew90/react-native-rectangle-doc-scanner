@@ -260,10 +260,10 @@ class CameraView(context: Context) : FrameLayout(context) {
 
         private fun drawRectangle(canvas: Canvas, rect: Rectangle) {
             val path = Path().apply {
-                moveTo(rect.topLeft.x, rect.topLeft.y)
-                lineTo(rect.topRight.x, rect.topRight.y)
-                lineTo(rect.bottomRight.x, rect.bottomRight.y)
-                lineTo(rect.bottomLeft.x, rect.bottomLeft.y)
+                moveTo(rect.topLeft.x.toFloat(), rect.topLeft.y.toFloat())
+                lineTo(rect.topRight.x.toFloat(), rect.topRight.y.toFloat())
+                lineTo(rect.bottomRight.x.toFloat(), rect.bottomRight.y.toFloat())
+                lineTo(rect.bottomLeft.x.toFloat(), rect.bottomLeft.y.toFloat())
                 close()
             }
 
