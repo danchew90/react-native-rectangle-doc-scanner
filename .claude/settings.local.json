@@ -7,7 +7,9 @@
       "Bash(npx react-native codegen)",
       "Bash(cat:*)",
       "Bash(npm uninstall:*)",
-      "Bash(patch:*)"
+      "Bash(patch:*)",
+      "Bash(npx patch-package)",
+      "Bash(yarn install)"
     ],
     "deny": [],
     "ask": []
