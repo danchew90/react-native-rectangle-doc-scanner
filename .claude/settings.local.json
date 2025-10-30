@@ -9,7 +9,10 @@
       "Bash(npm uninstall:*)",
       "Bash(patch:*)",
       "Bash(npx patch-package)",
-      "Bash(yarn install)"
+      "Bash(yarn install)",
+      "Bash(./gradlew clean:*)",
+      "Bash(npx patch-package react-native-perspective-image-cropper)",
+      "Bash(npx patch-package:*)"
     ],
     "deny": [],
     "ask": []
