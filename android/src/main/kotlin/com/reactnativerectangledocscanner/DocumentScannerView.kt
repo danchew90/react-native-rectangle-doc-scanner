@@ -78,7 +78,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             scaleType = PreviewView.ScaleType.FILL_CENTER
             // Force TextureView for React Native compatibility (SurfaceView has rendering issues)
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            implementationMode = PreviewView.ImplementationMode.TEXTURE_VIEW
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
         Log.d(TAG, "[INIT] PreviewView implementationMode: ${previewView.implementationMode}")
@@ -95,10 +95,6 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         Log.d(TAG, "[INIT] Adding OverlayView to parent...")
         addView(overlayView)
         Log.d(TAG, "[INIT] OverlayView added, childCount: $childCount")
-
-        Log.d(TAG, "[INIT] Setting lifecycle to CREATED...")
-        lifecycleRegistry.currentState = Lifecycle.State.CREATED
-        Log.d(TAG, "[INIT] Lifecycle state: ${lifecycleRegistry.currentState}")
 
         Log.d(TAG, "╔════════════════════════════════════════╗")
         Log.d(TAG, "║  DocumentScannerView INIT COMPLETE     ║")
@@ -117,6 +113,9 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         // Setup and start camera when view is attached
         post {
             Log.d(TAG, "[POST] Starting camera setup...")
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
             setupCamera()
             startCamera()
         }
@@ -408,23 +407,11 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         }
 
         // Transition lifecycle states properly
-        val previousState = lifecycleRegistry.currentState
-        when (lifecycleRegistry.currentState) {
-            Lifecycle.State.CREATED -> {
-                Log.d(TAG, "[START_CAMERA] Transitioning CREATED -> STARTED")
-                lifecycleRegistry.currentState = Lifecycle.State.STARTED
-                Log.d(TAG, "[START_CAMERA] Transitioning STARTED -> RESUMED")
-                lifecycleRegistry.currentState = Lifecycle.State.RESUMED
-            }
-            Lifecycle.State.STARTED -> {
-                Log.d(TAG, "[START_CAMERA] Transitioning STARTED -> RESUMED")
-                lifecycleRegistry.currentState = Lifecycle.State.RESUMED
-            }
-            else -> {
-                Log.d(TAG, "[START_CAMERA] Already in state: ${lifecycleRegistry.currentState}")
-            }
+        Log.d(TAG, "[START_CAMERA] Ensuring lifecycle is RESUMED")
+        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         }
-        Log.d(TAG, "[START_CAMERA] Lifecycle transitioned: $previousState -> ${lifecycleRegistry.currentState}")
 
         Log.d(TAG, "[START_CAMERA] Calling CameraController.startCamera()...")
         try {
