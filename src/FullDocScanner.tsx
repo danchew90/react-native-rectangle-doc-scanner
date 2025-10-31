@@ -27,6 +27,19 @@ const isImageRotationSupported = () => true;
 
 const stripFileUri = (value: string) => value.replace(/^file:\/\//, '');
 
+const ensureFileUri = (value?: string | null) => {
+  if (!value) {
+    return value ?? '';
+  }
+  if (value.startsWith('file://') || value.startsWith('content://')) {
+    return value;
+  }
+  if (value.startsWith('/')) {
+    return `file://${value}`;
+  }
+  return value;
+};
+
 const CROPPER_TIMEOUT_MS = 8000;
 const CROPPER_TIMEOUT_CODE = 'cropper_timeout';
 
@@ -835,7 +848,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
           {activePreviewImage ? (
             <Image
-              source={{ uri: activePreviewImage.path }}
+              source={{ uri: ensureFileUri(activePreviewImage.path) }}
               style={[
                 styles.previewImage,
                 { transform: [{ rotate: `${rotationDegrees}deg` }] }

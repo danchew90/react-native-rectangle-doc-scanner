@@ -18,7 +18,10 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import com.facebook.react.uimanager.ThemedReactContext
 import com.google.common.util.concurrent.ListenableFuture
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -27,7 +30,7 @@ import java.util.concurrent.Executors
  * CameraView with real-time document detection, grid overlay, and rectangle overlay
  * Matches iOS implementation behavior
  */
-class CameraView(context: Context) : FrameLayout(context) {
+class CameraView(context: Context) : FrameLayout(context), LifecycleOwner {
     private val TAG = "CameraView"
 
     private val previewView: PreviewView
@@ -40,8 +43,11 @@ class CameraView(context: Context) : FrameLayout(context) {
     private var camera: Camera? = null
 
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val lifecycleRegistry = LifecycleRegistry(this)
     // Callback for detected rectangles
     var onRectangleDetected: ((Rectangle?) -> Unit)? = null
+
+    override fun getLifecycle(): Lifecycle = lifecycleRegistry
 
     init {
         // Create preview view
@@ -56,6 +62,7 @@ class CameraView(context: Context) : FrameLayout(context) {
         addView(overlayView)
 
         Log.d(TAG, "CameraView initialized")
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
     }
 
     /**
@@ -83,16 +90,22 @@ class CameraView(context: Context) : FrameLayout(context) {
      */
     fun stopCamera() {
         cameraProvider?.unbindAll()
-        cameraExecutor.shutdown()
+        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
+            lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        }
     }
 
     /**
      * Bind camera use cases
      */
     private fun bindCamera() {
-        val lifecycleOwner = context as? LifecycleOwner
+        val lifecycleOwner = when (context) {
+            is LifecycleOwner -> context as LifecycleOwner
+            is ThemedReactContext -> context.currentActivity as? LifecycleOwner ?: context as? LifecycleOwner
+            else -> null
+        }
         if (lifecycleOwner == null) {
-            Log.e(TAG, "Context is not a LifecycleOwner")
+            Log.e(TAG, "Unable to resolve LifecycleOwner for CameraView")
             return
         }
 
@@ -131,6 +144,10 @@ class CameraView(context: Context) : FrameLayout(context) {
             Log.d(TAG, "Camera bound successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to bind camera", e)
+        }
+
+        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
+            lifecycleRegistry.currentState = Lifecycle.State.RESUMED
         }
     }
 
@@ -190,15 +207,24 @@ class CameraView(context: Context) : FrameLayout(context) {
                     onRectangleDetected?.invoke(transformedRectangle)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to analyze frame", e)
-                post {
-                    overlayView.setDetectedRectangle(null)
-                    onRectangleDetected?.invoke(null)
-                }
-            } finally {
-                imageProxy.close()
+            Log.e(TAG, "Failed to analyze frame", e)
+            post {
+                overlayView.setDetectedRectangle(null)
+                onRectangleDetected?.invoke(null)
             }
+        } finally {
+            imageProxy.close()
         }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        stopCamera()
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
+        if (!cameraExecutor.isShutdown) {
+            cameraExecutor.shutdown()
+        }
+    }
     }
 
     /**

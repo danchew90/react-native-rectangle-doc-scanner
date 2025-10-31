@@ -11,7 +11,9 @@ import android.util.Log
 import android.view.View
 import android.widget.FrameLayout
 import androidx.camera.view.PreviewView
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.uimanager.ThemedReactContext
@@ -20,11 +22,12 @@ import kotlinx.coroutines.*
 import java.io.File
 import kotlin.math.min
 
-class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
+class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), LifecycleOwner {
     private val themedContext = context
     private val previewView: PreviewView
     private val overlayView: OverlayView
     private var cameraController: CameraController? = null
+    private val lifecycleRegistry = LifecycleRegistry(this)
 
     // Props (matching iOS)
     var overlayColor: Int = Color.parseColor("#80FFFFFF")
@@ -53,6 +56,8 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
         private const val TAG = "DocumentScannerView"
     }
 
+    override fun getLifecycle(): Lifecycle = lifecycleRegistry
+
     init {
         // Create preview view
         previewView = PreviewView(context).apply {
@@ -69,20 +74,20 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
         post {
             setupCamera()
         }
+
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
     }
 
     private fun setupCamera() {
         try {
-            val lifecycleOwner = context as? LifecycleOwner ?: run {
-                Log.e(TAG, "Context is not a LifecycleOwner")
-                return
-            }
-
-            cameraController = CameraController(context, lifecycleOwner, previewView)
+            cameraController = CameraController(context, this, previewView)
             cameraController?.onFrameAnalyzed = { rectangle, imageWidth, imageHeight ->
                 handleDetectionResult(rectangle, imageWidth, imageHeight)
             }
             lastDetectionTimestamp = 0L
+            if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
+                lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+            }
             cameraController?.startCamera(isUsingFrontCamera, true)
             if (isTorchEnabled) {
                 cameraController?.setTorchEnabled(true)
@@ -91,6 +96,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
             Log.d(TAG, "Camera setup completed")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to setup camera", e)
+            lifecycleRegistry.currentState = Lifecycle.State.CREATED
         }
     }
 
@@ -341,17 +347,22 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context) {
         if (isTorchEnabled) {
             cameraController?.setTorchEnabled(true)
         }
+        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
     }
 
     fun stopCamera() {
         cameraController?.stopCamera()
         overlayView.setRectangle(null, overlayColor)
         stableCounter = 0
+        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
+            lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         stopCamera()
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         cameraController?.shutdown()
         scope.cancel()
     }

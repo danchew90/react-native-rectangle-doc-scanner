@@ -243,6 +243,7 @@ class DocumentDetector {
         /**
          * Transform rectangle coordinates from image space to view space
          */
+        @Suppress("UNUSED_PARAMETER")
         fun transformRectangleToViewCoordinates(
             rectangle: Rectangle,
             imageWidth: Int,
