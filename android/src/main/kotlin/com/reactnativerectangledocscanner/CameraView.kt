@@ -62,7 +62,7 @@ class CameraView(context: Context) : FrameLayout(context), LifecycleOwner {
         addView(overlayView)
 
         Log.d(TAG, "CameraView initialized")
-        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
     }
 
     /**
@@ -91,7 +91,8 @@ class CameraView(context: Context) : FrameLayout(context), LifecycleOwner {
     fun stopCamera() {
         cameraProvider?.unbindAll()
         if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
-            lifecycleRegistry.currentState = Lifecycle.State.CREATED
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         }
     }
 
@@ -114,6 +115,11 @@ class CameraView(context: Context) : FrameLayout(context), LifecycleOwner {
 
         // Unbind all before rebinding
         provider.unbindAll()
+
+        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        }
 
         // Preview use case
         preview = Preview.Builder()
@@ -222,7 +228,7 @@ class CameraView(context: Context) : FrameLayout(context), LifecycleOwner {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         stopCamera()
-        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         if (!cameraExecutor.isShutdown) {
             cameraExecutor.shutdown()
         }
