@@ -81,8 +81,6 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             implementationMode = PreviewView.ImplementationMode.PERFORMANCE
             visibility = View.VISIBLE
             keepScreenOn = true
-            // Ensure the preview stays behind overlays even if SurfaceFlinger reorders surfaces
-            setZOrderOnTop(false)
             requestLayout()
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
