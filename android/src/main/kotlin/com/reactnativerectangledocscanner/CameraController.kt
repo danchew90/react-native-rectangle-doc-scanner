@@ -145,6 +145,7 @@ class CameraController(
             Log.d(TAG, "[BIND] PreviewView.surfaceProvider: ${previewView.surfaceProvider}")
             Log.d(TAG, "[BIND] PreviewView attached to window: ${previewView.isAttachedToWindow}")
             Log.d(TAG, "[BIND] PreviewView size: ${previewView.width}x${previewView.height}")
+            Log.d(TAG, "[BIND] PreviewView implementationMode: ${previewView.implementationMode}")
             // Unbind all use cases before rebinding
             Log.d(TAG, "[BIND] Unbinding all existing use cases...")
             cameraProvider.unbindAll()
@@ -167,10 +168,15 @@ class CameraController(
             Log.d(TAG, "[BIND] Setting surface provider to previewView...")
             Log.d(TAG, "[BIND] PreviewView: $previewView")
             Log.d(TAG, "[BIND] PreviewView.surfaceProvider: ${previewView.surfaceProvider}")
-            // Devices with the SurfaceOrderQuirk expect the preview surface to be set last.
-            // Apply the SurfaceProvider after binding so the preview stays on top.
-            preview.setSurfaceProvider(previewView.surfaceProvider)
-            Log.d(TAG, "[BIND] Surface provider set successfully")
+            // TextureView(Compatibility) 모드에서는 SurfaceProvider를 먼저 지정해도 순서 문제가 없다.
+            // PERFORMANCE 모드(SurfaceView)에서는 SurfaceOrderQuirk 대응을 위해 바인딩 이후에 지정한다.
+            if (previewView.implementationMode == PreviewView.ImplementationMode.COMPATIBLE) {
+                preview.setSurfaceProvider(previewView.surfaceProvider)
+                Log.d(TAG, "[BIND] Surface provider set immediately (COMPATIBLE mode)")
+            } else {
+                preview.setSurfaceProvider(previewView.surfaceProvider)
+                Log.d(TAG, "[BIND] Surface provider set after binding (PERFORMANCE mode)")
+            }
 
             // Restore torch state if it was enabled
             if (torchEnabled) {
