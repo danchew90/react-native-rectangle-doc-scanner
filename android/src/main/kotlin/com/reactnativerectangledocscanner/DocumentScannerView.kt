@@ -83,7 +83,6 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             keepScreenOn = true
             // Force view to be drawn
             setWillNotDraw(false)
-            isOpaque = true
             requestLayout()
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
