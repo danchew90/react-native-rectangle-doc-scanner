@@ -61,6 +61,9 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     override fun getLifecycle(): Lifecycle = lifecycleRegistry
 
     init {
+        // Initialize lifecycle FIRST
+        lifecycleRegistry.currentState = Lifecycle.State.INITIALIZED
+
         // Create preview view
         previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
@@ -72,41 +75,31 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         overlayView = OverlayView(context)
         addView(overlayView)
 
-        // Setup camera
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        Log.d(TAG, "onAttachedToWindow called")
+
+        // Setup and start camera when view is attached
         post {
             setupCamera()
+            startCamera()
         }
-
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
     }
 
     private fun setupCamera() {
         try {
-            // Move to STARTED state first
-            if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
-                lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
-            }
-
             cameraController = CameraController(context, this, previewView)
             cameraController?.onFrameAnalyzed = { rectangle, imageWidth, imageHeight ->
                 handleDetectionResult(rectangle, imageWidth, imageHeight)
             }
             lastDetectionTimestamp = 0L
 
-            // Move to RESUMED state before starting camera
-            if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
-                lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
-            }
-
-            cameraController?.startCamera(isUsingFrontCamera, true)
-            if (isTorchEnabled) {
-                cameraController?.setTorchEnabled(true)
-            }
-
             Log.d(TAG, "Camera setup completed")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to setup camera", e)
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         }
     }
 
@@ -366,13 +359,18 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             handleDetectionResult(rectangle, imageWidth, imageHeight)
         }
 
-        // Ensure proper lifecycle state before starting camera
-        if (lifecycleRegistry.currentState == Lifecycle.State.CREATED) {
-            lifecycleRegistry.currentState = Lifecycle.State.STARTED
-        }
-        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        // Transition lifecycle states properly
+        when (lifecycleRegistry.currentState) {
+            Lifecycle.State.CREATED -> {
+                lifecycleRegistry.currentState = Lifecycle.State.STARTED
+                lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+            }
+            Lifecycle.State.STARTED -> {
+                lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+            }
+            else -> {
+                // Already RESUMED or destroyed
+            }
         }
 
         cameraController?.startCamera(isUsingFrontCamera, true)
@@ -386,10 +384,20 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             cameraController?.stopCamera()
             overlayView.setRectangle(null, overlayColor)
             stableCounter = 0
-        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
-        }
+
+            // Transition lifecycle back
+            when (lifecycleRegistry.currentState) {
+                Lifecycle.State.RESUMED -> {
+                    lifecycleRegistry.currentState = Lifecycle.State.STARTED
+                    lifecycleRegistry.currentState = Lifecycle.State.CREATED
+                }
+                Lifecycle.State.STARTED -> {
+                    lifecycleRegistry.currentState = Lifecycle.State.CREATED
+                }
+                else -> {
+                    // Already CREATED or destroyed
+                }
+            }
         } else {
             Log.d(TAG, "Cannot stop camera while capturing")
         }
@@ -422,7 +430,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     private fun performCleanup() {
         Log.d(TAG, "Performing cleanup")
         cameraController?.stopCamera()
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         cameraController?.shutdown()
         scope.cancel()
     }
