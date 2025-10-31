@@ -8,6 +8,7 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import java.io.File
 import java.util.concurrent.ExecutorService
@@ -68,6 +69,13 @@ class CameraController(
     private fun bindCameraUseCases(enableDetection: Boolean) {
         val cameraProvider = cameraProvider ?: return
 
+        // Check lifecycle state
+        val lifecycle = lifecycleOwner.lifecycle
+        if (lifecycle.currentState == Lifecycle.State.DESTROYED) {
+            Log.e(TAG, "Cannot bind camera - lifecycle is destroyed")
+            return
+        }
+
         // Select camera
         val cameraSelector = if (useFrontCamera) {
             CameraSelector.DEFAULT_FRONT_CAMERA
@@ -79,14 +87,12 @@ class CameraController(
         val preview = Preview.Builder()
             .setTargetResolution(Size(1080, 1920))
             .build()
-            .also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
 
         // Image capture use case (high resolution for document scanning)
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             .setTargetResolution(Size(1920, 2560))
+            .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
             .build()
 
         // Image analysis use case for rectangle detection
@@ -121,12 +127,15 @@ class CameraController(
                 *useCases.toTypedArray()
             )
 
+            // Set surface provider AFTER binding to lifecycle
+            preview.setSurfaceProvider(previewView.surfaceProvider)
+
             // Restore torch state if it was enabled
             if (torchEnabled) {
                 setTorchEnabled(true)
             }
 
-            Log.d(TAG, "Camera started successfully")
+            Log.d(TAG, "Camera started successfully, hasFlashUnit: ${camera?.cameraInfo?.hasFlashUnit()}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to bind camera use cases", e)
         }

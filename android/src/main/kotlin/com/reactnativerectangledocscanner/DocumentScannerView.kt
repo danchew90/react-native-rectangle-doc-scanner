@@ -19,6 +19,7 @@ import com.facebook.react.bridge.WritableMap
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.events.RCTEventEmitter
 import kotlinx.coroutines.*
+import kotlinx.coroutines.delay
 import java.io.File
 import kotlin.math.min
 
@@ -48,6 +49,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     private var stableCounter = 0
     private var lastDetectionTimestamp: Long = 0L
     private var isCapturing = false
+    private var isDetaching = false
 
     // Coroutine scope for async operations
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -181,6 +183,12 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             return
         }
 
+        if (isDetaching) {
+            Log.d(TAG, "View is detaching, cannot capture")
+            promise?.reject("VIEW_DETACHING", "View is being removed")
+            return
+        }
+
         isCapturing = true
         Log.d(TAG, "Capture initiated with promise: ${promise != null}")
 
@@ -193,8 +201,14 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         cameraController?.capturePhoto(
             outputDirectory = outputDir,
             onImageCaptured = { file ->
-                scope.launch {
-                    processAndEmitImage(file, promise)
+                if (!isDetaching) {
+                    scope.launch {
+                        processAndEmitImage(file, promise)
+                    }
+                } else {
+                    Log.d(TAG, "View detaching, skipping image processing")
+                    isCapturing = false
+                    promise?.reject("VIEW_DETACHING", "View was removed during capture")
                 }
             },
             onError = { exception ->
@@ -351,17 +365,45 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     }
 
     fun stopCamera() {
-        cameraController?.stopCamera()
-        overlayView.setRectangle(null, overlayColor)
-        stableCounter = 0
-        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
-            lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        if (!isCapturing) {
+            cameraController?.stopCamera()
+            overlayView.setRectangle(null, overlayColor)
+            stableCounter = 0
+            if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
+                lifecycleRegistry.currentState = Lifecycle.State.CREATED
+            }
+        } else {
+            Log.d(TAG, "Cannot stop camera while capturing")
         }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        stopCamera()
+        Log.d(TAG, "onDetachedFromWindow called, isCapturing: $isCapturing")
+
+        // Mark as detaching to prevent new captures
+        isDetaching = true
+
+        // Wait for any ongoing capture to complete before cleaning up
+        if (isCapturing) {
+            Log.d(TAG, "Waiting for capture to complete before cleanup...")
+            // Use a coroutine to wait briefly for capture to complete
+            scope.launch {
+                var waitCount = 0
+                while (isCapturing && waitCount < 20) { // Wait up to 2 seconds
+                    delay(100)
+                    waitCount++
+                }
+                performCleanup()
+            }
+        } else {
+            performCleanup()
+        }
+    }
+
+    private fun performCleanup() {
+        Log.d(TAG, "Performing cleanup")
+        cameraController?.stopCamera()
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         cameraController?.shutdown()
         scope.cancel()
