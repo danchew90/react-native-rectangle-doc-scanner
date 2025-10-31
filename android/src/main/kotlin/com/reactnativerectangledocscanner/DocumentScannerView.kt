@@ -82,9 +82,14 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             // PERFORMANCE mode keeps the preview visible while still allowing us
             // to draw our overlay on top.
             implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+            // Force visibility to ensure the view is rendered
+            visibility = View.VISIBLE
+            // Request layout to ensure proper sizing
+            requestLayout()
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
         Log.d(TAG, "[INIT] PreviewView implementationMode: ${previewView.implementationMode}")
+        Log.d(TAG, "[INIT] PreviewView visibility: ${previewView.visibility}")
 
         Log.d(TAG, "[INIT] Adding PreviewView to parent...")
         addView(previewView)
@@ -113,15 +118,26 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         Log.d(TAG, "This view: width=$width, height=$height")
         Log.d(TAG, "========================================")
 
-        // Setup and start camera when view is attached
-        post {
-            Log.d(TAG, "[POST] Starting camera setup...")
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
-            setupCamera()
-            startCamera()
-        }
+        // Update lifecycle
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+
+        // Wait for view to be laid out before starting camera
+        viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                viewTreeObserver.removeOnGlobalLayoutListener(this)
+
+                if (width > 0 && height > 0 && previewView.width > 0 && previewView.height > 0) {
+                    Log.d(TAG, "[LAYOUT] View laid out: width=$width, height=$height")
+                    Log.d(TAG, "[LAYOUT] PreviewView: width=${previewView.width}, height=${previewView.height}")
+                    setupCamera()
+                    startCamera()
+                } else {
+                    Log.e(TAG, "[LAYOUT] View or PreviewView has invalid dimensions")
+                }
+            }
+        })
     }
 
     private fun setupCamera() {
