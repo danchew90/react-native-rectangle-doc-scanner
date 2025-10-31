@@ -99,9 +99,10 @@ class CameraView(context: Context) : FrameLayout(context), LifecycleOwner {
      * Bind camera use cases
      */
     private fun bindCamera() {
-        val lifecycleOwner = when (context) {
-            is LifecycleOwner -> context as LifecycleOwner
-            is ThemedReactContext -> context.currentActivity as? LifecycleOwner ?: context as? LifecycleOwner
+        val ctx = context
+        val lifecycleOwner = when {
+            ctx is LifecycleOwner -> ctx
+            ctx is ThemedReactContext -> ctx.currentActivity as? LifecycleOwner ?: ctx as? LifecycleOwner
             else -> null
         }
         if (lifecycleOwner == null) {
@@ -207,13 +208,14 @@ class CameraView(context: Context) : FrameLayout(context), LifecycleOwner {
                     onRectangleDetected?.invoke(transformedRectangle)
                 }
             } catch (e: Exception) {
-            Log.e(TAG, "Failed to analyze frame", e)
-            post {
-                overlayView.setDetectedRectangle(null)
-                onRectangleDetected?.invoke(null)
+                Log.e(TAG, "Failed to analyze frame", e)
+                post {
+                    overlayView.setDetectedRectangle(null)
+                    onRectangleDetected?.invoke(null)
+                }
+            } finally {
+                imageProxy.close()
             }
-        } finally {
-            imageProxy.close()
         }
     }
 
@@ -224,7 +226,6 @@ class CameraView(context: Context) : FrameLayout(context), LifecycleOwner {
         if (!cameraExecutor.isShutdown) {
             cameraExecutor.shutdown()
         }
-    }
     }
 
     /**
