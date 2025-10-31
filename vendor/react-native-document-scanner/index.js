@@ -10,8 +10,17 @@ import {
 } from 'react-native';
 import PropTypes from 'prop-types';
 
-const RNPdfScanner = requireNativeComponent('RNPdfScanner', PdfScanner);
+console.log('[PdfScanner] Attempting to require native component RNPdfScanner...');
+let RNPdfScanner;
+try {
+  RNPdfScanner = requireNativeComponent('RNPdfScanner', PdfScanner);
+  console.log('[PdfScanner] Native component RNPdfScanner loaded successfully:', RNPdfScanner);
+} catch (error) {
+  console.error('[PdfScanner] Failed to load native component RNPdfScanner:', error);
+  throw error;
+}
 const CameraManager = NativeModules.RNPdfScannerManager || {};
+console.log('[PdfScanner] CameraManager:', CameraManager);
 
 class PdfScanner extends React.Component {
   constructor(props) {
