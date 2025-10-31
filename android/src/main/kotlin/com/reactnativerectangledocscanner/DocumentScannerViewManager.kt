@@ -10,7 +10,7 @@ import com.facebook.react.uimanager.annotations.ReactProp
 class DocumentScannerViewManager : SimpleViewManager<DocumentScannerView>() {
 
     companion object {
-        const val REACT_CLASS = "RNPdfScannerManager"
+        const val REACT_CLASS = "RNPdfScanner"
     }
 
     override fun getName() = REACT_CLASS

@@ -79,21 +79,42 @@ class PdfScanner extends React.Component {
       return;
     }
     try {
-      const granted = await PermissionsAndroid.requestMultiple([
+      const requestedPermissions = [
         PermissionsAndroid.PERMISSIONS.CAMERA,
-        PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
-        PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-      ]);
+      ];
+
+      const isTiramisuOrNewer = Platform.Version >= 33;
+
+      if (isTiramisuOrNewer) {
+        // Android 13+: storage permissions split by media type. Request images access.
+        if (PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES) {
+          requestedPermissions.push(PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES);
+        }
+      } else {
+        if (PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE) {
+          requestedPermissions.push(PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE);
+        }
+        if (PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE) {
+          requestedPermissions.push(PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE);
+        }
+      }
+
+      const granted = await PermissionsAndroid.requestMultiple(requestedPermissions);
 
       const cameraGranted =
         granted['android.permission.CAMERA'] ===
         PermissionsAndroid.RESULTS.GRANTED;
-      const readGranted =
-        granted['android.permission.READ_EXTERNAL_STORAGE'] ===
-        PermissionsAndroid.RESULTS.GRANTED;
-      const writeGranted =
-        granted['android.permission.WRITE_EXTERNAL_STORAGE'] ===
-        PermissionsAndroid.RESULTS.GRANTED;
+
+      const readGranted = isTiramisuOrNewer
+        ? granted['android.permission.READ_MEDIA_IMAGES'] === PermissionsAndroid.RESULTS.GRANTED ||
+          granted['android.permission.READ_MEDIA_IMAGES'] === undefined
+        : granted['android.permission.READ_EXTERNAL_STORAGE'] === PermissionsAndroid.RESULTS.GRANTED ||
+          granted['android.permission.READ_EXTERNAL_STORAGE'] === undefined;
+
+      const writeGranted = isTiramisuOrNewer
+        ? true // WRITE_EXTERNAL_STORAGE is deprecated on API 33+
+        : granted['android.permission.WRITE_EXTERNAL_STORAGE'] === PermissionsAndroid.RESULTS.GRANTED ||
+          granted['android.permission.WRITE_EXTERNAL_STORAGE'] === undefined;
 
       if (cameraGranted && readGranted && writeGranted) {
         this.setState({ permissionsAuthorized: true });
