@@ -141,15 +141,10 @@ class CameraController(
         }
 
         try {
-            // Set surface provider BEFORE binding to lifecycle
-            Log.d(TAG, "[BIND] Setting surface provider to previewView...")
             Log.d(TAG, "[BIND] PreviewView: $previewView")
             Log.d(TAG, "[BIND] PreviewView.surfaceProvider: ${previewView.surfaceProvider}")
             Log.d(TAG, "[BIND] PreviewView attached to window: ${previewView.isAttachedToWindow}")
             Log.d(TAG, "[BIND] PreviewView size: ${previewView.width}x${previewView.height}")
-            preview.setSurfaceProvider(previewView.surfaceProvider)
-            Log.d(TAG, "[BIND] Surface provider set successfully")
-
             // Unbind all use cases before rebinding
             Log.d(TAG, "[BIND] Unbinding all existing use cases...")
             cameraProvider.unbindAll()
@@ -168,6 +163,14 @@ class CameraController(
                 *useCases.toTypedArray()
             )
             Log.d(TAG, "[BIND] Bound to lifecycle successfully, camera: $camera")
+
+            Log.d(TAG, "[BIND] Setting surface provider to previewView...")
+            Log.d(TAG, "[BIND] PreviewView: $previewView")
+            Log.d(TAG, "[BIND] PreviewView.surfaceProvider: ${previewView.surfaceProvider}")
+            // Devices with the SurfaceOrderQuirk expect the preview surface to be set last.
+            // Apply the SurfaceProvider after binding so the preview stays on top.
+            preview.setSurfaceProvider(previewView.surfaceProvider)
+            Log.d(TAG, "[BIND] Surface provider set successfully")
 
             // Restore torch state if it was enabled
             if (torchEnabled) {
