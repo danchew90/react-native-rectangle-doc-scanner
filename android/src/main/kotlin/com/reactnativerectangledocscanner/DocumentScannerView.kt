@@ -77,8 +77,8 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             scaleType = PreviewView.ScaleType.FILL_CENTER
-            // SurfaceView backed preview avoids black frames on some MediaTek devices
-            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+            // TextureView (COMPATIBLE) avoids Surface ordering issues observed on some MediaTek devices
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
             visibility = View.VISIBLE
             keepScreenOn = true
             requestLayout()
