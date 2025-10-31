@@ -146,6 +146,12 @@ class CameraController(
             Log.d(TAG, "[BIND] PreviewView attached to window: ${previewView.isAttachedToWindow}")
             Log.d(TAG, "[BIND] PreviewView size: ${previewView.width}x${previewView.height}")
             Log.d(TAG, "[BIND] PreviewView implementationMode: ${previewView.implementationMode}")
+
+            // Set surface provider FIRST, before binding - this is critical
+            Log.d(TAG, "[BIND] Setting surface provider BEFORE binding...")
+            preview.setSurfaceProvider(previewView.surfaceProvider)
+            Log.d(TAG, "[BIND] Surface provider set successfully")
+
             // Unbind all use cases before rebinding
             Log.d(TAG, "[BIND] Unbinding all existing use cases...")
             cameraProvider.unbindAll()
@@ -164,20 +170,6 @@ class CameraController(
                 *useCases.toTypedArray()
             )
             Log.d(TAG, "[BIND] Bound to lifecycle successfully, camera: $camera")
-
-            // Set surface provider AFTER binding for all modes
-            // This ensures the camera is ready to receive the surface
-            Log.d(TAG, "[BIND] Binding completed, now setting surface provider...")
-            Log.d(TAG, "[BIND] PreviewView: $previewView")
-            Log.d(TAG, "[BIND] PreviewView.surfaceProvider: ${previewView.surfaceProvider}")
-            Log.d(TAG, "[BIND] PreviewView.implementationMode: ${previewView.implementationMode}")
-
-            // Use postDelayed to ensure surface is ready (especially for SurfaceView)
-            previewView.post {
-                Log.d(TAG, "[BIND] Setting surface provider on UI thread...")
-                preview.setSurfaceProvider(previewView.surfaceProvider)
-                Log.d(TAG, "[BIND] Surface provider set successfully")
-            }
 
             // Restore torch state if it was enabled
             if (torchEnabled) {
