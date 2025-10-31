@@ -78,6 +78,7 @@ class PdfScanner extends React.Component {
     if (Platform.OS !== 'android') {
       return;
     }
+    console.log('[PdfScanner] getAndroidPermissions called');
     try {
       const requestedPermissions = [
         PermissionsAndroid.PERMISSIONS.CAMERA,
@@ -99,7 +100,9 @@ class PdfScanner extends React.Component {
         }
       }
 
+      console.log('[PdfScanner] Requesting permissions:', requestedPermissions);
       const granted = await PermissionsAndroid.requestMultiple(requestedPermissions);
+      console.log('[PdfScanner] Permission results:', granted);
 
       const cameraGranted =
         granted['android.permission.CAMERA'] ===
@@ -116,12 +119,17 @@ class PdfScanner extends React.Component {
         : granted['android.permission.WRITE_EXTERNAL_STORAGE'] === PermissionsAndroid.RESULTS.GRANTED ||
           granted['android.permission.WRITE_EXTERNAL_STORAGE'] === undefined;
 
+      console.log('[PdfScanner] Permission check:', { cameraGranted, readGranted, writeGranted });
+
       if (cameraGranted && readGranted && writeGranted) {
+        console.log('[PdfScanner] All permissions granted, setting permissionsAuthorized to true');
         this.setState({ permissionsAuthorized: true });
       } else {
+        console.log('[PdfScanner] Some permissions denied');
         this.onPermissionsDenied();
       }
     } catch (err) {
+      console.error('[PdfScanner] Permission error:', err);
       this.onPermissionsDenied();
     }
   }
@@ -184,9 +192,12 @@ class PdfScanner extends React.Component {
   }
 
   render() {
+    console.log('[PdfScanner] render() called, permissionsAuthorized:', this.state.permissionsAuthorized);
     if (!this.state.permissionsAuthorized) {
+      console.log('[PdfScanner] Permissions not authorized, returning null');
       return null;
     }
+    console.log('[PdfScanner] Rendering RNPdfScanner native component');
     const { onLayout, ...restProps } = this.props;
     return (
       <RNPdfScanner
