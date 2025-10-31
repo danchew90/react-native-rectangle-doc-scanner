@@ -210,6 +210,7 @@ class PdfScanner extends React.Component {
     const { onLayout, ...restProps } = this.props;
     const component = (
       <RNPdfScanner
+        collapsable={false}
         ref={(ref) => {
           console.log('[PdfScanner] ref callback called with:', ref);
           this.nativeRef = ref;
