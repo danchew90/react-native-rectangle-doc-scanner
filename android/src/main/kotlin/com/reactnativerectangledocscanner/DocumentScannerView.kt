@@ -77,6 +77,8 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             scaleType = PreviewView.ScaleType.FILL_CENTER
+            // Use TextureView instead of SurfaceView for better compatibility with React Native
+            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
 
