@@ -41,16 +41,29 @@ class CameraController(
         useFrontCam: Boolean = false,
         enableDetection: Boolean = true
     ) {
+        Log.d(TAG, "========================================")
+        Log.d(TAG, "[CAMERA_CONTROLLER] startCamera called")
+        Log.d(TAG, "[CAMERA_CONTROLLER] useFrontCam: $useFrontCam")
+        Log.d(TAG, "[CAMERA_CONTROLLER] enableDetection: $enableDetection")
+        Log.d(TAG, "[CAMERA_CONTROLLER] lifecycleOwner: $lifecycleOwner")
+        Log.d(TAG, "[CAMERA_CONTROLLER] lifecycleOwner.lifecycle.currentState: ${lifecycleOwner.lifecycle.currentState}")
+        Log.d(TAG, "========================================")
+
         this.useFrontCamera = useFrontCam
 
+        Log.d(TAG, "[CAMERA_CONTROLLER] Getting ProcessCameraProvider instance...")
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
         cameraProviderFuture.addListener({
             try {
+                Log.d(TAG, "[CAMERA_CONTROLLER] ProcessCameraProvider future resolved")
                 cameraProvider = cameraProviderFuture.get()
+                Log.d(TAG, "[CAMERA_CONTROLLER] Got cameraProvider: $cameraProvider")
+                Log.d(TAG, "[CAMERA_CONTROLLER] Calling bindCameraUseCases...")
                 bindCameraUseCases(enableDetection)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start camera", e)
+                Log.e(TAG, "[CAMERA_CONTROLLER] Failed to start camera", e)
+                e.printStackTrace()
             }
         }, ContextCompat.getMainExecutor(context))
     }
@@ -67,12 +80,20 @@ class CameraController(
      * Bind camera use cases (preview, capture, analysis)
      */
     private fun bindCameraUseCases(enableDetection: Boolean) {
-        val cameraProvider = cameraProvider ?: return
+        Log.d(TAG, "[BIND] bindCameraUseCases called")
+        Log.d(TAG, "[BIND] enableDetection: $enableDetection")
+
+        val cameraProvider = cameraProvider
+        if (cameraProvider == null) {
+            Log.e(TAG, "[BIND] cameraProvider is null, returning")
+            return
+        }
 
         // Check lifecycle state
         val lifecycle = lifecycleOwner.lifecycle
+        Log.d(TAG, "[BIND] Lifecycle current state: ${lifecycle.currentState}")
         if (lifecycle.currentState == Lifecycle.State.DESTROYED) {
-            Log.e(TAG, "Cannot bind camera - lifecycle is destroyed")
+            Log.e(TAG, "[BIND] Cannot bind camera - lifecycle is destroyed")
             return
         }
 
@@ -82,21 +103,27 @@ class CameraController(
         } else {
             CameraSelector.DEFAULT_BACK_CAMERA
         }
+        Log.d(TAG, "[BIND] Camera selector: ${if (useFrontCamera) "FRONT" else "BACK"}")
 
         // Preview use case
+        Log.d(TAG, "[BIND] Creating Preview use case...")
         val preview = Preview.Builder()
             .setTargetResolution(Size(1080, 1920))
             .build()
+        Log.d(TAG, "[BIND] Preview created: $preview")
 
         // Image capture use case (high resolution for document scanning)
+        Log.d(TAG, "[BIND] Creating ImageCapture use case...")
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             .setTargetResolution(Size(1920, 2560))
             .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
             .build()
+        Log.d(TAG, "[BIND] ImageCapture created: $imageCapture")
 
         // Image analysis use case for rectangle detection
         imageAnalysis = if (enableDetection) {
+            Log.d(TAG, "[BIND] Creating ImageAnalysis use case...")
             ImageAnalysis.Builder()
                 .setTargetResolution(Size(720, 1280))
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -106,13 +133,16 @@ class CameraController(
                     analysis.setAnalyzer(cameraExecutor) { imageProxy ->
                         analyzeFrame(imageProxy)
                     }
+                    Log.d(TAG, "[BIND] ImageAnalysis created and analyzer set: $analysis")
                 }
         } else {
+            Log.d(TAG, "[BIND] ImageAnalysis disabled")
             null
         }
 
         try {
             // Unbind all use cases before rebinding
+            Log.d(TAG, "[BIND] Unbinding all existing use cases...")
             cameraProvider.unbindAll()
 
             // Bind use cases to camera
@@ -120,24 +150,36 @@ class CameraController(
             if (imageAnalysis != null) {
                 useCases.add(imageAnalysis!!)
             }
+            Log.d(TAG, "[BIND] Total use cases to bind: ${useCases.size}")
 
+            Log.d(TAG, "[BIND] Binding to lifecycle...")
             camera = cameraProvider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 *useCases.toTypedArray()
             )
+            Log.d(TAG, "[BIND] Bound to lifecycle successfully, camera: $camera")
 
             // Set surface provider AFTER binding to lifecycle
+            Log.d(TAG, "[BIND] Setting surface provider to previewView...")
+            Log.d(TAG, "[BIND] PreviewView: $previewView")
+            Log.d(TAG, "[BIND] PreviewView.surfaceProvider: ${previewView.surfaceProvider}")
             preview.setSurfaceProvider(previewView.surfaceProvider)
+            Log.d(TAG, "[BIND] Surface provider set successfully")
 
             // Restore torch state if it was enabled
             if (torchEnabled) {
+                Log.d(TAG, "[BIND] Restoring torch state...")
                 setTorchEnabled(true)
             }
 
-            Log.d(TAG, "Camera started successfully, hasFlashUnit: ${camera?.cameraInfo?.hasFlashUnit()}")
+            Log.d(TAG, "[BIND] ========================================")
+            Log.d(TAG, "[BIND] Camera started successfully!")
+            Log.d(TAG, "[BIND] hasFlashUnit: ${camera?.cameraInfo?.hasFlashUnit()}")
+            Log.d(TAG, "[BIND] ========================================")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to bind camera use cases", e)
+            Log.e(TAG, "[BIND] Failed to bind camera use cases", e)
+            e.printStackTrace()
         }
     }
 

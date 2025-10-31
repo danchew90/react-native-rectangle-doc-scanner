@@ -80,10 +80,16 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        Log.d(TAG, "========================================")
         Log.d(TAG, "onAttachedToWindow called")
+        Log.d(TAG, "Current lifecycle state: ${lifecycleRegistry.currentState}")
+        Log.d(TAG, "PreviewView: width=${previewView.width}, height=${previewView.height}")
+        Log.d(TAG, "This view: width=$width, height=$height")
+        Log.d(TAG, "========================================")
 
         // Setup and start camera when view is attached
         post {
+            Log.d(TAG, "[POST] Starting camera setup...")
             setupCamera()
             startCamera()
         }
@@ -91,15 +97,24 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
 
     private fun setupCamera() {
         try {
+            Log.d(TAG, "[SETUP] Creating CameraController...")
+            Log.d(TAG, "[SETUP] Context: $context")
+            Log.d(TAG, "[SETUP] LifecycleOwner: $this")
+            Log.d(TAG, "[SETUP] PreviewView: $previewView")
+
             cameraController = CameraController(context, this, previewView)
+
+            Log.d(TAG, "[SETUP] CameraController created: $cameraController")
+
             cameraController?.onFrameAnalyzed = { rectangle, imageWidth, imageHeight ->
                 handleDetectionResult(rectangle, imageWidth, imageHeight)
             }
             lastDetectionTimestamp = 0L
 
-            Log.d(TAG, "Camera setup completed")
+            Log.d(TAG, "[SETUP] Camera setup completed successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to setup camera", e)
+            Log.e(TAG, "[SETUP] Failed to setup camera", e)
+            e.printStackTrace()
         }
     }
 
@@ -354,29 +369,51 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     }
 
     fun startCamera() {
+        Log.d(TAG, "[START_CAMERA] Starting camera...")
+        Log.d(TAG, "[START_CAMERA] Current lifecycle state: ${lifecycleRegistry.currentState}")
+        Log.d(TAG, "[START_CAMERA] isUsingFrontCamera: $isUsingFrontCamera")
+        Log.d(TAG, "[START_CAMERA] isTorchEnabled: $isTorchEnabled")
+        Log.d(TAG, "[START_CAMERA] CameraController: $cameraController")
+
         lastDetectionTimestamp = 0L
         cameraController?.onFrameAnalyzed = { rectangle, imageWidth, imageHeight ->
             handleDetectionResult(rectangle, imageWidth, imageHeight)
         }
 
         // Transition lifecycle states properly
+        val previousState = lifecycleRegistry.currentState
         when (lifecycleRegistry.currentState) {
             Lifecycle.State.CREATED -> {
+                Log.d(TAG, "[START_CAMERA] Transitioning CREATED -> STARTED")
                 lifecycleRegistry.currentState = Lifecycle.State.STARTED
+                Log.d(TAG, "[START_CAMERA] Transitioning STARTED -> RESUMED")
                 lifecycleRegistry.currentState = Lifecycle.State.RESUMED
             }
             Lifecycle.State.STARTED -> {
+                Log.d(TAG, "[START_CAMERA] Transitioning STARTED -> RESUMED")
                 lifecycleRegistry.currentState = Lifecycle.State.RESUMED
             }
             else -> {
-                // Already RESUMED or destroyed
+                Log.d(TAG, "[START_CAMERA] Already in state: ${lifecycleRegistry.currentState}")
             }
         }
+        Log.d(TAG, "[START_CAMERA] Lifecycle transitioned: $previousState -> ${lifecycleRegistry.currentState}")
 
-        cameraController?.startCamera(isUsingFrontCamera, true)
+        Log.d(TAG, "[START_CAMERA] Calling CameraController.startCamera()...")
+        try {
+            cameraController?.startCamera(isUsingFrontCamera, true)
+            Log.d(TAG, "[START_CAMERA] CameraController.startCamera() completed")
+        } catch (e: Exception) {
+            Log.e(TAG, "[START_CAMERA] Failed to start camera", e)
+            e.printStackTrace()
+        }
+
         if (isTorchEnabled) {
+            Log.d(TAG, "[START_CAMERA] Enabling torch...")
             cameraController?.setTorchEnabled(true)
         }
+
+        Log.d(TAG, "[START_CAMERA] Camera start completed")
     }
 
     fun stopCamera() {
