@@ -1,6 +1,7 @@
 package com.reactnativerectangledocscanner
 
 import android.graphics.Color
+import android.util.Log
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.common.MapBuilder
 import com.facebook.react.uimanager.SimpleViewManager
@@ -11,12 +12,19 @@ class DocumentScannerViewManager : SimpleViewManager<DocumentScannerView>() {
 
     companion object {
         const val REACT_CLASS = "RNPdfScanner"
+        private const val TAG = "DocScannerViewManager"
     }
 
     override fun getName() = REACT_CLASS
 
     override fun createViewInstance(reactContext: ThemedReactContext): DocumentScannerView {
-        return DocumentScannerView(reactContext)
+        Log.d(TAG, "╔════════════════════════════════════════╗")
+        Log.d(TAG, "║  createViewInstance CALLED             ║")
+        Log.d(TAG, "╚════════════════════════════════════════╝")
+        Log.d(TAG, "[CREATE] reactContext: $reactContext")
+        val view = DocumentScannerView(reactContext)
+        Log.d(TAG, "[CREATE] DocumentScannerView created: $view")
+        return view
     }
 
     @ReactProp(name = "overlayColor", customType = "Color")
