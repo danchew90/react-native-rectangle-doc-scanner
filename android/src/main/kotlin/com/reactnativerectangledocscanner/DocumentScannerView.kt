@@ -77,7 +77,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             scaleType = PreviewView.ScaleType.FILL_CENTER
-            preferredImplementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
         Log.d(TAG, "[INIT] PreviewView implementationMode: ${previewView.implementationMode}")
