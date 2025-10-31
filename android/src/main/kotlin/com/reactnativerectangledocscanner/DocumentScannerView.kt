@@ -119,21 +119,42 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
 
-        // Wait for view to be laid out before starting camera
-        viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
-                viewTreeObserver.removeOnGlobalLayoutListener(this)
+        // Initialize camera immediately or on next layout
+        initializeCameraWhenReady()
+    }
 
-                if (width > 0 && height > 0 && previewView.width > 0 && previewView.height > 0) {
-                    Log.d(TAG, "[LAYOUT] View laid out: width=$width, height=$height")
-                    Log.d(TAG, "[LAYOUT] PreviewView: width=${previewView.width}, height=${previewView.height}")
+    private fun initializeCameraWhenReady() {
+        // If view is already laid out, start camera immediately
+        if (width > 0 && height > 0) {
+            Log.d(TAG, "[INIT] View already laid out, starting camera immediately")
+            Log.d(TAG, "[INIT] View: width=$width, height=$height")
+            Log.d(TAG, "[INIT] PreviewView: width=${previewView.width}, height=${previewView.height}")
+            setupCamera()
+            startCamera()
+        } else {
+            // Otherwise, wait for layout
+            Log.d(TAG, "[INIT] View not laid out yet, waiting for layout")
+            post {
+                if (width > 0 && height > 0) {
+                    Log.d(TAG, "[INIT] View laid out after post: width=$width, height=$height")
                     setupCamera()
                     startCamera()
                 } else {
-                    Log.e(TAG, "[LAYOUT] View or PreviewView has invalid dimensions")
+                    // Fallback: use ViewTreeObserver if still not ready
+                    Log.d(TAG, "[INIT] Still not laid out, using ViewTreeObserver")
+                    viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+                        override fun onGlobalLayout() {
+                            if (width > 0 && height > 0) {
+                                viewTreeObserver.removeOnGlobalLayoutListener(this)
+                                Log.d(TAG, "[INIT] View laid out via observer: width=$width, height=$height")
+                                setupCamera()
+                                startCamera()
+                            }
+                        }
+                    })
                 }
             }
-        })
+        }
     }
 
     private fun setupCamera() {
