@@ -165,17 +165,18 @@ class CameraController(
             )
             Log.d(TAG, "[BIND] Bound to lifecycle successfully, camera: $camera")
 
-            Log.d(TAG, "[BIND] Setting surface provider to previewView...")
+            // Set surface provider AFTER binding for all modes
+            // This ensures the camera is ready to receive the surface
+            Log.d(TAG, "[BIND] Binding completed, now setting surface provider...")
             Log.d(TAG, "[BIND] PreviewView: $previewView")
             Log.d(TAG, "[BIND] PreviewView.surfaceProvider: ${previewView.surfaceProvider}")
-            // TextureView(Compatibility) 모드에서는 SurfaceProvider를 먼저 지정해도 순서 문제가 없다.
-            // PERFORMANCE 모드(SurfaceView)에서는 SurfaceOrderQuirk 대응을 위해 바인딩 이후에 지정한다.
-            if (previewView.implementationMode == PreviewView.ImplementationMode.COMPATIBLE) {
+            Log.d(TAG, "[BIND] PreviewView.implementationMode: ${previewView.implementationMode}")
+
+            // Use postDelayed to ensure surface is ready (especially for SurfaceView)
+            previewView.post {
+                Log.d(TAG, "[BIND] Setting surface provider on UI thread...")
                 preview.setSurfaceProvider(previewView.surfaceProvider)
-                Log.d(TAG, "[BIND] Surface provider set immediately (COMPATIBLE mode)")
-            } else {
-                preview.setSurfaceProvider(previewView.surfaceProvider)
-                Log.d(TAG, "[BIND] Surface provider set after binding (PERFORMANCE mode)")
+                Log.d(TAG, "[BIND] Surface provider set successfully")
             }
 
             // Restore torch state if it was enabled

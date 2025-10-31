@@ -77,10 +77,13 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             scaleType = PreviewView.ScaleType.FILL_CENTER
-            // TextureView (COMPATIBLE) avoids Surface ordering issues observed on some MediaTek devices
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            // Use PERFORMANCE (SurfaceView) for better reliability
+            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
             visibility = View.VISIBLE
             keepScreenOn = true
+            // Force view to be drawn
+            setWillNotDraw(false)
+            isOpaque = true
             requestLayout()
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
