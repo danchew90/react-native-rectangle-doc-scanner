@@ -77,8 +77,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             scaleType = PreviewView.ScaleType.FILL_CENTER
-            // Force TextureView for React Native compatibility (SurfaceView has rendering issues)
-            implementationMode = PreviewView.ImplementationMode.TEXTURE_VIEW
+            preferredImplementationMode = PreviewView.ImplementationMode.COMPATIBLE
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
         Log.d(TAG, "[INIT] PreviewView implementationMode: ${previewView.implementationMode}")
