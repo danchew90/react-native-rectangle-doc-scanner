@@ -82,14 +82,22 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
 
     private fun setupCamera() {
         try {
+            // Move to STARTED state first
+            if (lifecycleRegistry.currentState == Lifecycle.State.CREATED) {
+                lifecycleRegistry.currentState = Lifecycle.State.STARTED
+            }
+
             cameraController = CameraController(context, this, previewView)
             cameraController?.onFrameAnalyzed = { rectangle, imageWidth, imageHeight ->
                 handleDetectionResult(rectangle, imageWidth, imageHeight)
             }
             lastDetectionTimestamp = 0L
+
+            // Move to RESUMED state before starting camera
             if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
                 lifecycleRegistry.currentState = Lifecycle.State.RESUMED
             }
+
             cameraController?.startCamera(isUsingFrontCamera, true)
             if (isTorchEnabled) {
                 cameraController?.setTorchEnabled(true)
@@ -357,11 +365,19 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         cameraController?.onFrameAnalyzed = { rectangle, imageWidth, imageHeight ->
             handleDetectionResult(rectangle, imageWidth, imageHeight)
         }
+
+        // Ensure proper lifecycle state before starting camera
+        if (lifecycleRegistry.currentState == Lifecycle.State.CREATED) {
+            lifecycleRegistry.currentState = Lifecycle.State.STARTED
+        }
+        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
+            lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+        }
+
         cameraController?.startCamera(isUsingFrontCamera, true)
         if (isTorchEnabled) {
             cameraController?.setTorchEnabled(true)
         }
-        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
     }
 
     fun stopCamera() {
