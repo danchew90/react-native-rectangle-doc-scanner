@@ -208,13 +208,16 @@ class PdfScanner extends React.Component {
     }
     console.log('[PdfScanner] Rendering RNPdfScanner native component');
     const { onLayout, ...restProps } = this.props;
-    return (
+    const component = (
       <RNPdfScanner
         ref={(ref) => {
+          console.log('[PdfScanner] ref callback called with:', ref);
           this.nativeRef = ref;
           this.nativeTag = ref ? findNodeHandle(ref) : null;
+          console.log('[PdfScanner] nativeTag set to:', this.nativeTag);
         }}
         onLayout={(event) => {
+          console.log('[PdfScanner] onLayout called with event:', event.nativeEvent);
           this.nativeTag = event?.nativeEvent?.target ?? this.nativeTag;
           if (onLayout) {
             onLayout(event);
@@ -232,6 +235,8 @@ class PdfScanner extends React.Component {
         detectionRefreshRateInMS={this.props.detectionRefreshRateInMS || 50}
       />
     );
+    console.log('[PdfScanner] Returning component:', component);
+    return component;
   }
 }
 
