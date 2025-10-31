@@ -61,21 +61,45 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     override fun getLifecycle(): Lifecycle = lifecycleRegistry
 
     init {
+        Log.d(TAG, "╔════════════════════════════════════════╗")
+        Log.d(TAG, "║  DocumentScannerView INIT START        ║")
+        Log.d(TAG, "╚════════════════════════════════════════╝")
+        Log.d(TAG, "[INIT] Context: $context")
+        Log.d(TAG, "[INIT] Context class: ${context.javaClass.name}")
+
         // Initialize lifecycle FIRST
+        Log.d(TAG, "[INIT] Setting lifecycle to INITIALIZED...")
         lifecycleRegistry.currentState = Lifecycle.State.INITIALIZED
+        Log.d(TAG, "[INIT] Lifecycle state: ${lifecycleRegistry.currentState}")
 
         // Create preview view
+        Log.d(TAG, "[INIT] Creating PreviewView...")
         previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             scaleType = PreviewView.ScaleType.FILL_CENTER
         }
+        Log.d(TAG, "[INIT] PreviewView created: $previewView")
+
+        Log.d(TAG, "[INIT] Adding PreviewView to parent...")
         addView(previewView)
+        Log.d(TAG, "[INIT] PreviewView added, childCount: $childCount")
 
         // Create overlay view for drawing rectangle
+        Log.d(TAG, "[INIT] Creating OverlayView...")
         overlayView = OverlayView(context)
-        addView(overlayView)
+        Log.d(TAG, "[INIT] OverlayView created: $overlayView")
 
+        Log.d(TAG, "[INIT] Adding OverlayView to parent...")
+        addView(overlayView)
+        Log.d(TAG, "[INIT] OverlayView added, childCount: $childCount")
+
+        Log.d(TAG, "[INIT] Setting lifecycle to CREATED...")
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        Log.d(TAG, "[INIT] Lifecycle state: ${lifecycleRegistry.currentState}")
+
+        Log.d(TAG, "╔════════════════════════════════════════╗")
+        Log.d(TAG, "║  DocumentScannerView INIT COMPLETE     ║")
+        Log.d(TAG, "╚════════════════════════════════════════╝")
     }
 
     override fun onAttachedToWindow() {
