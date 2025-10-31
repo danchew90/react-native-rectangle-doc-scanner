@@ -77,7 +77,11 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             scaleType = PreviewView.ScaleType.FILL_CENTER
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            // Some MediaTek based devices render a black TextureView preview when
+            // using the COMPATIBLE implementation. Forcing the SurfaceView backed
+            // PERFORMANCE mode keeps the preview visible while still allowing us
+            // to draw our overlay on top.
+            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
         Log.d(TAG, "[INIT] PreviewView implementationMode: ${previewView.implementationMode}")

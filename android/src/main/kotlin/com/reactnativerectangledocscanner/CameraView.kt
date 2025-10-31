@@ -53,7 +53,9 @@ class CameraView(context: Context) : FrameLayout(context), LifecycleOwner {
         // Create preview view
         previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            // Keep the preview visible on devices where the TextureView based mode
+            // renders black frames by forcing the SurfaceView implementation.
+            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
         }
         addView(previewView)
 
