@@ -437,6 +437,18 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         Log.d(TAG, "[START_CAMERA] isTorchEnabled: $isTorchEnabled")
         Log.d(TAG, "[START_CAMERA] CameraController: $cameraController")
 
+        // Force PreviewView visibility and layout
+        previewView.post {
+            Log.d(TAG, "[START_CAMERA] Forcing PreviewView visibility and layout...")
+            previewView.visibility = View.VISIBLE
+            previewView.alpha = 1.0f
+            previewView.requestLayout()
+            previewView.invalidate()
+            Log.d(TAG, "[START_CAMERA] PreviewView state - visible: ${previewView.visibility == View.VISIBLE}, alpha: ${previewView.alpha}")
+            Log.d(TAG, "[START_CAMERA] PreviewView state - width: ${previewView.width}, height: ${previewView.height}")
+            Log.d(TAG, "[START_CAMERA] PreviewView state - hasWindowFocus: ${previewView.hasWindowFocus()}")
+        }
+
         lastDetectionTimestamp = 0L
         cameraController?.onFrameAnalyzed = { rectangle, imageWidth, imageHeight ->
             handleDetectionResult(rectangle, imageWidth, imageHeight)
