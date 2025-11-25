@@ -77,12 +77,14 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             scaleType = PreviewView.ScaleType.FILL_CENTER
-            // Use PERFORMANCE (SurfaceView) for better reliability
-            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+            // Use COMPATIBLE (TextureView) for better React Native compatibility
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
             visibility = View.VISIBLE
             keepScreenOn = true
             // Force view to be drawn
             setWillNotDraw(false)
+            // Set a higher z-order to ensure it's visible
+            z = 0f
             requestLayout()
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
@@ -95,7 +97,11 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
 
         // Create overlay view for drawing rectangle
         Log.d(TAG, "[INIT] Creating OverlayView...")
-        overlayView = OverlayView(context)
+        overlayView = OverlayView(context).apply {
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+            // Set higher z-order than preview to be drawn on top
+            z = 1f
+        }
         Log.d(TAG, "[INIT] OverlayView created: $overlayView")
 
         Log.d(TAG, "[INIT] Adding OverlayView to parent...")
