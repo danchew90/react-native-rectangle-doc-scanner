@@ -109,14 +109,6 @@ static inline void dispatch_async_main_queue(dispatch_block_t block)
 - (void)_foregroundMode
 {
     self.forceStop = NO;
-
-    // If the session was stopped while the app was backgrounded, bring it back
-    if (self.captureSession && !self.captureSession.isRunning) {
-        NSLog(@"[IPDFCameraViewController] Foreground - restarting capture session");
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            [self.captureSession startRunning];
-        });
-    }
 }
 
 - (void)dealloc
@@ -212,17 +204,6 @@ static inline void dispatch_async_main_queue(dispatch_block_t block)
     AVCaptureConnection *connection = [dataOutput.connections firstObject];
     [connection setVideoOrientation:AVCaptureVideoOrientationPortrait];
 
-    // Restart capture session automatically after media services/interruption events
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(handleSessionRuntimeError:)
-                                                 name:AVCaptureSessionRuntimeErrorNotification
-                                               object:session];
-
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(handleSessionInterruptionEnded:)
-                                                 name:AVCaptureSessionInterruptionEndedNotification
-                                               object:session];
-
     if (device.isFlashAvailable)
     {
         [device lockForConfiguration:nil];
@@ -238,34 +219,6 @@ static inline void dispatch_async_main_queue(dispatch_block_t block)
     }
 
     [session commitConfiguration];
-}
-
-- (void)handleSessionRuntimeError:(NSNotification *)notification
-{
-    NSError *error = notification.userInfo[AVCaptureSessionErrorKey];
-    NSLog(@"[IPDFCameraViewController] Session runtime error: %@", error);
-
-    // Common case: AVErrorMediaServicesWereReset requires restarting the session
-    if (error.code == AVErrorMediaServicesWereReset) {
-        [self restartCaptureSession:@"Media services were reset"];
-    }
-}
-
-- (void)handleSessionInterruptionEnded:(NSNotification *)notification
-{
-    [self restartCaptureSession:@"Interruption ended"];
-}
-
-- (void)restartCaptureSession:(NSString *)reason
-{
-    if (!self.captureSession || self.captureSession.isRunning) {
-        return;
-    }
-
-    NSLog(@"[IPDFCameraViewController] Restarting capture session (%@)", reason);
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        [self.captureSession startRunning];
-    });
 }
 
 - (void)setCameraViewType:(IPDFCameraViewType)cameraViewType
