@@ -315,6 +315,11 @@ class CameraController(
 
                 override fun onError(exception: ImageCaptureException) {
                     Log.e(TAG, "Photo capture failed", exception)
+                    if (exception.imageCaptureError == ImageCapture.ERROR_CAMERA_CLOSED) {
+                        Log.w(TAG, "Camera was closed during capture, attempting restart")
+                        stopCamera()
+                        startCamera(useFrontCamera, true)
+                    }
                     onError(exception)
                 }
             }

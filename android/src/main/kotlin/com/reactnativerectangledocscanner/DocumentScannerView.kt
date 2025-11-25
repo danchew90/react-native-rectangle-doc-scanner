@@ -269,6 +269,13 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             return
         }
 
+        // Ensure lifecycle is active before attempting capture to avoid camera closed errors
+        if (lifecycleRegistry.currentState < Lifecycle.State.STARTED) {
+            Log.d(TAG, "Lifecycle not STARTED, current state: ${lifecycleRegistry.currentState}")
+            promise?.reject("LIFECYCLE_INACTIVE", "Camera preview not ready")
+            return
+        }
+
         isCapturing = true
         Log.d(TAG, "Capture initiated with promise: ${promise != null}")
 
