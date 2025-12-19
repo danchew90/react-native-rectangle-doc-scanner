@@ -119,11 +119,9 @@ class CameraController(
 
         val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Preview use case
+        // Preview use case (avoid forcing a size to let CameraX pick a compatible stream)
         Log.d(TAG, "[BIND] Creating Preview use case...")
         val preview = Preview.Builder()
-            // Use a modest fixed size to avoid stream configuration timeouts on some devices.
-            .setTargetResolution(Size(960, 720))
             .setTargetRotation(targetRotation)
             .build()
         Log.d(TAG, "[BIND] Preview created: $preview")
