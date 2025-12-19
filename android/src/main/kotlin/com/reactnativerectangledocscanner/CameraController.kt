@@ -28,6 +28,8 @@ class CameraController(
 
     private var useFrontCamera = false
     private var torchEnabled = false
+    private var detectionEnabled = true
+    private var isCaptureSession = false
 
     var onFrameAnalyzed: ((Rectangle?, Int, Int) -> Unit)? = null
 
@@ -51,6 +53,7 @@ class CameraController(
         Log.d(TAG, "========================================")
 
         this.useFrontCamera = useFrontCam
+        this.detectionEnabled = enableDetection
 
         Log.d(TAG, "[CAMERA_CONTROLLER] Getting ProcessCameraProvider instance...")
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -61,7 +64,9 @@ class CameraController(
                 cameraProvider = cameraProviderFuture.get()
                 Log.d(TAG, "[CAMERA_CONTROLLER] Got cameraProvider: $cameraProvider")
                 Log.d(TAG, "[CAMERA_CONTROLLER] Calling bindCameraUseCases...")
-                bindCameraUseCases(enableDetection)
+                // Bind preview + analysis only. ImageCapture is bound lazily during capture
+                // to avoid stream configuration timeouts on some devices.
+                bindCameraUseCases(enableDetection, useImageCapture = false)
             } catch (e: Exception) {
                 Log.e(TAG, "[CAMERA_CONTROLLER] Failed to start camera", e)
                 e.printStackTrace()
@@ -80,9 +85,10 @@ class CameraController(
     /**
      * Bind camera use cases (preview, capture, analysis)
      */
-    private fun bindCameraUseCases(enableDetection: Boolean) {
+    private fun bindCameraUseCases(enableDetection: Boolean, useImageCapture: Boolean) {
         Log.d(TAG, "[BIND] bindCameraUseCases called")
         Log.d(TAG, "[BIND] enableDetection: $enableDetection")
+        Log.d(TAG, "[BIND] useImageCapture: $useImageCapture")
 
         val cameraProvider = cameraProvider
         if (cameraProvider == null) {
@@ -117,16 +123,20 @@ class CameraController(
             .build()
         Log.d(TAG, "[BIND] Preview created: $preview")
 
-        // Image capture use case (high resolution for document scanning)
-        Log.d(TAG, "[BIND] Creating ImageCapture use case...")
-        imageCapture = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-            // Cap resolution to avoid camera session timeouts on lower-end devices.
-            .setTargetResolution(Size(960, 720))
-            .setTargetRotation(targetRotation)
-            .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
-            .build()
-        Log.d(TAG, "[BIND] ImageCapture created: $imageCapture")
+        // Image capture use case (bound only when capture is requested)
+        if (useImageCapture) {
+            Log.d(TAG, "[BIND] Creating ImageCapture use case...")
+            imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                // Cap resolution to avoid camera session timeouts on lower-end devices.
+                .setTargetResolution(Size(960, 720))
+                .setTargetRotation(targetRotation)
+                .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
+                .build()
+            Log.d(TAG, "[BIND] ImageCapture created: $imageCapture")
+        } else {
+            imageCapture = null
+        }
 
         // Image analysis use case for rectangle detection
         imageAnalysis = if (enableDetection) {
@@ -166,7 +176,10 @@ class CameraController(
             cameraProvider.unbindAll()
 
             // Bind use cases to camera
-            val useCases = mutableListOf<UseCase>(preview, imageCapture!!)
+            val useCases = mutableListOf<UseCase>(preview)
+            if (imageCapture != null) {
+                useCases.add(imageCapture!!)
+            }
             if (imageAnalysis != null) {
                 useCases.add(imageAnalysis!!)
             }
@@ -190,6 +203,7 @@ class CameraController(
             Log.d(TAG, "[BIND] Camera started successfully!")
             Log.d(TAG, "[BIND] hasFlashUnit: ${camera?.cameraInfo?.hasFlashUnit()}")
             Log.d(TAG, "[BIND] ========================================")
+            isCaptureSession = useImageCapture
         } catch (e: Exception) {
             Log.e(TAG, "[BIND] Failed to bind camera use cases", e)
             e.printStackTrace()
@@ -301,6 +315,24 @@ class CameraController(
         onImageCaptured: (File) -> Unit,
         onError: (Exception) -> Unit
     ) {
+        if (!isCaptureSession) {
+            val provider = cameraProvider ?: run {
+                onError(Exception("Camera provider not initialized"))
+                return
+            }
+            ContextCompat.getMainExecutor(context).execute {
+                try {
+                    // Rebind with ImageCapture only for the capture to avoid stream timeouts.
+                    provider.unbindAll()
+                    bindCameraUseCases(enableDetection = false, useImageCapture = true)
+                    capturePhoto(outputDirectory, onImageCaptured, onError)
+                } catch (e: Exception) {
+                    onError(e)
+                }
+            }
+            return
+        }
+
         val imageCapture = imageCapture ?: run {
             onError(Exception("Image capture not initialized"))
             return
@@ -320,6 +352,11 @@ class CameraController(
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     Log.d(TAG, "Photo capture succeeded: ${photoFile.absolutePath}")
                     onImageCaptured(photoFile)
+                    if (detectionEnabled) {
+                        ContextCompat.getMainExecutor(context).execute {
+                            bindCameraUseCases(enableDetection = true, useImageCapture = false)
+                        }
+                    }
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -327,7 +364,12 @@ class CameraController(
                     if (exception.imageCaptureError == ImageCapture.ERROR_CAMERA_CLOSED) {
                         Log.w(TAG, "Camera was closed during capture, attempting restart")
                         stopCamera()
-                        startCamera(useFrontCamera, true)
+                        startCamera(useFrontCamera, detectionEnabled)
+                    }
+                    if (detectionEnabled) {
+                        ContextCompat.getMainExecutor(context).execute {
+                            bindCameraUseCases(enableDetection = true, useImageCapture = false)
+                        }
                     }
                     onError(exception)
                 }
