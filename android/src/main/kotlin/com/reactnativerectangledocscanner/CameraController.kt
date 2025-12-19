@@ -121,8 +121,6 @@ class CameraController(
         Log.d(TAG, "[BIND] Creating ImageCapture use case...")
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-            // Use aspect ratio to avoid unsupported size combinations on some devices.
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             // Cap resolution to avoid camera session timeouts on lower-end devices.
             .setTargetResolution(Size(1280, 960))
             .setTargetRotation(targetRotation)
@@ -134,8 +132,6 @@ class CameraController(
         imageAnalysis = if (enableDetection) {
             Log.d(TAG, "[BIND] Creating ImageAnalysis use case...")
             ImageAnalysis.Builder()
-                // Use aspect ratio to avoid unsupported size combinations on some devices.
-                .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                 // Keep analysis lightweight to prevent session configuration timeouts.
                 .setTargetResolution(Size(960, 720))
                 .setTargetRotation(targetRotation)
