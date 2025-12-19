@@ -11,6 +11,8 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.Observer
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -30,6 +32,9 @@ class CameraController(
     private var torchEnabled = false
     private var detectionEnabled = true
     private var isCaptureSession = false
+    private var hasFallbackAttempted = false
+    private var cameraStateLiveData: LiveData<CameraState>? = null
+    private var cameraStateObserver: Observer<CameraState>? = null
 
     var onFrameAnalyzed: ((Rectangle?, Int, Int) -> Unit)? = null
 
@@ -192,6 +197,7 @@ class CameraController(
                 *useCases.toTypedArray()
             )
             Log.d(TAG, "[BIND] Bound to lifecycle successfully, camera: $camera")
+            registerCameraStateObserver(camera)
 
             // Restore torch state if it was enabled
             if (torchEnabled) {
@@ -208,6 +214,31 @@ class CameraController(
             Log.e(TAG, "[BIND] Failed to bind camera use cases", e)
             e.printStackTrace()
         }
+    }
+
+    private fun registerCameraStateObserver(camera: Camera?) {
+        val cam = camera ?: return
+        cameraStateLiveData?.let { liveData ->
+            cameraStateObserver?.let { liveData.removeObserver(it) }
+        }
+
+        val observer = Observer<CameraState> { state ->
+            val error = state.error
+            if (error != null && !hasFallbackAttempted && !isCaptureSession) {
+                hasFallbackAttempted = true
+                Log.e(TAG, "[STATE] Camera error detected (${error.code}), falling back to preview-only")
+                try {
+                    cameraProvider?.unbindAll()
+                    bindCameraUseCases(enableDetection = false, useImageCapture = false)
+                } catch (e: Exception) {
+                    Log.e(TAG, "[STATE] Fallback bind failed", e)
+                }
+            }
+        }
+
+        cameraStateObserver = observer
+        cameraStateLiveData = cam.cameraInfo.cameraState
+        cam.cameraInfo.cameraState.observe(lifecycleOwner, observer)
     }
 
     /**
