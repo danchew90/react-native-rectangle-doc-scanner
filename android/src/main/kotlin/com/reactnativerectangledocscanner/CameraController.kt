@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.ImageFormat
 import android.util.Log
 import android.util.Size
+import android.view.Surface
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -105,11 +106,14 @@ class CameraController(
         }
         Log.d(TAG, "[BIND] Camera selector: ${if (useFrontCamera) "FRONT" else "BACK"}")
 
+        val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
+
         // Preview use case
         Log.d(TAG, "[BIND] Creating Preview use case...")
         val preview = Preview.Builder()
             // Use aspect ratio to avoid unsupported size combinations on some devices.
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            .setTargetRotation(targetRotation)
             .build()
         Log.d(TAG, "[BIND] Preview created: $preview")
 
@@ -119,6 +123,9 @@ class CameraController(
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             // Use aspect ratio to avoid unsupported size combinations on some devices.
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            // Cap resolution to avoid camera session timeouts on lower-end devices.
+            .setTargetResolution(Size(1280, 960))
+            .setTargetRotation(targetRotation)
             .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
             .build()
         Log.d(TAG, "[BIND] ImageCapture created: $imageCapture")
@@ -129,6 +136,9 @@ class CameraController(
             ImageAnalysis.Builder()
                 // Use aspect ratio to avoid unsupported size combinations on some devices.
                 .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                // Keep analysis lightweight to prevent session configuration timeouts.
+                .setTargetResolution(Size(960, 720))
+                .setTargetRotation(targetRotation)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build()
