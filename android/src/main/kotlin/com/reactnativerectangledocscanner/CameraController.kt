@@ -108,7 +108,8 @@ class CameraController(
         // Preview use case
         Log.d(TAG, "[BIND] Creating Preview use case...")
         val preview = Preview.Builder()
-            .setTargetResolution(Size(1080, 1920))
+            // Use aspect ratio to avoid unsupported size combinations on some devices.
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .build()
         Log.d(TAG, "[BIND] Preview created: $preview")
 
@@ -116,7 +117,8 @@ class CameraController(
         Log.d(TAG, "[BIND] Creating ImageCapture use case...")
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-            .setTargetResolution(Size(1920, 2560))
+            // Use aspect ratio to avoid unsupported size combinations on some devices.
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
             .build()
         Log.d(TAG, "[BIND] ImageCapture created: $imageCapture")
@@ -125,7 +127,8 @@ class CameraController(
         imageAnalysis = if (enableDetection) {
             Log.d(TAG, "[BIND] Creating ImageAnalysis use case...")
             ImageAnalysis.Builder()
-                .setTargetResolution(Size(720, 1280))
+                // Use aspect ratio to avoid unsupported size combinations on some devices.
+                .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build()
