@@ -111,8 +111,8 @@ class CameraController(
         // Preview use case
         Log.d(TAG, "[BIND] Creating Preview use case...")
         val preview = Preview.Builder()
-            // Use aspect ratio to avoid unsupported size combinations on some devices.
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            // Use a modest fixed size to avoid stream configuration timeouts on some devices.
+            .setTargetResolution(Size(960, 720))
             .setTargetRotation(targetRotation)
             .build()
         Log.d(TAG, "[BIND] Preview created: $preview")
@@ -122,7 +122,7 @@ class CameraController(
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             // Cap resolution to avoid camera session timeouts on lower-end devices.
-            .setTargetResolution(Size(1280, 960))
+            .setTargetResolution(Size(960, 720))
             .setTargetRotation(targetRotation)
             .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
             .build()
