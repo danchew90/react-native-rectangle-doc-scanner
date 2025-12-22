@@ -40,6 +40,7 @@ class CameraController(
     private var camera: Camera? = null
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val lastFrame = AtomicReference<LastFrame?>()
+    private var analysisBound = false
 
     private var useFrontCamera = false
     private var detectionEnabled = true
@@ -88,6 +89,7 @@ class CameraController(
     fun stopCamera() {
         Log.d(TAG, "[CAMERAX] stopCamera called")
         cameraProvider?.unbindAll()
+        analysisBound = false
     }
 
     fun capturePhoto(
@@ -151,6 +153,7 @@ class CameraController(
     private fun bindCameraUseCases() {
         val provider = cameraProvider ?: return
         provider.unbindAll()
+        analysisBound = false
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
         preview = Preview.Builder()
@@ -159,16 +162,6 @@ class CameraController(
             .build()
             .also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-
-        imageAnalysis = ImageAnalysis.Builder()
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetRotation(rotation)
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-            .build()
-            .also {
-                it.setAnalyzer(cameraExecutor, DocumentAnalyzer())
             }
 
         val cameraSelector = if (useFrontCamera) {
@@ -181,12 +174,47 @@ class CameraController(
             camera = provider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
-                preview,
-                imageAnalysis
+                preview
             )
             Log.d(TAG, "[CAMERAX] Camera bound successfully")
         } catch (e: Exception) {
             Log.e(TAG, "[CAMERAX] Failed to bind camera", e)
+            return
+        }
+
+        // Bind analysis after preview to avoid session timeouts on some devices.
+        ContextCompat.getMainExecutor(context).execute {
+            bindAnalysis(cameraSelector, rotation)
+        }
+    }
+
+    private fun bindAnalysis(cameraSelector: CameraSelector, rotation: Int) {
+        if (analysisBound) {
+            return
+        }
+        val provider = cameraProvider ?: return
+        imageAnalysis = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setTargetRotation(rotation)
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            .build()
+            .also {
+                it.setAnalyzer(cameraExecutor, DocumentAnalyzer())
+            }
+
+        try {
+            camera = provider.bindToLifecycle(
+                lifecycleOwner,
+                cameraSelector,
+                preview,
+                imageAnalysis
+            )
+            analysisBound = true
+            Log.d(TAG, "[CAMERAX] Analysis bound successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERAX] Failed to bind analysis; keeping preview only", e)
+            analysisBound = false
         }
     }
 
