@@ -157,7 +157,7 @@ class CameraController(
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Build Preview with lower resolution to reduce HAL load
+        // Build Preview ONLY first
         preview = Preview.Builder()
             .setTargetResolution(Size(1280, 720))
             .setTargetRotation(rotation)
@@ -166,25 +166,48 @@ class CameraController(
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
 
-        // Build ImageAnalysis with lower resolution
-        imageAnalysis = ImageAnalysis.Builder()
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetRotation(rotation)
-            .setTargetResolution(Size(1280, 720))
-            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-            .build()
-            .also {
-                it.setAnalyzer(cameraExecutor, DocumentAnalyzer())
-            }
-
         val cameraSelector = if (useFrontCamera) {
             CameraSelector.DEFAULT_FRONT_CAMERA
         } else {
             CameraSelector.DEFAULT_BACK_CAMERA
         }
 
-        // Bind both Preview and ImageAnalysis together in ONE call
+        // Step 1: Bind Preview ONLY first
         try {
+            camera = provider.bindToLifecycle(
+                lifecycleOwner,
+                cameraSelector,
+                preview
+            )
+            Log.d(TAG, "[CAMERAX-FIX-V4] Preview bound, waiting before adding analysis...")
+
+            // Step 2: Add ImageAnalysis after a delay to let Preview session stabilize
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                bindImageAnalysis(provider, cameraSelector, rotation)
+            }, 500)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERAX-FIX-V4] Failed to bind preview", e)
+            analysisBound = false
+        }
+    }
+
+    private fun bindImageAnalysis(provider: ProcessCameraProvider, cameraSelector: CameraSelector, rotation: Int) {
+        if (analysisBound) return
+
+        try {
+            // Build ImageAnalysis
+            imageAnalysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setTargetRotation(rotation)
+                .setTargetResolution(Size(640, 480))
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                .build()
+                .also {
+                    it.setAnalyzer(cameraExecutor, DocumentAnalyzer())
+                }
+
+            // Rebind with both Preview and ImageAnalysis
             camera = provider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
@@ -192,9 +215,9 @@ class CameraController(
                 imageAnalysis
             )
             analysisBound = true
-            Log.d(TAG, "[CAMERAX-FIX-V3] Camera bound with lower resolution")
+            Log.d(TAG, "[CAMERAX-FIX-V4] ImageAnalysis added successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-FIX-V3] Failed to bind camera use cases", e)
+            Log.e(TAG, "[CAMERAX-FIX-V4] Failed to add ImageAnalysis", e)
             analysisBound = false
         }
     }
