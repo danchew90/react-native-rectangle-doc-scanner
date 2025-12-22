@@ -48,8 +48,6 @@ class CameraController(
 
     companion object {
         private const val TAG = "CameraController"
-        private const val ANALYSIS_WIDTH = 1280
-        private const val ANALYSIS_HEIGHT = 720
     }
 
     private data class LastFrame(
@@ -156,6 +154,7 @@ class CameraController(
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
         preview = Preview.Builder()
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(rotation)
             .build()
             .also {
@@ -164,8 +163,8 @@ class CameraController(
 
         imageAnalysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetResolution(Size(ANALYSIS_WIDTH, ANALYSIS_HEIGHT))
             .setTargetRotation(rotation)
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
             .build()
             .also {
