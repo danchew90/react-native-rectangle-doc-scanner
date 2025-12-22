@@ -434,20 +434,25 @@ class CameraController(
         }
 
         val rotationDegrees = getRotationDegrees()
+        val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
         val bufferRect = if (rotationDegrees == 90 || rotationDegrees == 270) {
             RectF(0f, 0f, previewSize.height.toFloat(), previewSize.width.toFloat())
         } else {
             RectF(0f, 0f, previewSize.width.toFloat(), previewSize.height.toFloat())
         }
-        val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
         val centerX = viewRect.centerX()
         val centerY = viewRect.centerY()
 
         bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
 
         val matrix = Matrix()
-        // Scale to fill (center-crop) and then apply rotation around center.
-        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+        // Map buffer to view, then scale to fill and rotate around the center.
+        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
+        val scale = kotlin.math.max(
+            viewWidth.toFloat() / bufferRect.width(),
+            viewHeight.toFloat() / bufferRect.height()
+        )
+        matrix.postScale(scale, scale, centerX, centerY)
         if (rotationDegrees != 0) {
             matrix.postRotate(rotationDegrees.toFloat(), centerX, centerY)
         }
@@ -456,7 +461,7 @@ class CameraController(
         Log.d(
             TAG,
             "[CAMERA2] transform view=${viewWidth}x${viewHeight} buffer=${previewSize.width}x${previewSize.height} " +
-                "rotation=$rotationDegrees"
+                "rotation=$rotationDegrees scale=$scale"
         )
     }
 
