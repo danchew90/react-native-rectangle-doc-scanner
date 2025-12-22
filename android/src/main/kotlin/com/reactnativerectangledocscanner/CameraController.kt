@@ -22,6 +22,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import android.util.Size
+import android.view.Gravity
 import android.view.Surface
 import android.view.TextureView
 import androidx.core.content.ContextCompat
@@ -359,6 +360,8 @@ class CameraController(
 
     private fun updatePreviewTransform() {
         val previewSize = previewSize ?: return
+        adjustPreviewLayout(previewSize)
+
         val viewWidth = previewView.width
         val viewHeight = previewView.height
         if (viewWidth == 0 || viewHeight == 0) {
@@ -394,6 +397,45 @@ class CameraController(
         matrix.postTranslate(viewWidth / 2f, viewHeight / 2f)
 
         previewView.setTransform(matrix)
+    }
+
+    private fun adjustPreviewLayout(previewSize: Size) {
+        val parentView = previewView.parent as? android.view.View ?: return
+        val parentWidth = parentView.width
+        val parentHeight = parentView.height
+        if (parentWidth == 0 || parentHeight == 0) {
+            return
+        }
+
+        val rotationDegrees = getRotationDegrees()
+        val bufferWidth = previewSize.width.toFloat()
+        val bufferHeight = previewSize.height.toFloat()
+        val bufferAspect = if (rotationDegrees == 90 || rotationDegrees == 270) {
+            bufferHeight / bufferWidth
+        } else {
+            bufferWidth / bufferHeight
+        }
+
+        val parentAspect = parentWidth.toFloat() / parentHeight.toFloat()
+        val targetWidth: Int
+        val targetHeight: Int
+
+        if (parentAspect > bufferAspect) {
+            targetHeight = parentHeight
+            targetWidth = (parentHeight * bufferAspect).toInt()
+        } else {
+            targetWidth = parentWidth
+            targetHeight = (parentWidth / bufferAspect).toInt()
+        }
+
+        val layoutParams = (previewView.layoutParams as? android.widget.FrameLayout.LayoutParams)
+            ?: android.widget.FrameLayout.LayoutParams(targetWidth, targetHeight)
+        if (layoutParams.width != targetWidth || layoutParams.height != targetHeight) {
+            layoutParams.width = targetWidth
+            layoutParams.height = targetHeight
+            layoutParams.gravity = Gravity.CENTER
+            previewView.layoutParams = layoutParams
+        }
     }
 
     private fun handleImage(image: Image) {
