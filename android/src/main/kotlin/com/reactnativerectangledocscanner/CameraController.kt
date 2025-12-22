@@ -357,10 +357,10 @@ class CameraController(
             return
         }
 
-        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
+        val rotationDegrees = getRotationDegrees()
         val matrix = Matrix()
         val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
-        val bufferRect = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+        val bufferRect = if (rotationDegrees == 90 || rotationDegrees == 270) {
             RectF(0f, 0f, previewSize.height.toFloat(), previewSize.width.toFloat())
         } else {
             RectF(0f, 0f, previewSize.width.toFloat(), previewSize.height.toFloat())
@@ -371,17 +371,17 @@ class CameraController(
         bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
         matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
 
-        val scale = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+        val scale = if (rotationDegrees == 90 || rotationDegrees == 270) {
             maxOf(viewHeight.toFloat() / previewSize.height, viewWidth.toFloat() / previewSize.width)
         } else {
             maxOf(viewWidth.toFloat() / previewSize.width, viewHeight.toFloat() / previewSize.height)
         }
         matrix.postScale(scale, scale, centerX, centerY)
 
-        when (rotation) {
-            Surface.ROTATION_90 -> matrix.postRotate(90f, centerX, centerY)
-            Surface.ROTATION_180 -> matrix.postRotate(180f, centerX, centerY)
-            Surface.ROTATION_270 -> matrix.postRotate(270f, centerX, centerY)
+        when (rotationDegrees) {
+            90 -> matrix.postRotate(90f, centerX, centerY)
+            180 -> matrix.postRotate(180f, centerX, centerY)
+            270 -> matrix.postRotate(270f, centerX, centerY)
         }
 
         previewView.setTransform(matrix)
