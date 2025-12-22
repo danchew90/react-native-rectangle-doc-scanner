@@ -44,6 +44,7 @@ class CameraController(
     private var imageReader: ImageReader? = null
     private var backgroundThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
+    private var previewLayoutListener: android.view.View.OnLayoutChangeListener? = null
 
     private var cameraId: String? = null
     private var sensorOrientation: Int = 0
@@ -62,8 +63,8 @@ class CameraController(
 
     companion object {
         private const val TAG = "CameraController"
-        private const val MAX_PREVIEW_WIDTH = 1280
-        private const val MAX_PREVIEW_HEIGHT = 720
+        private const val MAX_PREVIEW_WIDTH = 1920
+        private const val MAX_PREVIEW_HEIGHT = 1440
     }
 
     private data class LastFrame(
@@ -121,6 +122,13 @@ class CameraController(
         startBackgroundThread()
         chooseCamera()
 
+        if (previewLayoutListener == null) {
+            previewLayoutListener = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                updatePreviewTransform()
+            }
+            previewView.addOnLayoutChangeListener(previewLayoutListener)
+        }
+
         if (previewView.isAvailable) {
             openCamera()
         } else {
@@ -130,6 +138,10 @@ class CameraController(
 
     fun stopCamera() {
         Log.d(TAG, "[CAMERA2] stopCamera called")
+        previewLayoutListener?.let { listener ->
+            previewView.removeOnLayoutChangeListener(listener)
+        }
+        previewLayoutListener = null
         try {
             captureSession?.close()
             captureSession = null
@@ -564,21 +576,24 @@ class CameraController(
         val maxCandidates = choices.filter { it.width <= maxWidth && it.height <= maxHeight }
         val candidates = if (maxCandidates.isNotEmpty()) maxCandidates else choices.toList()
 
-        val ratioFiltered = if (targetRatio != null) {
-            candidates.filter { size ->
-                val ratio = if (targetRatio < 1f) {
+        if (targetRatio == null) {
+            return candidates.sortedBy { it.width * it.height }.last()
+        }
+
+        val normalizedTarget = targetRatio
+        val sorted = candidates.sortedWith(
+            compareBy<Size> { size ->
+                val ratio = if (normalizedTarget < 1f) {
                     size.height.toFloat() / size.width.toFloat()
                 } else {
                     size.width.toFloat() / size.height.toFloat()
                 }
-                kotlin.math.abs(ratio - targetRatio) <= 0.05f
+                kotlin.math.abs(ratio - normalizedTarget)
+            }.thenByDescending { size ->
+                size.width * size.height
             }
-        } else {
-            emptyList()
-        }
-
-        val pickFrom = if (ratioFiltered.isNotEmpty()) ratioFiltered else candidates
-        return pickFrom.sortedBy { it.width * it.height }.last()
+        )
+        return sorted.first()
     }
 
     private fun startBackgroundThread() {
