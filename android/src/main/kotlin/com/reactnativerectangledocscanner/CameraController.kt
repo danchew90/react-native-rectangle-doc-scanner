@@ -172,22 +172,24 @@ class CameraController(
             CameraSelector.DEFAULT_BACK_CAMERA
         }
 
-        // Step 1: Bind Preview ONLY first
+        // TEMPORARY: Bind Preview ONLY to test if Preview works without ImageAnalysis
         try {
             camera = provider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 preview
             )
-            Log.d(TAG, "[CAMERAX-FIX-V5] Preview bound, waiting 2 seconds before adding analysis...")
+            Log.d(TAG, "[CAMERAX-DEBUG] Preview ONLY bound successfully - NO ImageAnalysis")
+            analysisBound = false
 
-            // Step 2: Add ImageAnalysis after a longer delay to let Preview session fully stabilize
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                bindImageAnalysis(provider, cameraSelector, rotation)
-            }, 2000)
+            // TODO: If Preview works, we need to find alternative for document detection
+            // Options:
+            // 1. Use ImageCapture instead of ImageAnalysis
+            // 2. Use lower resolution for ImageAnalysis (already tried)
+            // 3. Use Camera2 API directly instead of CameraX
 
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-FIX-V5] Failed to bind preview", e)
+            Log.e(TAG, "[CAMERAX-DEBUG] Failed to bind preview", e)
             analysisBound = false
         }
     }
