@@ -50,6 +50,8 @@ class CameraController(
     private var sensorOrientation: Int = 0
     private var previewSize: Size? = null
     private var analysisSize: Size? = null
+    private var previewChoices: Array<Size> = emptyArray()
+    private var analysisChoices: Array<Size> = emptyArray()
     private var useFrontCamera = false
     private var torchEnabled = false
     private var detectionEnabled = true
@@ -63,7 +65,7 @@ class CameraController(
 
     companion object {
         private const val TAG = "CameraController"
-        private const val MAX_PREVIEW_WIDTH = 1920
+        private const val MAX_PREVIEW_WIDTH = 2560
         private const val MAX_PREVIEW_HEIGHT = 1440
     }
 
@@ -254,8 +256,8 @@ class CameraController(
         sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
 
         val streamConfig = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        val previewChoices = streamConfig?.getOutputSizes(SurfaceTexture::class.java) ?: emptyArray()
-        val analysisChoices = streamConfig?.getOutputSizes(ImageFormat.YUV_420_888) ?: emptyArray()
+        previewChoices = streamConfig?.getOutputSizes(SurfaceTexture::class.java) ?: emptyArray()
+        analysisChoices = streamConfig?.getOutputSizes(ImageFormat.YUV_420_888) ?: emptyArray()
 
         val viewWidth = if (previewView.width > 0) previewView.width else context.resources.displayMetrics.widthPixels
         val viewHeight = if (previewView.height > 0) previewView.height else context.resources.displayMetrics.heightPixels
@@ -314,8 +316,9 @@ class CameraController(
     private fun createPreviewSession() {
         val device = cameraDevice ?: return
         val texture = previewView.surfaceTexture ?: return
-        val previewSize = previewSize ?: return
-        val analysisSize = analysisSize ?: previewSize
+        val sizes = ensurePreviewSizes()
+        val previewSize = sizes.first ?: return
+        val analysisSize = sizes.second ?: previewSize
 
         texture.setDefaultBufferSize(previewSize.width, previewSize.height)
         val previewSurface = Surface(texture)
@@ -368,6 +371,32 @@ class CameraController(
         } catch (e: Exception) {
             Log.e(TAG, "[CAMERA2] Failed to create preview session", e)
         }
+    }
+
+    private fun ensurePreviewSizes(): Pair<Size?, Size?> {
+        if (previewChoices.isEmpty()) {
+            return Pair(previewSize, analysisSize)
+        }
+
+        val viewWidth = if (previewView.width > 0) previewView.width else context.resources.displayMetrics.widthPixels
+        val viewHeight = if (previewView.height > 0) previewView.height else context.resources.displayMetrics.heightPixels
+        val targetRatio = if (viewWidth > 0 && viewHeight > 0) {
+            viewWidth.toFloat() / viewHeight.toFloat()
+        } else {
+            null
+        }
+
+        val newPreview = chooseSize(previewChoices, MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT, targetRatio)
+        val newAnalysis = chooseSize(analysisChoices, MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT, targetRatio)
+
+        if (newPreview != null && newPreview != previewSize) {
+            previewSize = newPreview
+        }
+        if (newAnalysis != null && newAnalysis != analysisSize) {
+            analysisSize = newAnalysis
+        }
+
+        return Pair(previewSize, analysisSize)
     }
 
     private fun updatePreviewTransform() {
