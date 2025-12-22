@@ -179,15 +179,15 @@ class CameraController(
                 cameraSelector,
                 preview
             )
-            Log.d(TAG, "[CAMERAX-FIX-V4] Preview bound, waiting before adding analysis...")
+            Log.d(TAG, "[CAMERAX-FIX-V5] Preview bound, waiting 2 seconds before adding analysis...")
 
-            // Step 2: Add ImageAnalysis after a delay to let Preview session stabilize
+            // Step 2: Add ImageAnalysis after a longer delay to let Preview session fully stabilize
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 bindImageAnalysis(provider, cameraSelector, rotation)
-            }, 500)
+            }, 2000)
 
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-FIX-V4] Failed to bind preview", e)
+            Log.e(TAG, "[CAMERAX-FIX-V5] Failed to bind preview", e)
             analysisBound = false
         }
     }
@@ -195,19 +195,24 @@ class CameraController(
     private fun bindImageAnalysis(provider: ProcessCameraProvider, cameraSelector: CameraSelector, rotation: Int) {
         if (analysisBound) return
 
+        Log.d(TAG, "[CAMERAX-FIX-V5] Starting to add ImageAnalysis...")
+
         try {
-            // Build ImageAnalysis
+            // Build ImageAnalysis with very low resolution
             imageAnalysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setTargetRotation(rotation)
-                .setTargetResolution(Size(640, 480))
+                .setTargetResolution(Size(480, 360))
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build()
                 .also {
                     it.setAnalyzer(cameraExecutor, DocumentAnalyzer())
                 }
 
-            // Rebind with both Preview and ImageAnalysis
+            // IMPORTANT: Unbind all first, then rebind together to avoid session reconfiguration timeout
+            provider.unbindAll()
+
+            // Rebind BOTH at the same time
             camera = provider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
@@ -215,10 +220,22 @@ class CameraController(
                 imageAnalysis
             )
             analysisBound = true
-            Log.d(TAG, "[CAMERAX-FIX-V4] ImageAnalysis added successfully")
+            Log.d(TAG, "[CAMERAX-FIX-V5] ImageAnalysis added successfully after unbind/rebind")
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-FIX-V4] Failed to add ImageAnalysis", e)
+            Log.e(TAG, "[CAMERAX-FIX-V5] Failed to add ImageAnalysis", e)
             analysisBound = false
+
+            // Fallback: rebind preview only
+            try {
+                camera = provider.bindToLifecycle(
+                    lifecycleOwner,
+                    cameraSelector,
+                    preview
+                )
+                Log.d(TAG, "[CAMERAX-FIX-V5] Fallback: Preview only")
+            } catch (fallbackException: Exception) {
+                Log.e(TAG, "[CAMERAX-FIX-V5] Fallback also failed", fallbackException)
+            }
         }
     }
 
