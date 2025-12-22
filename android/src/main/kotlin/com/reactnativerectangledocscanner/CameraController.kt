@@ -175,11 +175,15 @@ class CameraController(
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Build Preview ONLY - this device cannot handle 2 simultaneous surfaces
+        // Build Preview ONLY - this device cannot handle 2 simultaneous surfaces initially
         preview = Preview.Builder()
             .setTargetResolution(Size(1280, 720))
             .setTargetRotation(rotation)
             .build()
+            .also {
+                // IMPORTANT: Set surface provider BEFORE binding
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
 
         val cameraSelector = if (useFrontCamera) {
             CameraSelector.DEFAULT_FRONT_CAMERA
@@ -195,70 +199,18 @@ class CameraController(
                 preview
             )
 
-            // Set surface provider AFTER binding
-            preview?.setSurfaceProvider(previewView.surfaceProvider)
+            Log.d(TAG, "[CAMERAX-V8] Preview ONLY bound successfully - camera preview should be visible")
 
-            Log.d(TAG, "[CAMERAX-V7] Preview ONLY bound successfully")
-
-            // Wait for preview to stabilize, then try adding ImageCapture
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                tryAddImageCapture(provider, cameraSelector, rotation)
-            }, 3000)
+            // DO NOT try to add ImageCapture - this device cannot handle it
+            // Keep Preview only mode
+            Log.d(TAG, "[CAMERAX-V8] Running in Preview-only mode (no auto-detection)")
 
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-V7] Failed to bind preview", e)
+            Log.e(TAG, "[CAMERAX-V8] Failed to bind preview", e)
         }
     }
 
-    private fun tryAddImageCapture(provider: ProcessCameraProvider, cameraSelector: CameraSelector, rotation: Int) {
-        Log.d(TAG, "[CAMERAX-V7] Attempting to add ImageCapture...")
-
-        // Build ImageCapture with minimal resolution
-        imageCapture = ImageCapture.Builder()
-            .setTargetResolution(Size(320, 240))
-            .setTargetRotation(rotation)
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .build()
-
-        try {
-            // Unbind and rebind with both
-            provider.unbindAll()
-
-            camera = provider.bindToLifecycle(
-                lifecycleOwner,
-                cameraSelector,
-                preview,
-                imageCapture
-            )
-
-            preview?.setSurfaceProvider(previewView.surfaceProvider)
-
-            Log.d(TAG, "[CAMERAX-V7] ImageCapture added successfully")
-
-            // Start periodic frame capture
-            if (detectionEnabled) {
-                isAnalysisActive = true
-                analysisHandler.postDelayed(analysisRunnable, 500)
-                Log.d(TAG, "[CAMERAX-V7] Started periodic frame capture")
-            }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-V7] Failed to add ImageCapture, keeping Preview only", e)
-
-            // Fallback: Keep preview only and disable detection
-            try {
-                camera = provider.bindToLifecycle(
-                    lifecycleOwner,
-                    cameraSelector,
-                    preview
-                )
-                preview?.setSurfaceProvider(previewView.surfaceProvider)
-                Log.d(TAG, "[CAMERAX-V7] Fallback: Preview only mode (detection disabled)")
-            } catch (fallbackException: Exception) {
-                Log.e(TAG, "[CAMERAX-V7] Fallback failed", fallbackException)
-            }
-        }
-    }
+    // Function removed - this device cannot handle ImageCapture + Preview simultaneously
 
     private fun captureFrameForAnalysis() {
         val capture = imageCapture ?: return
