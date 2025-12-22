@@ -157,14 +157,11 @@ class CameraController(
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Build Preview
+        // Build Preview with PERFORMANCE mode
         preview = Preview.Builder()
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(rotation)
             .build()
-            .also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
 
         // Build ImageAnalysis
         imageAnalysis = ImageAnalysis.Builder()
@@ -191,10 +188,14 @@ class CameraController(
                 preview,
                 imageAnalysis
             )
+
+            // Set surface provider AFTER binding to avoid timeout
+            preview?.setSurfaceProvider(previewView.surfaceProvider)
+
             analysisBound = true
-            Log.d(TAG, "[CAMERAX] Camera and analysis bound successfully")
+            Log.d(TAG, "[CAMERAX-FIX] Camera and analysis bound successfully in ONE call")
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX] Failed to bind camera use cases", e)
+            Log.e(TAG, "[CAMERAX-FIX] Failed to bind camera use cases", e)
             analysisBound = false
         }
     }
