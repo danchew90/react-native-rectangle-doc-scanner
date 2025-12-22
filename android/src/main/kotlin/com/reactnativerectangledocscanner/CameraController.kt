@@ -157,20 +157,20 @@ class CameraController(
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Build Preview and set surface provider BEFORE binding
+        // Build Preview with lower resolution to reduce HAL load
         preview = Preview.Builder()
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            .setTargetResolution(Size(1280, 720))
             .setTargetRotation(rotation)
             .build()
             .also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
 
-        // Build ImageAnalysis
+        // Build ImageAnalysis with lower resolution
         imageAnalysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setTargetRotation(rotation)
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            .setTargetResolution(Size(1280, 720))
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
             .build()
             .also {
@@ -192,9 +192,9 @@ class CameraController(
                 imageAnalysis
             )
             analysisBound = true
-            Log.d(TAG, "[CAMERAX-FIX-V2] Camera and analysis bound successfully")
+            Log.d(TAG, "[CAMERAX-FIX-V3] Camera bound with lower resolution")
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-FIX-V2] Failed to bind camera use cases", e)
+            Log.e(TAG, "[CAMERAX-FIX-V3] Failed to bind camera use cases", e)
             analysisBound = false
         }
     }
