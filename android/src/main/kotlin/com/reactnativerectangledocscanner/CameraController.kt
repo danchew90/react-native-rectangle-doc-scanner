@@ -269,7 +269,11 @@ class CameraController(
 
         previewSize = choosePreviewSize(previewChoices, targetRatio)
         analysisSize = chooseAnalysisSize(analysisChoices, targetRatio)
-        Log.d(TAG, "[CAMERA2] Selected sizes - preview: $previewSize, analysis: $analysisSize")
+        Log.d(
+            TAG,
+            "[CAMERA2] chooseCamera view=${viewWidth}x${viewHeight} ratio=$targetRatio " +
+                "sensorOrientation=$sensorOrientation preview=$previewSize analysis=$analysisSize"
+        )
     }
 
     private fun openCamera() {
@@ -319,6 +323,12 @@ class CameraController(
         val sizes = ensurePreviewSizes()
         val previewSize = sizes.first ?: return
         val analysisSize = sizes.second ?: previewSize
+
+        Log.d(
+            TAG,
+            "[CAMERA2] createPreviewSession view=${previewView.width}x${previewView.height} " +
+                "preview=${previewSize.width}x${previewSize.height} analysis=${analysisSize.width}x${analysisSize.height}"
+        )
 
         texture.setDefaultBufferSize(previewSize.width, previewSize.height)
         val previewSurface = Surface(texture)
@@ -396,6 +406,11 @@ class CameraController(
             analysisSize = newAnalysis
         }
 
+        Log.d(
+            TAG,
+            "[CAMERA2] ensurePreviewSizes view=${viewWidth}x${viewHeight} ratio=$targetRatio " +
+                "preview=${previewSize?.width}x${previewSize?.height} analysis=${analysisSize?.width}x${analysisSize?.height}"
+        )
         return Pair(previewSize, analysisSize)
     }
 
@@ -439,6 +454,11 @@ class CameraController(
         matrix.postTranslate(viewWidth / 2f, viewHeight / 2f)
 
         previewView.setTransform(matrix)
+        Log.d(
+            TAG,
+            "[CAMERA2] transform view=${viewWidth}x${viewHeight} buffer=${bufferWidth}x${bufferHeight} " +
+                "rotated=${rotatedBufferWidth}x${rotatedBufferHeight} rotation=$rotationDegrees scale=$scale"
+        )
     }
 
     private fun ensureMatchParent() {
@@ -462,6 +482,7 @@ class CameraController(
             layoutParams.gravity = Gravity.CENTER
             previewView.layoutParams = layoutParams
         }
+        Log.d(TAG, "[CAMERA2] parent=${parentWidth}x${parentHeight} previewView=${previewView.width}x${previewView.height}")
     }
 
     private fun handleImage(image: Image) {
