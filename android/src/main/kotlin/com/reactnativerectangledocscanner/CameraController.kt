@@ -434,39 +434,29 @@ class CameraController(
         }
 
         val rotationDegrees = getRotationDegrees()
-        val bufferWidth = previewSize.width.toFloat()
-        val bufferHeight = previewSize.height.toFloat()
-        val rotatedBufferWidth = if (rotationDegrees == 90 || rotationDegrees == 270) {
-            bufferHeight
+        val bufferRect = if (rotationDegrees == 90 || rotationDegrees == 270) {
+            RectF(0f, 0f, previewSize.height.toFloat(), previewSize.width.toFloat())
         } else {
-            bufferWidth
+            RectF(0f, 0f, previewSize.width.toFloat(), previewSize.height.toFloat())
         }
-        val rotatedBufferHeight = if (rotationDegrees == 90 || rotationDegrees == 270) {
-            bufferWidth
-        } else {
-            bufferHeight
-        }
+        val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
 
-        // Fill the view like the default camera preview (center-crop).
-        val scale = kotlin.math.max(
-            viewWidth.toFloat() / rotatedBufferWidth,
-            viewHeight.toFloat() / rotatedBufferHeight
-        )
+        bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
 
         val matrix = Matrix()
-        // Center buffer at origin, rotate, scale to fit, then move to view center.
-        matrix.postTranslate(-bufferWidth / 2f, -bufferHeight / 2f)
+        // Scale to fill (center-crop) and then apply rotation around center.
+        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
         if (rotationDegrees != 0) {
-            matrix.postRotate(rotationDegrees.toFloat())
+            matrix.postRotate(rotationDegrees.toFloat(), centerX, centerY)
         }
-        matrix.postScale(scale, scale)
-        matrix.postTranslate(viewWidth / 2f, viewHeight / 2f)
 
         previewView.setTransform(matrix)
         Log.d(
             TAG,
-            "[CAMERA2] transform view=${viewWidth}x${viewHeight} buffer=${bufferWidth}x${bufferHeight} " +
-                "rotated=${rotatedBufferWidth}x${rotatedBufferHeight} rotation=$rotationDegrees scale=$scale"
+            "[CAMERA2] transform view=${viewWidth}x${viewHeight} buffer=${previewSize.width}x${previewSize.height} " +
+                "rotation=$rotationDegrees"
         )
     }
 
