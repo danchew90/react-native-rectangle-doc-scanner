@@ -3,6 +3,11 @@ package com.reactnativerectangledocscanner
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.util.Log
 import android.util.Size
 import android.view.Surface
@@ -10,17 +15,18 @@ import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.google.common.util.concurrent.ListenableFuture
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
 
 class CameraController(
     private val context: Context,
@@ -31,9 +37,9 @@ class CameraController(
     private var cameraProvider: ProcessCameraProvider? = null
     private var preview: Preview? = null
     private var imageAnalysis: ImageAnalysis? = null
-    private var imageCapture: ImageCapture? = null
     private var camera: Camera? = null
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val lastFrame = AtomicReference<LastFrame?>()
 
     private var useFrontCamera = false
     private var detectionEnabled = true
@@ -45,6 +51,14 @@ class CameraController(
         private const val ANALYSIS_WIDTH = 1280
         private const val ANALYSIS_HEIGHT = 720
     }
+
+    private data class LastFrame(
+        val nv21: ByteArray,
+        val width: Int,
+        val height: Int,
+        val rotationDegrees: Int,
+        val isFront: Boolean
+    )
 
     fun startCamera(
         useFrontCam: Boolean = false,
@@ -83,30 +97,35 @@ class CameraController(
         onImageCaptured: (File) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        val capture = imageCapture
-        if (capture == null) {
-            onError(IllegalStateException("ImageCapture not initialized"))
+        val frame = lastFrame.get()
+        if (frame == null) {
+            onError(IllegalStateException("No frame available for capture"))
             return
         }
 
-        val photoFile = File(outputDirectory, "doc_scan_${System.currentTimeMillis()}.jpg")
-        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+        cameraExecutor.execute {
+            try {
+                val photoFile = File(outputDirectory, "doc_scan_${System.currentTimeMillis()}.jpg")
+                val jpegBytes = nv21ToJpeg(frame.nv21, frame.width, frame.height, 95)
+                val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+                    ?: throw IllegalStateException("Failed to decode JPEG")
 
-        capture.takePicture(
-            outputOptions,
-            cameraExecutor,
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    Log.d(TAG, "[CAMERAX] Photo capture succeeded: ${photoFile.absolutePath}")
-                    onImageCaptured(photoFile)
+                val rotated = rotateAndMirror(bitmap, frame.rotationDegrees, frame.isFront)
+                FileOutputStream(photoFile).use { out ->
+                    rotated.compress(Bitmap.CompressFormat.JPEG, 95, out)
                 }
+                if (rotated != bitmap) {
+                    rotated.recycle()
+                }
+                bitmap.recycle()
 
-                override fun onError(exception: ImageCaptureException) {
-                    Log.e(TAG, "[CAMERAX] Photo capture failed", exception)
-                    onError(exception)
-                }
+                Log.d(TAG, "[CAMERAX] Photo capture succeeded: ${photoFile.absolutePath}")
+                onImageCaptured(photoFile)
+            } catch (e: Exception) {
+                Log.e(TAG, "[CAMERAX] Photo capture failed", e)
+                onError(e)
             }
-        )
+        }
     }
 
     fun setTorchEnabled(enabled: Boolean) {
@@ -153,12 +172,6 @@ class CameraController(
                 it.setAnalyzer(cameraExecutor, DocumentAnalyzer())
             }
 
-        imageCapture = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .setTargetRotation(rotation)
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-            .build()
-
         val cameraSelector = if (useFrontCamera) {
             CameraSelector.DEFAULT_FRONT_CAMERA
         } else {
@@ -170,8 +183,7 @@ class CameraController(
                 lifecycleOwner,
                 cameraSelector,
                 preview,
-                imageAnalysis,
-                imageCapture
+                imageAnalysis
             )
             Log.d(TAG, "[CAMERAX] Camera bound successfully")
         } catch (e: Exception) {
@@ -184,6 +196,15 @@ class CameraController(
             try {
                 val rotationDegrees = imageProxy.imageInfo.rotationDegrees
                 val nv21 = imageProxy.toNv21()
+                lastFrame.set(
+                    LastFrame(
+                        nv21,
+                        imageProxy.width,
+                        imageProxy.height,
+                        rotationDegrees,
+                        useFrontCamera
+                    )
+                )
 
                 val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) {
                     imageProxy.height
@@ -214,6 +235,27 @@ class CameraController(
                 imageProxy.close()
             }
         }
+    }
+
+    private fun nv21ToJpeg(nv21: ByteArray, width: Int, height: Int, quality: Int): ByteArray {
+        val yuv = YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
+        val out = ByteArrayOutputStream()
+        yuv.compressToJpeg(Rect(0, 0, width, height), quality, out)
+        return out.toByteArray()
+    }
+
+    private fun rotateAndMirror(bitmap: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
+        if (rotationDegrees == 0 && !mirror) {
+            return bitmap
+        }
+        val matrix = Matrix()
+        if (mirror) {
+            matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+        }
+        if (rotationDegrees != 0) {
+            matrix.postRotate(rotationDegrees.toFloat(), bitmap.width / 2f, bitmap.height / 2f)
+        }
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
     private fun hasCameraPermission(): Boolean {
