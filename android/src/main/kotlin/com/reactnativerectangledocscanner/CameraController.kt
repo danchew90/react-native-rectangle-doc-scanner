@@ -366,25 +366,32 @@ class CameraController(
         }
 
         val rotationDegrees = getRotationDegrees()
-        val matrix = Matrix()
-        val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
-        val bufferRect = if (rotationDegrees == 90 || rotationDegrees == 270) {
-            RectF(0f, 0f, previewSize.height.toFloat(), previewSize.width.toFloat())
+        val bufferWidth = previewSize.width.toFloat()
+        val bufferHeight = previewSize.height.toFloat()
+        val rotatedBufferWidth = if (rotationDegrees == 90 || rotationDegrees == 270) {
+            bufferHeight
         } else {
-            RectF(0f, 0f, previewSize.width.toFloat(), previewSize.height.toFloat())
+            bufferWidth
         }
-        val centerX = viewRect.centerX()
-        val centerY = viewRect.centerY()
-
-        bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-        // Fit entire buffer into view (no crop).
-        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
-
-        when (rotationDegrees) {
-            90 -> matrix.postRotate(90f, centerX, centerY)
-            180 -> matrix.postRotate(180f, centerX, centerY)
-            270 -> matrix.postRotate(270f, centerX, centerY)
+        val rotatedBufferHeight = if (rotationDegrees == 90 || rotationDegrees == 270) {
+            bufferWidth
+        } else {
+            bufferHeight
         }
+
+        val scale = kotlin.math.min(
+            viewWidth.toFloat() / rotatedBufferWidth,
+            viewHeight.toFloat() / rotatedBufferHeight
+        )
+
+        val matrix = Matrix()
+        // Center buffer at origin, rotate, scale to fit, then move to view center.
+        matrix.postTranslate(-bufferWidth / 2f, -bufferHeight / 2f)
+        if (rotationDegrees != 0) {
+            matrix.postRotate(rotationDegrees.toFloat())
+        }
+        matrix.postScale(scale, scale)
+        matrix.postTranslate(viewWidth / 2f, viewHeight / 2f)
 
         previewView.setTransform(matrix)
     }
@@ -517,7 +524,11 @@ class CameraController(
 
         val ratioFiltered = if (targetRatio != null) {
             candidates.filter { size ->
-                val ratio = size.width.toFloat() / size.height.toFloat()
+                val ratio = if (targetRatio < 1f) {
+                    size.height.toFloat() / size.width.toFloat()
+                } else {
+                    size.width.toFloat() / size.height.toFloat()
+                }
                 kotlin.math.abs(ratio - targetRatio) <= 0.05f
             }
         } else {
