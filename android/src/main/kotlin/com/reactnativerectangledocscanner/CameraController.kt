@@ -175,20 +175,10 @@ class CameraController(
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Build Preview with lower resolution
+        // Build Preview ONLY - this device cannot handle 2 simultaneous surfaces
         preview = Preview.Builder()
             .setTargetResolution(Size(1280, 720))
             .setTargetRotation(rotation)
-            .build()
-            .also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-
-        // Build ImageCapture for periodic frame capture (instead of ImageAnalysis)
-        imageCapture = ImageCapture.Builder()
-            .setTargetResolution(Size(640, 480))
-            .setTargetRotation(rotation)
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             .build()
 
         val cameraSelector = if (useFrontCamera) {
@@ -197,25 +187,76 @@ class CameraController(
             CameraSelector.DEFAULT_BACK_CAMERA
         }
 
-        // Bind Preview and ImageCapture together
+        // Bind Preview ONLY first
         try {
+            camera = provider.bindToLifecycle(
+                lifecycleOwner,
+                cameraSelector,
+                preview
+            )
+
+            // Set surface provider AFTER binding
+            preview?.setSurfaceProvider(previewView.surfaceProvider)
+
+            Log.d(TAG, "[CAMERAX-V7] Preview ONLY bound successfully")
+
+            // Wait for preview to stabilize, then try adding ImageCapture
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                tryAddImageCapture(provider, cameraSelector, rotation)
+            }, 3000)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERAX-V7] Failed to bind preview", e)
+        }
+    }
+
+    private fun tryAddImageCapture(provider: ProcessCameraProvider, cameraSelector: CameraSelector, rotation: Int) {
+        Log.d(TAG, "[CAMERAX-V7] Attempting to add ImageCapture...")
+
+        // Build ImageCapture with minimal resolution
+        imageCapture = ImageCapture.Builder()
+            .setTargetResolution(Size(320, 240))
+            .setTargetRotation(rotation)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
+
+        try {
+            // Unbind and rebind with both
+            provider.unbindAll()
+
             camera = provider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 preview,
                 imageCapture
             )
-            Log.d(TAG, "[CAMERAX-V6] Preview + ImageCapture bound successfully")
 
-            // Start periodic frame capture for analysis
+            preview?.setSurfaceProvider(previewView.surfaceProvider)
+
+            Log.d(TAG, "[CAMERAX-V7] ImageCapture added successfully")
+
+            // Start periodic frame capture
             if (detectionEnabled) {
                 isAnalysisActive = true
-                analysisHandler.postDelayed(analysisRunnable, 500) // Start after 500ms
-                Log.d(TAG, "[CAMERAX-V6] Started periodic frame capture for analysis")
+                analysisHandler.postDelayed(analysisRunnable, 500)
+                Log.d(TAG, "[CAMERAX-V7] Started periodic frame capture")
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-V6] Failed to bind camera use cases", e)
+            Log.e(TAG, "[CAMERAX-V7] Failed to add ImageCapture, keeping Preview only", e)
+
+            // Fallback: Keep preview only and disable detection
+            try {
+                camera = provider.bindToLifecycle(
+                    lifecycleOwner,
+                    cameraSelector,
+                    preview
+                )
+                preview?.setSurfaceProvider(previewView.surfaceProvider)
+                Log.d(TAG, "[CAMERAX-V7] Fallback: Preview only mode (detection disabled)")
+            } catch (fallbackException: Exception) {
+                Log.e(TAG, "[CAMERAX-V7] Fallback failed", fallbackException)
+            }
         }
     }
 
