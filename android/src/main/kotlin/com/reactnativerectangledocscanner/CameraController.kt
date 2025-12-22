@@ -48,6 +48,7 @@ class CameraController(
 
     private var cameraId: String? = null
     private var sensorOrientation: Int = 0
+    private var sensorAspectRatio: Float? = null
     private var previewSize: Size? = null
     private var analysisSize: Size? = null
     private var previewChoices: Array<Size> = emptyArray()
@@ -254,6 +255,10 @@ class CameraController(
         cameraId = selected
         val characteristics = cameraManager.getCameraCharacteristics(selected)
         sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+        val activeArray = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+        sensorAspectRatio = activeArray?.let { rect ->
+            if (rect.height() != 0) rect.width().toFloat() / rect.height().toFloat() else null
+        }
 
         val streamConfig = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
         previewChoices = streamConfig?.getOutputSizes(SurfaceTexture::class.java) ?: emptyArray()
@@ -267,15 +272,16 @@ class CameraController(
             null
         }
 
-        logSizeCandidates("preview", previewChoices, targetRatio)
-        logSizeCandidates("analysis", analysisChoices, targetRatio)
+        logSizeCandidates("preview", previewChoices, targetRatio, sensorAspectRatio)
+        logSizeCandidates("analysis", analysisChoices, targetRatio, sensorAspectRatio)
 
-        previewSize = choosePreviewSize(previewChoices, targetRatio)
-        analysisSize = chooseAnalysisSize(analysisChoices, targetRatio)
+        previewSize = choosePreviewSize(previewChoices, targetRatio, sensorAspectRatio)
+        analysisSize = chooseAnalysisSize(analysisChoices, targetRatio, sensorAspectRatio)
         Log.d(
             TAG,
             "[CAMERA2] chooseCamera view=${viewWidth}x${viewHeight} ratio=$targetRatio " +
-                "sensorOrientation=$sensorOrientation preview=$previewSize analysis=$analysisSize"
+                "sensorOrientation=$sensorOrientation sensorRatio=$sensorAspectRatio " +
+                "preview=$previewSize analysis=$analysisSize"
         )
     }
 
@@ -399,8 +405,8 @@ class CameraController(
             null
         }
 
-        val newPreview = choosePreviewSize(previewChoices, targetRatio)
-        val newAnalysis = chooseAnalysisSize(analysisChoices, targetRatio)
+        val newPreview = choosePreviewSize(previewChoices, targetRatio, sensorAspectRatio)
+        val newAnalysis = chooseAnalysisSize(analysisChoices, targetRatio, sensorAspectRatio)
 
         if (newPreview != null && newPreview != previewSize) {
             previewSize = newPreview
@@ -604,25 +610,23 @@ class CameraController(
 
     private fun choosePreviewSize(
         choices: Array<Size>,
-        targetRatio: Float?
+        targetRatio: Float?,
+        sensorRatio: Float?
     ): Size? {
         if (choices.isEmpty()) {
             return null
         }
         val candidates = choices.toList()
 
-        if (targetRatio == null) {
+        val ratioBase = sensorRatio ?: targetRatio
+        if (ratioBase == null) {
             return candidates.maxByOrNull { it.width * it.height }
         }
 
-        val normalizedTarget = targetRatio
+        val normalizedTarget = ratioBase
         val sorted = candidates.sortedWith(
             compareBy<Size> { size ->
-                val ratio = if (normalizedTarget < 1f) {
-                    size.height.toFloat() / size.width.toFloat()
-                } else {
-                    size.width.toFloat() / size.height.toFloat()
-                }
+                val ratio = size.width.toFloat() / size.height.toFloat()
                 kotlin.math.abs(ratio - normalizedTarget)
             }.thenByDescending { size ->
                 size.width * size.height
@@ -633,7 +637,8 @@ class CameraController(
 
     private fun chooseAnalysisSize(
         choices: Array<Size>,
-        targetRatio: Float?
+        targetRatio: Float?,
+        sensorRatio: Float?
     ): Size? {
         if (choices.isEmpty()) {
             return null
@@ -642,18 +647,15 @@ class CameraController(
         val capped = choices.filter { it.width <= MAX_ANALYSIS_WIDTH && it.height <= MAX_ANALYSIS_HEIGHT }
         val candidates = if (capped.isNotEmpty()) capped else choices.toList()
 
-        if (targetRatio == null) {
+        val ratioBase = sensorRatio ?: targetRatio
+        if (ratioBase == null) {
             return candidates.maxByOrNull { it.width * it.height }
         }
 
-        val normalizedTarget = targetRatio
+        val normalizedTarget = ratioBase
         val sorted = candidates.sortedWith(
             compareBy<Size> { size ->
-                val ratio = if (normalizedTarget < 1f) {
-                    size.height.toFloat() / size.width.toFloat()
-                } else {
-                    size.width.toFloat() / size.height.toFloat()
-                }
+                val ratio = size.width.toFloat() / size.height.toFloat()
                 kotlin.math.abs(ratio - normalizedTarget)
             }.thenByDescending { size ->
                 size.width * size.height
@@ -665,26 +667,24 @@ class CameraController(
     private fun logSizeCandidates(
         label: String,
         choices: Array<Size>,
-        targetRatio: Float?
+        targetRatio: Float?,
+        sensorRatio: Float?
     ) {
         if (choices.isEmpty()) {
             Log.d(TAG, "[CAMERA2] $label sizes: none")
             return
         }
 
-        if (targetRatio == null) {
-            Log.d(TAG, "[CAMERA2] $label sizes: ${choices.size}, targetRatio=null")
+        val ratioBase = sensorRatio ?: targetRatio
+        if (ratioBase == null) {
+            Log.d(TAG, "[CAMERA2] $label sizes: ${choices.size}, ratioBase=null")
             return
         }
 
-        val normalizedTarget = targetRatio
+        val normalizedTarget = ratioBase
         val sorted = choices.sortedWith(
             compareBy<Size> { size ->
-                val ratio = if (normalizedTarget < 1f) {
-                    size.height.toFloat() / size.width.toFloat()
-                } else {
-                    size.width.toFloat() / size.height.toFloat()
-                }
+                val ratio = size.width.toFloat() / size.height.toFloat()
                 kotlin.math.abs(ratio - normalizedTarget)
             }.thenByDescending { size ->
                 size.width * size.height
@@ -692,16 +692,16 @@ class CameraController(
         )
 
         val top = sorted.take(5).joinToString { size ->
-            val ratio = if (normalizedTarget < 1f) {
-                size.height.toFloat() / size.width.toFloat()
-            } else {
-                size.width.toFloat() / size.height.toFloat()
-            }
+            val ratio = size.width.toFloat() / size.height.toFloat()
             val diff = kotlin.math.abs(ratio - normalizedTarget)
             "${size.width}x${size.height}(r=${"%.3f".format(ratio)},d=${"%.3f".format(diff)})"
         }
 
-        Log.d(TAG, "[CAMERA2] $label sizes: ${choices.size}, target=${"%.3f".format(normalizedTarget)} top=$top")
+        Log.d(
+            TAG,
+            "[CAMERA2] $label sizes: ${choices.size}, ratioBase=${"%.3f".format(normalizedTarget)} " +
+                "sensor=${sensorRatio?.let { "%.3f".format(it) }} target=${targetRatio?.let { "%.3f".format(it) }} top=$top"
+        )
     }
 
     private fun startBackgroundThread() {
