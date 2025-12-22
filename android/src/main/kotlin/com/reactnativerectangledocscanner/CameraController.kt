@@ -65,8 +65,8 @@ class CameraController(
 
     companion object {
         private const val TAG = "CameraController"
-        private const val MAX_PREVIEW_WIDTH = 2560
-        private const val MAX_PREVIEW_HEIGHT = 1440
+        private const val MAX_ANALYSIS_WIDTH = 1280
+        private const val MAX_ANALYSIS_HEIGHT = 720
     }
 
     private data class LastFrame(
@@ -267,8 +267,8 @@ class CameraController(
             null
         }
 
-        previewSize = chooseSize(previewChoices, MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT, targetRatio)
-        analysisSize = chooseSize(analysisChoices, MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT, targetRatio)
+        previewSize = choosePreviewSize(previewChoices, targetRatio)
+        analysisSize = chooseAnalysisSize(analysisChoices, targetRatio)
         Log.d(TAG, "[CAMERA2] Selected sizes - preview: $previewSize, analysis: $analysisSize")
     }
 
@@ -386,8 +386,8 @@ class CameraController(
             null
         }
 
-        val newPreview = chooseSize(previewChoices, MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT, targetRatio)
-        val newAnalysis = chooseSize(analysisChoices, MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT, targetRatio)
+        val newPreview = choosePreviewSize(previewChoices, targetRatio)
+        val newAnalysis = chooseAnalysisSize(analysisChoices, targetRatio)
 
         if (newPreview != null && newPreview != previewSize) {
             previewSize = newPreview
@@ -578,20 +578,48 @@ class CameraController(
         }
     }
 
-    private fun chooseSize(
+    private fun choosePreviewSize(
         choices: Array<Size>,
-        maxWidth: Int,
-        maxHeight: Int,
         targetRatio: Float?
     ): Size? {
         if (choices.isEmpty()) {
             return null
         }
-        val maxCandidates = choices.filter { it.width <= maxWidth && it.height <= maxHeight }
-        val candidates = if (maxCandidates.isNotEmpty()) maxCandidates else choices.toList()
+        val candidates = choices.toList()
 
         if (targetRatio == null) {
-            return candidates.sortedBy { it.width * it.height }.last()
+            return candidates.maxByOrNull { it.width * it.height }
+        }
+
+        val normalizedTarget = targetRatio
+        val sorted = candidates.sortedWith(
+            compareBy<Size> { size ->
+                val ratio = if (normalizedTarget < 1f) {
+                    size.height.toFloat() / size.width.toFloat()
+                } else {
+                    size.width.toFloat() / size.height.toFloat()
+                }
+                kotlin.math.abs(ratio - normalizedTarget)
+            }.thenByDescending { size ->
+                size.width * size.height
+            }
+        )
+        return sorted.first()
+    }
+
+    private fun chooseAnalysisSize(
+        choices: Array<Size>,
+        targetRatio: Float?
+    ): Size? {
+        if (choices.isEmpty()) {
+            return null
+        }
+
+        val capped = choices.filter { it.width <= MAX_ANALYSIS_WIDTH && it.height <= MAX_ANALYSIS_HEIGHT }
+        val candidates = if (capped.isNotEmpty()) capped else choices.toList()
+
+        if (targetRatio == null) {
+            return candidates.maxByOrNull { it.width * it.height }
         }
 
         val normalizedTarget = targetRatio
