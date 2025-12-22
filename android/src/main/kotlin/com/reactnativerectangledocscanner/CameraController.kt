@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.graphics.YuvImage
 import android.hardware.camera2.CameraCaptureSession
@@ -80,6 +81,7 @@ class CameraController(
 
         override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
             Log.d(TAG, "[CAMERA2] Texture size changed: ${width}x${height}")
+            updatePreviewTransform()
         }
 
         override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
@@ -330,6 +332,7 @@ class CameraController(
                         try {
                             session.setRepeatingRequest(previewRequestBuilder!!.build(), null, backgroundHandler)
                             Log.d(TAG, "[CAMERA2] Preview session started")
+                            updatePreviewTransform()
                         } catch (e: Exception) {
                             Log.e(TAG, "[CAMERA2] Failed to start preview", e)
                         }
@@ -344,6 +347,44 @@ class CameraController(
         } catch (e: Exception) {
             Log.e(TAG, "[CAMERA2] Failed to create preview session", e)
         }
+    }
+
+    private fun updatePreviewTransform() {
+        val previewSize = previewSize ?: return
+        val viewWidth = previewView.width
+        val viewHeight = previewView.height
+        if (viewWidth == 0 || viewHeight == 0) {
+            return
+        }
+
+        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
+        val matrix = Matrix()
+        val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
+        val bufferRect = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            RectF(0f, 0f, previewSize.height.toFloat(), previewSize.width.toFloat())
+        } else {
+            RectF(0f, 0f, previewSize.width.toFloat(), previewSize.height.toFloat())
+        }
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
+
+        bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+
+        val scale = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            maxOf(viewHeight.toFloat() / previewSize.height, viewWidth.toFloat() / previewSize.width)
+        } else {
+            maxOf(viewWidth.toFloat() / previewSize.width, viewHeight.toFloat() / previewSize.height)
+        }
+        matrix.postScale(scale, scale, centerX, centerY)
+
+        when (rotation) {
+            Surface.ROTATION_90 -> matrix.postRotate(90f, centerX, centerY)
+            Surface.ROTATION_180 -> matrix.postRotate(180f, centerX, centerY)
+            Surface.ROTATION_270 -> matrix.postRotate(270f, centerX, centerY)
+        }
+
+        previewView.setTransform(matrix)
     }
 
     private fun handleImage(image: Image) {
