@@ -244,8 +244,16 @@ class CameraController(
         val previewChoices = streamConfig?.getOutputSizes(SurfaceTexture::class.java) ?: emptyArray()
         val analysisChoices = streamConfig?.getOutputSizes(ImageFormat.YUV_420_888) ?: emptyArray()
 
-        previewSize = chooseSize(previewChoices, MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT)
-        analysisSize = chooseSize(analysisChoices, MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT)
+        val viewWidth = if (previewView.width > 0) previewView.width else context.resources.displayMetrics.widthPixels
+        val viewHeight = if (previewView.height > 0) previewView.height else context.resources.displayMetrics.heightPixels
+        val targetRatio = if (viewWidth > 0 && viewHeight > 0) {
+            viewWidth.toFloat() / viewHeight.toFloat()
+        } else {
+            null
+        }
+
+        previewSize = chooseSize(previewChoices, MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT, targetRatio)
+        analysisSize = chooseSize(analysisChoices, MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT, targetRatio)
         Log.d(TAG, "[CAMERA2] Selected sizes - preview: $previewSize, analysis: $analysisSize")
     }
 
@@ -369,8 +377,8 @@ class CameraController(
         val centerY = viewRect.centerY()
 
         bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-        // Fill the view while preserving aspect ratio (center-crop).
-        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
+        // Fit entire buffer into view (no crop).
+        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
 
         when (rotationDegrees) {
             90 -> matrix.postRotate(90f, centerX, centerY)
@@ -495,13 +503,29 @@ class CameraController(
         }
     }
 
-    private fun chooseSize(choices: Array<Size>, maxWidth: Int, maxHeight: Int): Size? {
+    private fun chooseSize(
+        choices: Array<Size>,
+        maxWidth: Int,
+        maxHeight: Int,
+        targetRatio: Float?
+    ): Size? {
         if (choices.isEmpty()) {
             return null
         }
-        val filtered = choices.filter { it.width <= maxWidth && it.height <= maxHeight }
-        val candidates = if (filtered.isNotEmpty()) filtered else choices.toList()
-        return candidates.sortedBy { it.width * it.height }.last()
+        val maxCandidates = choices.filter { it.width <= maxWidth && it.height <= maxHeight }
+        val candidates = if (maxCandidates.isNotEmpty()) maxCandidates else choices.toList()
+
+        val ratioFiltered = if (targetRatio != null) {
+            candidates.filter { size ->
+                val ratio = size.width.toFloat() / size.height.toFloat()
+                kotlin.math.abs(ratio - targetRatio) <= 0.05f
+            }
+        } else {
+            emptyList()
+        }
+
+        val pickFrom = if (ratioFiltered.isNotEmpty()) ratioFiltered else candidates
+        return pickFrom.sortedBy { it.width * it.height }.last()
     }
 
     private fun startBackgroundThread() {
