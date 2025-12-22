@@ -156,6 +156,8 @@ class CameraController(
         analysisBound = false
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
+
+        // Build Preview
         preview = Preview.Builder()
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(rotation)
@@ -164,35 +166,7 @@ class CameraController(
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
 
-        val cameraSelector = if (useFrontCamera) {
-            CameraSelector.DEFAULT_FRONT_CAMERA
-        } else {
-            CameraSelector.DEFAULT_BACK_CAMERA
-        }
-
-        try {
-            camera = provider.bindToLifecycle(
-                lifecycleOwner,
-                cameraSelector,
-                preview
-            )
-            Log.d(TAG, "[CAMERAX] Camera bound successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX] Failed to bind camera", e)
-            return
-        }
-
-        // Bind analysis after preview to avoid session timeouts on some devices.
-        ContextCompat.getMainExecutor(context).execute {
-            bindAnalysis(cameraSelector, rotation)
-        }
-    }
-
-    private fun bindAnalysis(cameraSelector: CameraSelector, rotation: Int) {
-        if (analysisBound) {
-            return
-        }
-        val provider = cameraProvider ?: return
+        // Build ImageAnalysis
         imageAnalysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setTargetRotation(rotation)
@@ -203,6 +177,13 @@ class CameraController(
                 it.setAnalyzer(cameraExecutor, DocumentAnalyzer())
             }
 
+        val cameraSelector = if (useFrontCamera) {
+            CameraSelector.DEFAULT_FRONT_CAMERA
+        } else {
+            CameraSelector.DEFAULT_BACK_CAMERA
+        }
+
+        // Bind both Preview and ImageAnalysis together in one call
         try {
             camera = provider.bindToLifecycle(
                 lifecycleOwner,
@@ -211,9 +192,9 @@ class CameraController(
                 imageAnalysis
             )
             analysisBound = true
-            Log.d(TAG, "[CAMERAX] Analysis bound successfully")
+            Log.d(TAG, "[CAMERAX] Camera and analysis bound successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX] Failed to bind analysis; keeping preview only", e)
+            Log.e(TAG, "[CAMERAX] Failed to bind camera use cases", e)
             analysisBound = false
         }
     }
