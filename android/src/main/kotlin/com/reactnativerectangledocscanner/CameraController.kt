@@ -15,6 +15,8 @@ import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -37,6 +39,7 @@ class CameraController(
     private var cameraProvider: ProcessCameraProvider? = null
     private var preview: Preview? = null
     private var imageAnalysis: ImageAnalysis? = null
+    private var imageCapture: ImageCapture? = null
     private var camera: Camera? = null
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val lastFrame = AtomicReference<LastFrame?>()
@@ -44,6 +47,18 @@ class CameraController(
 
     private var useFrontCamera = false
     private var detectionEnabled = true
+
+    // For periodic frame capture
+    private var isAnalysisActive = false
+    private val analysisHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val analysisRunnable = object : Runnable {
+        override fun run() {
+            if (isAnalysisActive && onFrameAnalyzed != null) {
+                captureFrameForAnalysis()
+                analysisHandler.postDelayed(this, 200) // Capture every 200ms
+            }
+        }
+    }
 
     var onFrameAnalyzed: ((Rectangle?, Int, Int) -> Unit)? = null
 
@@ -63,12 +78,12 @@ class CameraController(
         useFrontCam: Boolean = false,
         enableDetection: Boolean = true
     ) {
-        Log.d(TAG, "[CAMERAX] startCamera called")
+        Log.d(TAG, "[CAMERAX-V6] startCamera called")
         this.useFrontCamera = useFrontCam
         this.detectionEnabled = enableDetection
 
         if (!hasCameraPermission()) {
-            Log.e(TAG, "[CAMERAX] Camera permission not granted")
+            Log.e(TAG, "[CAMERAX-V6] Camera permission not granted")
             return
         }
 
@@ -81,13 +96,15 @@ class CameraController(
                 cameraProvider = cameraProviderFuture?.get()
                 bindCameraUseCases()
             } catch (e: Exception) {
-                Log.e(TAG, "[CAMERAX] Failed to get camera provider", e)
+                Log.e(TAG, "[CAMERAX-V6] Failed to get camera provider", e)
             }
         }, ContextCompat.getMainExecutor(context))
     }
 
     fun stopCamera() {
-        Log.d(TAG, "[CAMERAX] stopCamera called")
+        Log.d(TAG, "[CAMERAX-V6] stopCamera called")
+        isAnalysisActive = false
+        analysisHandler.removeCallbacks(analysisRunnable)
         cameraProvider?.unbindAll()
         analysisBound = false
     }
@@ -119,10 +136,10 @@ class CameraController(
                 }
                 bitmap.recycle()
 
-                Log.d(TAG, "[CAMERAX] Photo capture succeeded: ${photoFile.absolutePath}")
+                Log.d(TAG, "[CAMERAX-V6] Photo capture succeeded: ${photoFile.absolutePath}")
                 onImageCaptured(photoFile)
             } catch (e: Exception) {
-                Log.e(TAG, "[CAMERAX] Photo capture failed", e)
+                Log.e(TAG, "[CAMERAX-V6] Photo capture failed", e)
                 onError(e)
             }
         }
@@ -154,10 +171,11 @@ class CameraController(
         val provider = cameraProvider ?: return
         provider.unbindAll()
         analysisBound = false
+        isAnalysisActive = false
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Build Preview ONLY first
+        // Build Preview with lower resolution
         preview = Preview.Builder()
             .setTargetResolution(Size(1280, 720))
             .setTargetRotation(rotation)
@@ -166,125 +184,90 @@ class CameraController(
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
 
+        // Build ImageCapture for periodic frame capture (instead of ImageAnalysis)
+        imageCapture = ImageCapture.Builder()
+            .setTargetResolution(Size(640, 480))
+            .setTargetRotation(rotation)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
+
         val cameraSelector = if (useFrontCamera) {
             CameraSelector.DEFAULT_FRONT_CAMERA
         } else {
             CameraSelector.DEFAULT_BACK_CAMERA
         }
 
-        // TEMPORARY: Bind Preview ONLY to test if Preview works without ImageAnalysis
+        // Bind Preview and ImageCapture together
         try {
-            camera = provider.bindToLifecycle(
-                lifecycleOwner,
-                cameraSelector,
-                preview
-            )
-            Log.d(TAG, "[CAMERAX-DEBUG] Preview ONLY bound successfully - NO ImageAnalysis")
-            analysisBound = false
-
-            // TODO: If Preview works, we need to find alternative for document detection
-            // Options:
-            // 1. Use ImageCapture instead of ImageAnalysis
-            // 2. Use lower resolution for ImageAnalysis (already tried)
-            // 3. Use Camera2 API directly instead of CameraX
-
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-DEBUG] Failed to bind preview", e)
-            analysisBound = false
-        }
-    }
-
-    private fun bindImageAnalysis(provider: ProcessCameraProvider, cameraSelector: CameraSelector, rotation: Int) {
-        if (analysisBound) return
-
-        Log.d(TAG, "[CAMERAX-FIX-V5] Starting to add ImageAnalysis...")
-
-        try {
-            // Build ImageAnalysis with very low resolution
-            imageAnalysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setTargetRotation(rotation)
-                .setTargetResolution(Size(480, 360))
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-                .build()
-                .also {
-                    it.setAnalyzer(cameraExecutor, DocumentAnalyzer())
-                }
-
-            // IMPORTANT: Unbind all first, then rebind together to avoid session reconfiguration timeout
-            provider.unbindAll()
-
-            // Rebind BOTH at the same time
             camera = provider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 preview,
-                imageAnalysis
+                imageCapture
             )
-            analysisBound = true
-            Log.d(TAG, "[CAMERAX-FIX-V5] ImageAnalysis added successfully after unbind/rebind")
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-FIX-V5] Failed to add ImageAnalysis", e)
-            analysisBound = false
+            Log.d(TAG, "[CAMERAX-V6] Preview + ImageCapture bound successfully")
 
-            // Fallback: rebind preview only
-            try {
-                camera = provider.bindToLifecycle(
-                    lifecycleOwner,
-                    cameraSelector,
-                    preview
-                )
-                Log.d(TAG, "[CAMERAX-FIX-V5] Fallback: Preview only")
-            } catch (fallbackException: Exception) {
-                Log.e(TAG, "[CAMERAX-FIX-V5] Fallback also failed", fallbackException)
+            // Start periodic frame capture for analysis
+            if (detectionEnabled) {
+                isAnalysisActive = true
+                analysisHandler.postDelayed(analysisRunnable, 500) // Start after 500ms
+                Log.d(TAG, "[CAMERAX-V6] Started periodic frame capture for analysis")
             }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERAX-V6] Failed to bind camera use cases", e)
         }
     }
 
-    private inner class DocumentAnalyzer : ImageAnalysis.Analyzer {
-        override fun analyze(imageProxy: androidx.camera.core.ImageProxy) {
-            try {
-                val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-                val nv21 = imageProxy.toNv21()
-                lastFrame.set(
-                    LastFrame(
-                        nv21,
-                        imageProxy.width,
-                        imageProxy.height,
-                        rotationDegrees,
-                        useFrontCamera
+    private fun captureFrameForAnalysis() {
+        val capture = imageCapture ?: return
+
+        capture.takePicture(cameraExecutor, object : ImageCapture.OnImageCapturedCallback() {
+            override fun onCaptureSuccess(image: androidx.camera.core.ImageProxy) {
+                try {
+                    val rotationDegrees = image.imageInfo.rotationDegrees
+                    val nv21 = image.toNv21()
+
+                    lastFrame.set(
+                        LastFrame(
+                            nv21,
+                            image.width,
+                            image.height,
+                            rotationDegrees,
+                            useFrontCamera
+                        )
                     )
-                )
 
-                val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) {
-                    imageProxy.height
-                } else {
-                    imageProxy.width
-                }
+                    val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) {
+                        image.height
+                    } else {
+                        image.width
+                    }
 
-                val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) {
-                    imageProxy.width
-                } else {
-                    imageProxy.height
-                }
+                    val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) {
+                        image.width
+                    } else {
+                        image.height
+                    }
 
-                if (detectionEnabled) {
                     val rectangle = DocumentDetector.detectRectangleInYUV(
                         nv21,
-                        imageProxy.width,
-                        imageProxy.height,
+                        image.width,
+                        image.height,
                         rotationDegrees
                     )
                     onFrameAnalyzed?.invoke(rectangle, frameWidth, frameHeight)
-                } else {
-                    onFrameAnalyzed?.invoke(null, frameWidth, frameHeight)
+                } catch (e: Exception) {
+                    Log.e(TAG, "[CAMERAX-V6] Error analyzing frame", e)
+                } finally {
+                    image.close()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "[CAMERAX] Error analyzing frame", e)
-            } finally {
-                imageProxy.close()
             }
-        }
+
+            override fun onError(exception: ImageCaptureException) {
+                Log.e(TAG, "[CAMERAX-V6] Frame capture for analysis failed", exception)
+            }
+        })
     }
 
     private fun nv21ToJpeg(nv21: ByteArray, width: Int, height: Int, quality: Int): ByteArray {
