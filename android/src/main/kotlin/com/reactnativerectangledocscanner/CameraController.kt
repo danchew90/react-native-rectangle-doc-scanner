@@ -175,9 +175,9 @@ class CameraController(
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Build Preview ONLY - this device cannot handle 2 simultaneous surfaces initially
+        // Build Preview ONLY with minimal resolution to reduce HAL load
         preview = Preview.Builder()
-            .setTargetResolution(Size(1280, 720))
+            .setTargetResolution(Size(640, 480))
             .setTargetRotation(rotation)
             .build()
             .also {
@@ -199,11 +199,13 @@ class CameraController(
                 preview
             )
 
-            Log.d(TAG, "[CAMERAX-V8] Preview ONLY bound successfully - camera preview should be visible")
+            Log.d(TAG, "[CAMERAX-V9] Preview bound with 640x480 resolution")
+            Log.d(TAG, "[CAMERAX-V9] Waiting for capture session to configure...")
 
-            // DO NOT try to add ImageCapture - this device cannot handle it
-            // Keep Preview only mode
-            Log.d(TAG, "[CAMERAX-V8] Running in Preview-only mode (no auto-detection)")
+            // Log session state after some time
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                Log.d(TAG, "[CAMERAX-V9] Camera state check - preview should be working now")
+            }, 6000)
 
         } catch (e: Exception) {
             Log.e(TAG, "[CAMERAX-V8] Failed to bind preview", e)
