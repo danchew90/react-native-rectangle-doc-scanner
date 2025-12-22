@@ -369,14 +369,8 @@ class CameraController(
         val centerY = viewRect.centerY()
 
         bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
-
-        val scale = if (rotationDegrees == 90 || rotationDegrees == 270) {
-            maxOf(viewHeight.toFloat() / previewSize.height, viewWidth.toFloat() / previewSize.width)
-        } else {
-            maxOf(viewWidth.toFloat() / previewSize.width, viewHeight.toFloat() / previewSize.height)
-        }
-        matrix.postScale(scale, scale, centerX, centerY)
+        // Fill the view while preserving aspect ratio (center-crop).
+        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
 
         when (rotationDegrees) {
             90 -> matrix.postRotate(90f, centerX, centerY)
