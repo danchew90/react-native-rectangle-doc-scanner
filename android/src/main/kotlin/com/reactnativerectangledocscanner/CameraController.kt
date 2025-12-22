@@ -267,6 +267,9 @@ class CameraController(
             null
         }
 
+        logSizeCandidates("preview", previewChoices, targetRatio)
+        logSizeCandidates("analysis", analysisChoices, targetRatio)
+
         previewSize = choosePreviewSize(previewChoices, targetRatio)
         analysisSize = chooseAnalysisSize(analysisChoices, targetRatio)
         Log.d(
@@ -657,6 +660,48 @@ class CameraController(
             }
         )
         return sorted.first()
+    }
+
+    private fun logSizeCandidates(
+        label: String,
+        choices: Array<Size>,
+        targetRatio: Float?
+    ) {
+        if (choices.isEmpty()) {
+            Log.d(TAG, "[CAMERA2] $label sizes: none")
+            return
+        }
+
+        if (targetRatio == null) {
+            Log.d(TAG, "[CAMERA2] $label sizes: ${choices.size}, targetRatio=null")
+            return
+        }
+
+        val normalizedTarget = targetRatio
+        val sorted = choices.sortedWith(
+            compareBy<Size> { size ->
+                val ratio = if (normalizedTarget < 1f) {
+                    size.height.toFloat() / size.width.toFloat()
+                } else {
+                    size.width.toFloat() / size.height.toFloat()
+                }
+                kotlin.math.abs(ratio - normalizedTarget)
+            }.thenByDescending { size ->
+                size.width * size.height
+            }
+        )
+
+        val top = sorted.take(5).joinToString { size ->
+            val ratio = if (normalizedTarget < 1f) {
+                size.height.toFloat() / size.width.toFloat()
+            } else {
+                size.width.toFloat() / size.height.toFloat()
+            }
+            val diff = kotlin.math.abs(ratio - normalizedTarget)
+            "${size.width}x${size.height}(r=${"%.3f".format(ratio)},d=${"%.3f".format(diff)})"
+        }
+
+        Log.d(TAG, "[CAMERA2] $label sizes: ${choices.size}, target=${"%.3f".format(normalizedTarget)} top=$top")
     }
 
     private fun startBackgroundThread() {
