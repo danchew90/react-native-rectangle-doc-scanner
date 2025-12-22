@@ -401,7 +401,7 @@ class CameraController(
 
     private fun updatePreviewTransform() {
         val previewSize = previewSize ?: return
-        adjustPreviewLayout(previewSize)
+        ensureMatchParent()
 
         val viewWidth = previewView.width
         val viewHeight = previewView.height
@@ -423,7 +423,8 @@ class CameraController(
             bufferHeight
         }
 
-        val scale = kotlin.math.min(
+        // Fill the view like the default camera preview (center-crop).
+        val scale = kotlin.math.max(
             viewWidth.toFloat() / rotatedBufferWidth,
             viewHeight.toFloat() / rotatedBufferHeight
         )
@@ -440,7 +441,7 @@ class CameraController(
         previewView.setTransform(matrix)
     }
 
-    private fun adjustPreviewLayout(previewSize: Size) {
+    private fun ensureMatchParent() {
         val parentView = previewView.parent as? android.view.View ?: return
         val parentWidth = parentView.width
         val parentHeight = parentView.height
@@ -448,32 +449,16 @@ class CameraController(
             return
         }
 
-        val rotationDegrees = getRotationDegrees()
-        val bufferWidth = previewSize.width.toFloat()
-        val bufferHeight = previewSize.height.toFloat()
-        val bufferAspect = if (rotationDegrees == 90 || rotationDegrees == 270) {
-            bufferHeight / bufferWidth
-        } else {
-            bufferWidth / bufferHeight
-        }
-
-        val parentAspect = parentWidth.toFloat() / parentHeight.toFloat()
-        val targetWidth: Int
-        val targetHeight: Int
-
-        if (parentAspect > bufferAspect) {
-            targetHeight = parentHeight
-            targetWidth = (parentHeight * bufferAspect).toInt()
-        } else {
-            targetWidth = parentWidth
-            targetHeight = (parentWidth / bufferAspect).toInt()
-        }
-
         val layoutParams = (previewView.layoutParams as? android.widget.FrameLayout.LayoutParams)
-            ?: android.widget.FrameLayout.LayoutParams(targetWidth, targetHeight)
-        if (layoutParams.width != targetWidth || layoutParams.height != targetHeight) {
-            layoutParams.width = targetWidth
-            layoutParams.height = targetHeight
+            ?: android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        if (layoutParams.width != android.widget.FrameLayout.LayoutParams.MATCH_PARENT ||
+            layoutParams.height != android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        ) {
+            layoutParams.width = android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            layoutParams.height = android.widget.FrameLayout.LayoutParams.MATCH_PARENT
             layoutParams.gravity = Gravity.CENTER
             previewView.layoutParams = layoutParams
         }
