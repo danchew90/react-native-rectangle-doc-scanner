@@ -194,7 +194,8 @@ object ImageProcessor {
         saturation: Float = 1f,
         shouldCrop: Boolean = true
     ): ProcessedImage {
-        var initialBitmap = BitmapFactory.decodeFile(imagePath)
+        val initialBitmap = BitmapFactory.decodeFile(imagePath)
+            ?: throw IllegalStateException("decode_failed")
         var croppedBitmap = initialBitmap
 
         // Apply perspective correction if rectangle detected and cropping enabled

@@ -487,7 +487,9 @@ class CameraController(
 
         val matrix = Matrix()
         bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
+        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
+        matrix.postScale(scale, scale, centerX, centerY)
         matrix.postRotate(rotation.toFloat(), centerX, centerY)
         previewView.setTransform(matrix)
     }

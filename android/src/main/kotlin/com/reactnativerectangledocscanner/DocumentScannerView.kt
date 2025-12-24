@@ -312,7 +312,13 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         try {
             // Detect rectangle in captured image
             val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath)
-            val detectedRectangle = DocumentDetector.detectRectangle(bitmap)
+                ?: throw IllegalStateException("decode_failed")
+            val detectedRectangle = try {
+                DocumentDetector.detectRectangle(bitmap)
+            } catch (e: Exception) {
+                Log.w(TAG, "Rectangle detection failed, using original image", e)
+                null
+            }
 
             // Process image with detected rectangle
             val shouldCrop = detectedRectangle != null && stableCounter > 0
