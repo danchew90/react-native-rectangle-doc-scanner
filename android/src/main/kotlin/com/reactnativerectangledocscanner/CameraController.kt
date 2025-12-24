@@ -9,7 +9,6 @@ import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.util.Log
-import android.util.Size
 import android.view.Surface
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
@@ -175,9 +174,9 @@ class CameraController(
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Build Preview ONLY with minimal resolution to reduce HAL load
+        // Build Preview without a fixed size to avoid unsupported stream configs.
         preview = Preview.Builder()
-            .setTargetResolution(Size(640, 480))
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(rotation)
             .build()
             .also {
