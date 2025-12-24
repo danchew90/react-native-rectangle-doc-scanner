@@ -229,6 +229,42 @@ class DocumentDetector {
         }
 
         /**
+         * Evaluate rectangle quality in view coordinates (closer to iOS behavior).
+         */
+        fun evaluateRectangleQualityInView(
+            rectangle: Rectangle,
+            viewWidth: Int,
+            viewHeight: Int
+        ): RectangleQuality {
+            if (viewWidth == 0 || viewHeight == 0) {
+                return RectangleQuality.TOO_FAR
+            }
+
+            val minDim = min(viewWidth.toDouble(), viewHeight.toDouble())
+            val angleThreshold = max(60.0, minDim * 0.05)
+
+            val topYDiff = abs(rectangle.topRight.y - rectangle.topLeft.y)
+            val bottomYDiff = abs(rectangle.bottomLeft.y - rectangle.bottomRight.y)
+            val leftXDiff = abs(rectangle.topLeft.x - rectangle.bottomLeft.x)
+            val rightXDiff = abs(rectangle.topRight.x - rectangle.bottomRight.x)
+
+            if (topYDiff > angleThreshold || bottomYDiff > angleThreshold || leftXDiff > angleThreshold || rightXDiff > angleThreshold) {
+                return RectangleQuality.BAD_ANGLE
+            }
+
+            val margin = max(150.0, minDim * 0.15)
+            if (rectangle.topLeft.y > margin ||
+                rectangle.topRight.y > margin ||
+                rectangle.bottomLeft.y < (viewHeight - margin) ||
+                rectangle.bottomRight.y < (viewHeight - margin)
+            ) {
+                return RectangleQuality.TOO_FAR
+            }
+
+            return RectangleQuality.GOOD
+        }
+
+        /**
          * Calculate perimeter of rectangle
          */
         fun calculatePerimeter(rectangle: Rectangle): Double {

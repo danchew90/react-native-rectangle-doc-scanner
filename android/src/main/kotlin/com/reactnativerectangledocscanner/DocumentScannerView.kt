@@ -186,16 +186,16 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         }
         lastDetectionTimestamp = now
 
-        val quality = if (rectangle != null) {
-            DocumentDetector.evaluateRectangleQuality(rectangle, imageWidth, imageHeight)
-        } else {
-            RectangleQuality.TOO_FAR
-        }
-
         val rectangleOnScreen = if (rectangle != null && width > 0 && height > 0) {
             DocumentDetector.transformRectangleToViewCoordinates(rectangle, imageWidth, imageHeight, width, height)
         } else {
             null
+        }
+        val quality = when {
+            rectangleOnScreen != null && width > 0 && height > 0 ->
+                DocumentDetector.evaluateRectangleQualityInView(rectangleOnScreen, width, height)
+            rectangle != null -> DocumentDetector.evaluateRectangleQuality(rectangle, imageWidth, imageHeight)
+            else -> RectangleQuality.TOO_FAR
         }
 
         post {
