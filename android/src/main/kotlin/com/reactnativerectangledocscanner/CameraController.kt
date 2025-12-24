@@ -70,6 +70,8 @@ class CameraController(
             .build()
     )
     private var lastRefineTimestamp = 0L
+    private var lastRectangle: Rectangle? = null
+    private var lastRectangleTimestamp = 0L
 
     var onFrameAnalyzed: ((Rectangle?, Int, Int) -> Unit)? = null
 
@@ -213,7 +215,7 @@ class CameraController(
             }
 
             val previewSizes = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)
-            previewSize = chooseBestSize(previewSizes, viewAspect, null)
+            previewSize = chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
 
             val analysisSizes = streamConfigMap.getOutputSizes(ImageFormat.YUV_420_888)
             analysisSize = chooseBestSize(analysisSizes, viewAspect, ANALYSIS_MAX_AREA)
@@ -390,7 +392,7 @@ class CameraController(
 
                 val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) image.height else image.width
                 val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) image.width else image.height
-                onFrameAnalyzed?.invoke(rectangle, frameWidth, frameHeight)
+                onFrameAnalyzed?.invoke(smoothRectangle(rectangle), frameWidth, frameHeight)
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "[CAMERA2] ML Kit detection failed", e)
@@ -490,18 +492,14 @@ class CameraController(
         previewView.setTransform(matrix)
     }
 
-    private fun chooseBestSize(sizes: Array<Size>?, targetAspect: Double, maxArea: Int?): Size? {
+    private fun chooseBestSize(
+        sizes: Array<Size>?,
+        targetAspect: Double,
+        maxArea: Int?,
+        preferClosestAspect: Boolean = false
+    ): Size? {
         if (sizes == null || sizes.isEmpty()) return null
         val sorted = sizes.sortedByDescending { it.width * it.height }
-
-        val matching = sorted.filter {
-            val aspect = it.width.toDouble() / it.height.toDouble()
-            abs(aspect - targetAspect) <= ANALYSIS_ASPECT_TOLERANCE && (maxArea == null || it.width * it.height <= maxArea)
-        }
-
-        if (matching.isNotEmpty()) {
-            return matching.first()
-        }
 
         val capped = if (maxArea != null) {
             sorted.filter { it.width * it.height <= maxArea }
@@ -509,7 +507,23 @@ class CameraController(
             sorted
         }
 
-        return capped.firstOrNull() ?: sorted.first()
+        if (capped.isEmpty()) {
+            return sorted.first()
+        }
+
+        if (preferClosestAspect) {
+            return capped.minWithOrNull(
+                compareBy<Size> { abs(it.width.toDouble() / it.height.toDouble() - targetAspect) }
+                    .thenByDescending { it.width * it.height }
+            )
+        }
+
+        val matching = capped.filter {
+            val aspect = it.width.toDouble() / it.height.toDouble()
+            abs(aspect - targetAspect) <= ANALYSIS_ASPECT_TOLERANCE
+        }
+
+        return matching.firstOrNull() ?: capped.first()
     }
 
     private fun rotateAndMirror(bitmap: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
@@ -528,7 +542,7 @@ class CameraController(
 
     private fun shouldRefineWithOpenCv(): Boolean {
         val now = System.currentTimeMillis()
-        if (now - lastRefineTimestamp < 200) {
+        if (now - lastRefineTimestamp < 150) {
             return false
         }
         lastRefineTimestamp = now
@@ -538,7 +552,16 @@ class CameraController(
     private fun refineWithOpenCv(image: Image, rotationDegrees: Int, mlBox: Rect): Rectangle? {
         return try {
             val nv21 = imageToNv21(image)
-            val openCvRect = DocumentDetector.detectRectangleInYUV(nv21, image.width, image.height, rotationDegrees)
+            val uprightWidth = if (rotationDegrees == 90 || rotationDegrees == 270) image.height else image.width
+            val uprightHeight = if (rotationDegrees == 90 || rotationDegrees == 270) image.width else image.height
+            val expanded = expandRect(mlBox, uprightWidth, uprightHeight, 0.2f)
+            val openCvRect = DocumentDetector.detectRectangleInYUVWithRoi(
+                nv21,
+                image.width,
+                image.height,
+                rotationDegrees,
+                expanded
+            )
             if (openCvRect == null) {
                 null
             } else {
@@ -558,6 +581,48 @@ class CameraController(
             Point(box.left.toDouble(), box.bottom.toDouble()),
             Point(box.right.toDouble(), box.bottom.toDouble())
         )
+    }
+
+    private fun expandRect(box: Rect, maxWidth: Int, maxHeight: Int, ratio: Float): Rect {
+        val padX = (box.width() * ratio).toInt()
+        val padY = (box.height() * ratio).toInt()
+        val left = (box.left - padX).coerceAtLeast(0)
+        val top = (box.top - padY).coerceAtLeast(0)
+        val right = (box.right + padX).coerceAtMost(maxWidth)
+        val bottom = (box.bottom + padY).coerceAtMost(maxHeight)
+        return Rect(left, top, right, bottom)
+    }
+
+    private fun smoothRectangle(current: Rectangle?): Rectangle? {
+        val now = System.currentTimeMillis()
+        val last = lastRectangle
+        if (current == null) {
+            if (last != null && now - lastRectangleTimestamp < 250) {
+                return last
+            }
+            lastRectangle = null
+            return null
+        }
+
+        val smoothed = if (last != null && now - lastRectangleTimestamp < 500) {
+            val t = 0.35
+            Rectangle(
+                Point(lerp(last.topLeft.x, current.topLeft.x, t), lerp(last.topLeft.y, current.topLeft.y, t)),
+                Point(lerp(last.topRight.x, current.topRight.x, t), lerp(last.topRight.y, current.topRight.y, t)),
+                Point(lerp(last.bottomLeft.x, current.bottomLeft.x, t), lerp(last.bottomLeft.y, current.bottomLeft.y, t)),
+                Point(lerp(last.bottomRight.x, current.bottomRight.x, t), lerp(last.bottomRight.y, current.bottomRight.y, t))
+            )
+        } else {
+            current
+        }
+
+        lastRectangle = smoothed
+        lastRectangleTimestamp = now
+        return smoothed
+    }
+
+    private fun lerp(start: Double, end: Double, t: Double): Double {
+        return start + (end - start) * t
     }
 
     private fun rectangleBounds(rectangle: Rectangle): Rect {

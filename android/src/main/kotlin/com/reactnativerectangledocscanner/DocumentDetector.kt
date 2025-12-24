@@ -1,6 +1,7 @@
 package com.reactnativerectangledocscanner
 
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.util.Log
 import org.opencv.android.Utils
 import org.opencv.core.*
@@ -96,6 +97,59 @@ class DocumentDetector {
             rgbMat.release()
 
             return rectangle
+        }
+
+        /**
+         * Detect rectangle within a region-of-interest (ROI) in YUV image.
+         * The ROI is specified in the rotated image coordinate space.
+         */
+        fun detectRectangleInYUVWithRoi(
+            yuvBytes: ByteArray,
+            width: Int,
+            height: Int,
+            rotation: Int,
+            roi: Rect
+        ): Rectangle? {
+            val yuvMat = Mat(height + height / 2, width, CvType.CV_8UC1)
+            yuvMat.put(0, 0, yuvBytes)
+
+            val rgbMat = Mat()
+            Imgproc.cvtColor(yuvMat, rgbMat, Imgproc.COLOR_YUV2RGB_NV21)
+
+            if (rotation != 0) {
+                val rotationCode = when (rotation) {
+                    90 -> Core.ROTATE_90_CLOCKWISE
+                    180 -> Core.ROTATE_180
+                    270 -> Core.ROTATE_90_COUNTERCLOCKWISE
+                    else -> null
+                }
+                if (rotationCode != null) {
+                    Core.rotate(rgbMat, rgbMat, rotationCode)
+                }
+            }
+
+            val x = roi.left.coerceIn(0, rgbMat.cols() - 1)
+            val y = roi.top.coerceIn(0, rgbMat.rows() - 1)
+            val right = roi.right.coerceIn(x + 1, rgbMat.cols())
+            val bottom = roi.bottom.coerceIn(y + 1, rgbMat.rows())
+            val w = right - x
+            val h = bottom - y
+            val roiRect = org.opencv.core.Rect(x, y, w, h)
+
+            val roiMat = Mat(rgbMat, roiRect)
+            val rectangle = detectRectangleInMat(roiMat)
+            roiMat.release()
+            yuvMat.release()
+            rgbMat.release()
+
+            return rectangle?.let {
+                Rectangle(
+                    Point(it.topLeft.x + x, it.topLeft.y + y),
+                    Point(it.topRight.x + x, it.topRight.y + y),
+                    Point(it.bottomLeft.x + x, it.bottomLeft.y + y),
+                    Point(it.bottomRight.x + x, it.bottomRight.y + y)
+                )
+            }
         }
 
         /**
