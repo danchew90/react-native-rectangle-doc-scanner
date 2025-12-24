@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCaptureSession
@@ -68,6 +69,7 @@ class CameraController(
             .enableMultipleObjects()
             .build()
     )
+    private var lastRefineTimestamp = 0L
 
     var onFrameAnalyzed: ((Rectangle?, Int, Int) -> Unit)? = null
 
@@ -379,13 +381,11 @@ class CameraController(
                     val box = obj.boundingBox
                     box.width() * box.height()
                 }
-                val rectangle = best?.boundingBox?.let { box ->
-                    Rectangle(
-                        Point(box.left.toDouble(), box.top.toDouble()),
-                        Point(box.right.toDouble(), box.top.toDouble()),
-                        Point(box.left.toDouble(), box.bottom.toDouble()),
-                        Point(box.right.toDouble(), box.bottom.toDouble())
-                    )
+                val mlBox = best?.boundingBox
+                val rectangle = when {
+                    mlBox == null -> null
+                    shouldRefineWithOpenCv() -> refineWithOpenCv(image, rotationDegrees, mlBox) ?: boxToRectangle(mlBox)
+                    else -> boxToRectangle(mlBox)
                 }
 
                 val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) image.height else image.width
@@ -485,10 +485,7 @@ class CameraController(
 
         val matrix = Matrix()
         bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
-
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
-        matrix.postScale(scale, scale, centerX, centerY)
+        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
         matrix.postRotate(rotation.toFloat(), centerX, centerY)
         previewView.setTransform(matrix)
     }
@@ -529,6 +526,100 @@ class CameraController(
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
+    private fun shouldRefineWithOpenCv(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastRefineTimestamp < 200) {
+            return false
+        }
+        lastRefineTimestamp = now
+        return true
+    }
+
+    private fun refineWithOpenCv(image: Image, rotationDegrees: Int, mlBox: Rect): Rectangle? {
+        return try {
+            val nv21 = imageToNv21(image)
+            val openCvRect = DocumentDetector.detectRectangleInYUV(nv21, image.width, image.height, rotationDegrees)
+            if (openCvRect == null) {
+                null
+            } else {
+                val openRectBounds = rectangleBounds(openCvRect)
+                if (computeIoU(openRectBounds, mlBox) >= 0.2f) openCvRect else null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[CAMERA2] OpenCV refine failed", e)
+            null
+        }
+    }
+
+    private fun boxToRectangle(box: Rect): Rectangle {
+        return Rectangle(
+            Point(box.left.toDouble(), box.top.toDouble()),
+            Point(box.right.toDouble(), box.top.toDouble()),
+            Point(box.left.toDouble(), box.bottom.toDouble()),
+            Point(box.right.toDouble(), box.bottom.toDouble())
+        )
+    }
+
+    private fun rectangleBounds(rectangle: Rectangle): Rect {
+        val left = listOf(rectangle.topLeft.x, rectangle.bottomLeft.x, rectangle.topRight.x, rectangle.bottomRight.x).minOrNull() ?: 0.0
+        val right = listOf(rectangle.topLeft.x, rectangle.bottomLeft.x, rectangle.topRight.x, rectangle.bottomRight.x).maxOrNull() ?: 0.0
+        val top = listOf(rectangle.topLeft.y, rectangle.bottomLeft.y, rectangle.topRight.y, rectangle.bottomRight.y).minOrNull() ?: 0.0
+        val bottom = listOf(rectangle.topLeft.y, rectangle.bottomLeft.y, rectangle.topRight.y, rectangle.bottomRight.y).maxOrNull() ?: 0.0
+        return Rect(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
+    }
+
+    private fun computeIoU(a: Rect, b: Rect): Float {
+        val left = max(a.left, b.left)
+        val top = max(a.top, b.top)
+        val right = minOf(a.right, b.right)
+        val bottom = minOf(a.bottom, b.bottom)
+        if (right <= left || bottom <= top) return 0f
+        val intersection = (right - left).toFloat() * (bottom - top).toFloat()
+        val union = (a.width() * a.height() + b.width() * b.height() - intersection).toFloat()
+        return if (union <= 0f) 0f else intersection / union
+    }
+
+    private fun imageToNv21(image: Image): ByteArray {
+        val width = image.width
+        val height = image.height
+        val ySize = width * height
+        val uvSize = width * height / 2
+        val nv21 = ByteArray(ySize + uvSize)
+
+        val yBuffer = image.planes[0].buffer
+        val uBuffer = image.planes[1].buffer
+        val vBuffer = image.planes[2].buffer
+
+        val yRowStride = image.planes[0].rowStride
+        val yPixelStride = image.planes[0].pixelStride
+        var outputOffset = 0
+        for (row in 0 until height) {
+            var inputOffset = row * yRowStride
+            for (col in 0 until width) {
+                nv21[outputOffset++] = yBuffer.get(inputOffset)
+                inputOffset += yPixelStride
+            }
+        }
+
+        val uvRowStride = image.planes[1].rowStride
+        val uvPixelStride = image.planes[1].pixelStride
+        val vRowStride = image.planes[2].rowStride
+        val vPixelStride = image.planes[2].pixelStride
+        val uvHeight = height / 2
+        val uvWidth = width / 2
+        for (row in 0 until uvHeight) {
+            var uInputOffset = row * uvRowStride
+            var vInputOffset = row * vRowStride
+            for (col in 0 until uvWidth) {
+                nv21[outputOffset++] = vBuffer.get(vInputOffset)
+                nv21[outputOffset++] = uBuffer.get(uInputOffset)
+                uInputOffset += uvPixelStride
+                vInputOffset += vPixelStride
+            }
+        }
+
+        return nv21
+    }
     private fun hasCameraPermission(): Boolean {
         return ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     }
