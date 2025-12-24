@@ -6,112 +6,112 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.graphics.Rect
-import android.graphics.YuvImage
+import android.graphics.SurfaceTexture
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
+import android.media.Image
+import android.media.ImageReader
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
 import android.util.Size
 import android.view.Surface
-import androidx.camera.core.Camera
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
+import android.view.TextureView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.LifecycleOwner
-import com.google.common.util.concurrent.ListenableFuture
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
+import kotlin.math.max
 
 class CameraController(
     private val context: Context,
-    private val lifecycleOwner: LifecycleOwner,
-    private val previewView: PreviewView
+    private val lifecycleOwner: androidx.lifecycle.LifecycleOwner,
+    private val previewView: TextureView
 ) {
-    private var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>? = null
-    private var cameraProvider: ProcessCameraProvider? = null
-    private var preview: Preview? = null
-    private var imageAnalysis: ImageAnalysis? = null
-    private var imageCapture: ImageCapture? = null
-    private var camera: Camera? = null
-    private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val lastFrame = AtomicReference<LastFrame?>()
-    private var analysisBound = false
-    private var pendingBindAttempts = 0
-    private var triedLowResFallback = false
-    private val streamCheckHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var streamCheckRunnable: Runnable? = null
+    private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    private var cameraDevice: CameraDevice? = null
+    private var captureSession: CameraCaptureSession? = null
+    private var previewRequestBuilder: CaptureRequest.Builder? = null
+
+    private var previewSize: Size? = null
+    private var analysisSize: Size? = null
+    private var captureSize: Size? = null
+
+    private var yuvReader: ImageReader? = null
+    private var jpegReader: ImageReader? = null
+
+    private val cameraThread = HandlerThread("Camera2Thread").apply { start() }
+    private val cameraHandler = Handler(cameraThread.looper)
+    private val analysisThread = HandlerThread("Camera2Analysis").apply { start() }
+    private val analysisHandler = Handler(analysisThread.looper)
 
     private var useFrontCamera = false
     private var detectionEnabled = true
+    private var torchEnabled = false
 
-    // For periodic frame capture
-    private var isAnalysisActive = false
-    private val analysisHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private val analysisRunnable = object : Runnable {
-        override fun run() {
-            if (isAnalysisActive && onFrameAnalyzed != null) {
-                captureFrameForAnalysis()
-                analysisHandler.postDelayed(this, 200) // Capture every 200ms
-            }
-        }
-    }
+    private val pendingCapture = AtomicReference<PendingCapture?>()
 
     var onFrameAnalyzed: ((Rectangle?, Int, Int) -> Unit)? = null
 
     companion object {
         private const val TAG = "CameraController"
+        private const val ANALYSIS_MAX_AREA = 1920 * 1080
+        private const val ANALYSIS_ASPECT_TOLERANCE = 0.15
     }
 
-    private data class LastFrame(
-        val nv21: ByteArray,
-        val width: Int,
-        val height: Int,
-        val rotationDegrees: Int,
-        val isFront: Boolean
+    private data class PendingCapture(
+        val outputDirectory: File,
+        val onImageCaptured: (File) -> Unit,
+        val onError: (Exception) -> Unit
     )
+
+    private val textureListener = object : TextureView.SurfaceTextureListener {
+        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+            openCamera()
+        }
+
+        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+            configureTransform()
+        }
+
+        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+            return true
+        }
+
+        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
+            // no-op
+        }
+    }
 
     fun startCamera(
         useFrontCam: Boolean = false,
         enableDetection: Boolean = true
     ) {
-        Log.d(TAG, "[CAMERAX-V6] startCamera called")
+        Log.d(TAG, "[CAMERA2] startCamera called")
         this.useFrontCamera = useFrontCam
         this.detectionEnabled = enableDetection
-        triedLowResFallback = false
 
         if (!hasCameraPermission()) {
-            Log.e(TAG, "[CAMERAX-V6] Camera permission not granted")
+            Log.e(TAG, "[CAMERA2] Camera permission not granted")
             return
         }
 
-        if (cameraProviderFuture == null) {
-            cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        if (previewView.isAvailable) {
+            openCamera()
+        } else {
+            previewView.surfaceTextureListener = textureListener
         }
-
-        cameraProviderFuture?.addListener({
-            try {
-                cameraProvider = cameraProviderFuture?.get()
-                bindCameraUseCases()
-            } catch (e: Exception) {
-                Log.e(TAG, "[CAMERAX-V6] Failed to get camera provider", e)
-            }
-        }, ContextCompat.getMainExecutor(context))
     }
 
     fun stopCamera() {
-        Log.d(TAG, "[CAMERAX-V6] stopCamera called")
-        isAnalysisActive = false
-        analysisHandler.removeCallbacks(analysisRunnable)
-        streamCheckRunnable?.let { streamCheckHandler.removeCallbacks(it) }
-        cameraProvider?.unbindAll()
-        analysisBound = false
+        Log.d(TAG, "[CAMERA2] stopCamera called")
+        previewView.surfaceTextureListener = null
+        closeSession()
     }
 
     fun capturePhoto(
@@ -119,195 +119,337 @@ class CameraController(
         onImageCaptured: (File) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        val frame = lastFrame.get()
-        if (frame == null) {
-            onError(IllegalStateException("No frame available for capture"))
+        val device = cameraDevice
+        val session = captureSession
+        val reader = jpegReader
+        if (device == null || session == null || reader == null) {
+            onError(IllegalStateException("Camera not ready for capture"))
             return
         }
 
-        cameraExecutor.execute {
-            try {
-                val photoFile = File(outputDirectory, "doc_scan_${System.currentTimeMillis()}.jpg")
-                val jpegBytes = nv21ToJpeg(frame.nv21, frame.width, frame.height, 95)
-                val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
-                    ?: throw IllegalStateException("Failed to decode JPEG")
+        if (!pendingCapture.compareAndSet(null, PendingCapture(outputDirectory, onImageCaptured, onError))) {
+            onError(IllegalStateException("Capture already in progress"))
+            return
+        }
 
-                val rotated = rotateAndMirror(bitmap, frame.rotationDegrees, frame.isFront)
-                FileOutputStream(photoFile).use { out ->
-                    rotated.compress(Bitmap.CompressFormat.JPEG, 95, out)
+        try {
+            val requestBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                addTarget(reader.surface)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                if (torchEnabled) {
+                    set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
                 }
-                if (rotated != bitmap) {
-                    rotated.recycle()
-                }
-                bitmap.recycle()
-
-                Log.d(TAG, "[CAMERAX-V6] Photo capture succeeded: ${photoFile.absolutePath}")
-                onImageCaptured(photoFile)
-            } catch (e: Exception) {
-                Log.e(TAG, "[CAMERAX-V6] Photo capture failed", e)
-                onError(e)
+                set(CaptureRequest.JPEG_ORIENTATION, 0)
             }
+
+            session.capture(requestBuilder.build(), object : CameraCaptureSession.CaptureCallback() {}, cameraHandler)
+        } catch (e: Exception) {
+            pendingCapture.getAndSet(null)?.onError?.invoke(e)
         }
     }
 
     fun setTorchEnabled(enabled: Boolean) {
-        camera?.cameraControl?.enableTorch(enabled)
+        torchEnabled = enabled
+        updateRepeatingRequest()
     }
 
     fun switchCamera() {
         useFrontCamera = !useFrontCamera
-        bindCameraUseCases()
+        closeSession()
+        openCamera()
     }
 
     fun isTorchAvailable(): Boolean {
-        return camera?.cameraInfo?.hasFlashUnit() == true
+        return try {
+            val cameraId = selectCameraId() ?: return false
+            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+            characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     fun focusAt(x: Float, y: Float) {
-        // No-op for now.
+        // Optional: implement touch-to-focus if needed.
     }
 
     fun shutdown() {
         stopCamera()
-        cameraExecutor.shutdown()
+        cameraThread.quitSafely()
+        analysisThread.quitSafely()
     }
 
-    private fun bindCameraUseCases(useLowRes: Boolean = false) {
-        if (!previewView.isAttachedToWindow || previewView.width == 0 || previewView.height == 0) {
-            if (pendingBindAttempts < 5) {
-                pendingBindAttempts++
-                Log.d(TAG, "[CAMERAX-V9] PreviewView not ready (attached=${previewView.isAttachedToWindow}, w=${previewView.width}, h=${previewView.height}), retrying...")
-                previewView.post { bindCameraUseCases() }
-            } else {
-                Log.w(TAG, "[CAMERAX-V9] PreviewView still not ready after retries, aborting bind")
-            }
+    private fun openCamera() {
+        if (cameraDevice != null) {
             return
         }
-        pendingBindAttempts = 0
-
-        val provider = cameraProvider ?: return
-        provider.unbindAll()
-        analysisBound = false
-        isAnalysisActive = false
-
-        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
-
-        // Build Preview; fall back to a low-res stream if the default config stalls.
-        val previewBuilder = Preview.Builder()
-            .setTargetRotation(rotation)
-        if (useLowRes) {
-            previewBuilder.setTargetResolution(Size(640, 480))
-        }
-        preview = previewBuilder.build().also {
-            // IMPORTANT: Set surface provider BEFORE binding
-            it.setSurfaceProvider(previewView.surfaceProvider)
-        }
-
-        val cameraSelector = if (useFrontCamera) {
-            CameraSelector.DEFAULT_FRONT_CAMERA
-        } else {
-            CameraSelector.DEFAULT_BACK_CAMERA
-        }
-
-        // Bind Preview ONLY first
+        val cameraId = selectCameraId() ?: return
         try {
-            camera = provider.bindToLifecycle(
-                lifecycleOwner,
-                cameraSelector,
-                preview
-            )
+            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+            val streamConfigMap = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                ?: return
 
-            if (useLowRes) {
-                Log.d(TAG, "[CAMERAX-V9] Preview bound with low-res fallback (640x480)")
+            val viewAspect = if (previewView.height == 0) {
+                1.0
             } else {
-                Log.d(TAG, "[CAMERAX-V9] Preview bound, waiting for capture session to configure...")
+                previewView.width.toDouble() / previewView.height.toDouble()
             }
 
-            // Log session state after some time
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                Log.d(TAG, "[CAMERAX-V9] Camera state check - preview should be working now")
-            }, 6000)
+            val previewSizes = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)
+            previewSize = chooseBestSize(previewSizes, viewAspect, null)
 
-            scheduleStreamCheck(useLowRes)
+            val analysisSizes = streamConfigMap.getOutputSizes(ImageFormat.YUV_420_888)
+            analysisSize = chooseBestSize(analysisSizes, viewAspect, ANALYSIS_MAX_AREA)
+
+            val captureSizes = streamConfigMap.getOutputSizes(ImageFormat.JPEG)
+            captureSize = captureSizes?.maxByOrNull { it.width * it.height }
+
+            setupImageReaders()
+
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                Log.e(TAG, "[CAMERA2] Camera permission not granted")
+                return
+            }
+
+            cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    cameraDevice = camera
+                    createCaptureSession()
+                }
+
+                override fun onDisconnected(camera: CameraDevice) {
+                    camera.close()
+                    cameraDevice = null
+                }
+
+                override fun onError(camera: CameraDevice, error: Int) {
+                    Log.e(TAG, "[CAMERA2] CameraDevice error: $error")
+                    camera.close()
+                    cameraDevice = null
+                }
+            }, cameraHandler)
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERAX-V8] Failed to bind preview", e)
+            Log.e(TAG, "[CAMERA2] Failed to open camera", e)
         }
     }
 
-    private fun scheduleStreamCheck(usingLowRes: Boolean) {
-        streamCheckRunnable?.let { streamCheckHandler.removeCallbacks(it) }
-        streamCheckRunnable = Runnable {
-            val state = previewView.previewStreamState.value
-            val streaming = state == PreviewView.StreamState.STREAMING
-            if (!streaming && !usingLowRes && !triedLowResFallback) {
-                triedLowResFallback = true
-                Log.w(TAG, "[CAMERAX-V9] Preview not streaming; retrying with low-res fallback")
-                bindCameraUseCases(useLowRes = true)
-            } else if (!streaming) {
-                Log.w(TAG, "[CAMERAX-V9] Preview still not streaming after fallback")
+    private fun setupImageReaders() {
+        val analysis = analysisSize
+        val capture = captureSize
+
+        yuvReader?.close()
+        jpegReader?.close()
+
+        if (analysis != null) {
+            yuvReader = ImageReader.newInstance(analysis.width, analysis.height, ImageFormat.YUV_420_888, 2).apply {
+                setOnImageAvailableListener({ reader ->
+                    if (!detectionEnabled || onFrameAnalyzed == null) {
+                        reader.acquireLatestImage()?.close()
+                        return@setOnImageAvailableListener
+                    }
+                    val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                    analysisHandler.post { analyzeImage(image) }
+                }, cameraHandler)
             }
         }
-        streamCheckHandler.postDelayed(streamCheckRunnable!!, 6500)
+
+        if (capture != null) {
+            jpegReader = ImageReader.newInstance(capture.width, capture.height, ImageFormat.JPEG, 2).apply {
+                setOnImageAvailableListener({ reader ->
+                    val image = reader.acquireNextImage() ?: return@setOnImageAvailableListener
+                    val pending = pendingCapture.getAndSet(null)
+                    if (pending == null) {
+                        image.close()
+                        return@setOnImageAvailableListener
+                    }
+                    analysisHandler.post { processCapture(image, pending) }
+                }, cameraHandler)
+            }
+        }
     }
 
-    // Function removed - this device cannot handle ImageCapture + Preview simultaneously
+    private fun createCaptureSession() {
+        val device = cameraDevice ?: return
+        val surfaceTexture = previewView.surfaceTexture ?: return
+        val preview = previewSize ?: return
 
-    private fun captureFrameForAnalysis() {
-        val capture = imageCapture ?: return
+        surfaceTexture.setDefaultBufferSize(preview.width, preview.height)
+        val previewSurface = Surface(surfaceTexture)
 
-        capture.takePicture(cameraExecutor, object : ImageCapture.OnImageCapturedCallback() {
-            override fun onCaptureSuccess(image: androidx.camera.core.ImageProxy) {
-                try {
-                    val rotationDegrees = image.imageInfo.rotationDegrees
-                    val nv21 = image.toNv21()
+        val targets = mutableListOf(previewSurface)
+        yuvReader?.surface?.let { targets.add(it) }
+        jpegReader?.surface?.let { targets.add(it) }
 
-                    lastFrame.set(
-                        LastFrame(
-                            nv21,
-                            image.width,
-                            image.height,
-                            rotationDegrees,
-                            useFrontCamera
-                        )
-                    )
+        try {
+            device.createCaptureSession(targets, object : CameraCaptureSession.StateCallback() {
+                override fun onConfigured(session: CameraCaptureSession) {
+                    captureSession = session
+                    configureTransform()
+                    startRepeating(previewSurface)
+                }
 
-                    val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) {
-                        image.height
-                    } else {
-                        image.width
-                    }
+                override fun onConfigureFailed(session: CameraCaptureSession) {
+                    Log.e(TAG, "[CAMERA2] Failed to configure capture session")
+                }
+            }, cameraHandler)
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERA2] Failed to create capture session", e)
+        }
+    }
 
-                    val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) {
-                        image.width
-                    } else {
-                        image.height
-                    }
-
-                    val rectangle = DocumentDetector.detectRectangleInYUV(
-                        nv21,
-                        image.width,
-                        image.height,
-                        rotationDegrees
-                    )
-                    onFrameAnalyzed?.invoke(rectangle, frameWidth, frameHeight)
-                } catch (e: Exception) {
-                    Log.e(TAG, "[CAMERAX-V6] Error analyzing frame", e)
-                } finally {
-                    image.close()
+    private fun startRepeating(previewSurface: Surface) {
+        val device = cameraDevice ?: return
+        try {
+            previewRequestBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                addTarget(previewSurface)
+                yuvReader?.surface?.let { addTarget(it) }
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                if (torchEnabled) {
+                    set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
                 }
             }
-
-            override fun onError(exception: ImageCaptureException) {
-                Log.e(TAG, "[CAMERAX-V6] Frame capture for analysis failed", exception)
-            }
-        })
+            captureSession?.setRepeatingRequest(previewRequestBuilder?.build() ?: return, null, cameraHandler)
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERA2] Failed to start repeating request", e)
+        }
     }
 
-    private fun nv21ToJpeg(nv21: ByteArray, width: Int, height: Int, quality: Int): ByteArray {
-        val yuv = YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
-        val out = ByteArrayOutputStream()
-        yuv.compressToJpeg(Rect(0, 0, width, height), quality, out)
-        return out.toByteArray()
+    private fun updateRepeatingRequest() {
+        val builder = previewRequestBuilder ?: return
+        builder.set(CaptureRequest.FLASH_MODE, if (torchEnabled) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
+        try {
+            captureSession?.setRepeatingRequest(builder.build(), null, cameraHandler)
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERA2] Failed to update torch state", e)
+        }
+    }
+
+    private fun analyzeImage(image: Image) {
+        try {
+            val nv21 = image.toNv21()
+            val rotationDegrees = computeRotationDegrees()
+            val rectangle = DocumentDetector.detectRectangleInYUV(nv21, image.width, image.height, rotationDegrees)
+
+            val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) image.height else image.width
+            val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) image.width else image.height
+
+            onFrameAnalyzed?.invoke(rectangle, frameWidth, frameHeight)
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERA2] Error analyzing frame", e)
+        } finally {
+            image.close()
+        }
+    }
+
+    private fun processCapture(image: Image, pending: PendingCapture) {
+        try {
+            val buffer = image.planes[0].buffer
+            val bytes = ByteArray(buffer.remaining())
+            buffer.get(bytes)
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                ?: throw IllegalStateException("Failed to decode JPEG")
+
+            val rotated = rotateAndMirror(bitmap, computeRotationDegrees(), useFrontCamera)
+            val photoFile = File(pending.outputDirectory, "doc_scan_${System.currentTimeMillis()}.jpg")
+            FileOutputStream(photoFile).use { out ->
+                rotated.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            }
+
+            if (rotated != bitmap) {
+                rotated.recycle()
+            }
+            bitmap.recycle()
+
+            pending.onImageCaptured(photoFile)
+        } catch (e: Exception) {
+            pending.onError(e)
+        } finally {
+            image.close()
+        }
+    }
+
+    private fun closeSession() {
+        try {
+            captureSession?.close()
+            captureSession = null
+            cameraDevice?.close()
+            cameraDevice = null
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERA2] Error closing camera", e)
+        } finally {
+            yuvReader?.close()
+            jpegReader?.close()
+            yuvReader = null
+            jpegReader = null
+            previewRequestBuilder = null
+        }
+    }
+
+    private fun computeRotationDegrees(): Int {
+        val cameraId = selectCameraId() ?: return 0
+        val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+        val sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+        val displayRotation = displayRotationDegrees()
+        return if (useFrontCamera) {
+            (sensorOrientation + displayRotation) % 360
+        } else {
+            (sensorOrientation - displayRotation + 360) % 360
+        }
+    }
+
+    private fun displayRotationDegrees(): Int {
+        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
+        return when (rotation) {
+            Surface.ROTATION_0 -> 0
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+    }
+
+    private fun configureTransform() {
+        val viewWidth = previewView.width.toFloat()
+        val viewHeight = previewView.height.toFloat()
+        val preview = previewSize ?: return
+        if (viewWidth == 0f || viewHeight == 0f) return
+
+        val rotation = displayRotationDegrees()
+        val bufferWidth = if (rotation == 90 || rotation == 270) preview.height.toFloat() else preview.width.toFloat()
+        val bufferHeight = if (rotation == 90 || rotation == 270) preview.width.toFloat() else preview.height.toFloat()
+
+        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
+        val matrix = Matrix()
+        val centerX = viewWidth / 2f
+        val centerY = viewHeight / 2f
+
+        matrix.setScale(scale, scale, centerX, centerY)
+        matrix.postRotate(rotation.toFloat(), centerX, centerY)
+        previewView.setTransform(matrix)
+    }
+
+    private fun chooseBestSize(sizes: Array<Size>?, targetAspect: Double, maxArea: Int?): Size? {
+        if (sizes == null || sizes.isEmpty()) return null
+        val sorted = sizes.sortedByDescending { it.width * it.height }
+
+        val matching = sorted.filter {
+            val aspect = it.width.toDouble() / it.height.toDouble()
+            abs(aspect - targetAspect) <= ANALYSIS_ASPECT_TOLERANCE && (maxArea == null || it.width * it.height <= maxArea)
+        }
+
+        if (matching.isNotEmpty()) {
+            return matching.first()
+        }
+
+        val capped = if (maxArea != null) {
+            sorted.filter { it.width * it.height <= maxArea }
+        } else {
+            sorted
+        }
+
+        return capped.firstOrNull() ?: sorted.first()
     }
 
     private fun rotateAndMirror(bitmap: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
@@ -324,7 +466,66 @@ class CameraController(
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
+    private fun Image.toNv21(): ByteArray {
+        val width = width
+        val height = height
+        val ySize = width * height
+        val uvSize = width * height / 2
+        val nv21 = ByteArray(ySize + uvSize)
+
+        val yBuffer = planes[0].buffer
+        val uBuffer = planes[1].buffer
+        val vBuffer = planes[2].buffer
+
+        val yRowStride = planes[0].rowStride
+        val yPixelStride = planes[0].pixelStride
+        var outputOffset = 0
+        for (row in 0 until height) {
+            var inputOffset = row * yRowStride
+            for (col in 0 until width) {
+                nv21[outputOffset++] = yBuffer.get(inputOffset)
+                inputOffset += yPixelStride
+            }
+        }
+
+        val uvRowStride = planes[1].rowStride
+        val uvPixelStride = planes[1].pixelStride
+        val vRowStride = planes[2].rowStride
+        val vPixelStride = planes[2].pixelStride
+        val uvHeight = height / 2
+        val uvWidth = width / 2
+        for (row in 0 until uvHeight) {
+            var uInputOffset = row * uvRowStride
+            var vInputOffset = row * vRowStride
+            for (col in 0 until uvWidth) {
+                nv21[outputOffset++] = vBuffer.get(vInputOffset)
+                nv21[outputOffset++] = uBuffer.get(uInputOffset)
+                uInputOffset += uvPixelStride
+                vInputOffset += vPixelStride
+            }
+        }
+
+        return nv21
+    }
+
     private fun hasCameraPermission(): Boolean {
         return ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun selectCameraId(): String? {
+        return try {
+            val desiredFacing = if (useFrontCamera) {
+                CameraCharacteristics.LENS_FACING_FRONT
+            } else {
+                CameraCharacteristics.LENS_FACING_BACK
+            }
+            cameraManager.cameraIdList.firstOrNull { id ->
+                val characteristics = cameraManager.getCameraCharacteristics(id)
+                characteristics.get(CameraCharacteristics.LENS_FACING) == desiredFacing
+            } ?: cameraManager.cameraIdList.firstOrNull()
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERA2] Failed to select camera", e)
+            null
+        }
     }
 }

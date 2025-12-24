@@ -8,9 +8,9 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.util.Log
+import android.view.TextureView
 import android.view.View
 import android.widget.FrameLayout
-import androidx.camera.view.PreviewView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -25,7 +25,7 @@ import kotlin.math.min
 
 class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), LifecycleOwner {
     private val themedContext = context
-    private val previewView: PreviewView
+    private val previewView: TextureView
     private val overlayView: OverlayView
     private var cameraController: CameraController? = null
     private val lifecycleRegistry = LifecycleRegistry(this)
@@ -74,13 +74,10 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
 
         // Create preview view
         Log.d(TAG, "[INIT] Creating PreviewView...")
-        previewView = PreviewView(context).apply {
+        previewView = TextureView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             visibility = View.VISIBLE
             keepScreenOn = true
-            // TextureView mode avoids some device-specific Camera2 session timeouts.
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-            scaleType = PreviewView.ScaleType.FILL_CENTER
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
         Log.d(TAG, "[INIT] PreviewView visibility: ${previewView.visibility}")
