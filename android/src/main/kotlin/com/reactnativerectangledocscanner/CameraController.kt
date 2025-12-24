@@ -23,6 +23,10 @@ import android.util.Size
 import android.view.Surface
 import android.view.TextureView
 import androidx.core.content.ContextCompat
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.objects.ObjectDetection
+import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
+import org.opencv.core.Point
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicReference
@@ -58,6 +62,12 @@ class CameraController(
 
     private val pendingCapture = AtomicReference<PendingCapture?>()
     private val analysisInFlight = AtomicBoolean(false)
+    private val objectDetector = ObjectDetection.getClient(
+        ObjectDetectorOptions.Builder()
+            .setDetectorMode(ObjectDetectorOptions.STREAM_MODE)
+            .enableMultipleObjects()
+            .build()
+    )
 
     var onFrameAnalyzed: ((Rectangle?, Int, Int) -> Unit)? = null
 
@@ -179,6 +189,7 @@ class CameraController(
 
     fun shutdown() {
         stopCamera()
+        objectDetector.close()
         cameraThread.quitSafely()
         analysisThread.quitSafely()
     }
@@ -352,21 +363,42 @@ class CameraController(
     }
 
     private fun analyzeImage(image: Image) {
-        try {
-            val nv21 = image.toNv21()
-            val rotationDegrees = computeRotationDegrees()
-            val rectangle = DocumentDetector.detectRectangleInYUV(nv21, image.width, image.height, rotationDegrees)
-
-            val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) image.height else image.width
-            val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) image.width else image.height
-
-            onFrameAnalyzed?.invoke(rectangle, frameWidth, frameHeight)
+        val rotationDegrees = computeRotationDegrees()
+        val inputImage = try {
+            InputImage.fromMediaImage(image, rotationDegrees)
         } catch (e: Exception) {
-            Log.e(TAG, "[CAMERA2] Error analyzing frame", e)
-        } finally {
+            Log.e(TAG, "[CAMERA2] Failed to create InputImage", e)
             image.close()
             analysisInFlight.set(false)
+            return
         }
+
+        objectDetector.process(inputImage)
+            .addOnSuccessListener { objects ->
+                val best = objects.maxByOrNull { obj ->
+                    val box = obj.boundingBox
+                    box.width() * box.height()
+                }
+                val rectangle = best?.boundingBox?.let { box ->
+                    Rectangle(
+                        Point(box.left.toDouble(), box.top.toDouble()),
+                        Point(box.right.toDouble(), box.top.toDouble()),
+                        Point(box.left.toDouble(), box.bottom.toDouble()),
+                        Point(box.right.toDouble(), box.bottom.toDouble())
+                    )
+                }
+
+                val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) image.height else image.width
+                val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) image.width else image.height
+                onFrameAnalyzed?.invoke(rectangle, frameWidth, frameHeight)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "[CAMERA2] ML Kit detection failed", e)
+            }
+            .addOnCompleteListener {
+                image.close()
+                analysisInFlight.set(false)
+            }
     }
 
     private fun processCapture(image: Image, pending: PendingCapture) {
@@ -495,48 +527,6 @@ class CameraController(
             matrix.postRotate(rotationDegrees.toFloat(), bitmap.width / 2f, bitmap.height / 2f)
         }
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-    }
-
-    private fun Image.toNv21(): ByteArray {
-        val width = width
-        val height = height
-        val ySize = width * height
-        val uvSize = width * height / 2
-        val nv21 = ByteArray(ySize + uvSize)
-
-        val yBuffer = planes[0].buffer
-        val uBuffer = planes[1].buffer
-        val vBuffer = planes[2].buffer
-
-        val yRowStride = planes[0].rowStride
-        val yPixelStride = planes[0].pixelStride
-        var outputOffset = 0
-        for (row in 0 until height) {
-            var inputOffset = row * yRowStride
-            for (col in 0 until width) {
-                nv21[outputOffset++] = yBuffer.get(inputOffset)
-                inputOffset += yPixelStride
-            }
-        }
-
-        val uvRowStride = planes[1].rowStride
-        val uvPixelStride = planes[1].pixelStride
-        val vRowStride = planes[2].rowStride
-        val vPixelStride = planes[2].pixelStride
-        val uvHeight = height / 2
-        val uvWidth = width / 2
-        for (row in 0 until uvHeight) {
-            var uInputOffset = row * uvRowStride
-            var vInputOffset = row * vRowStride
-            for (col in 0 until uvWidth) {
-                nv21[outputOffset++] = vBuffer.get(vInputOffset)
-                nv21[outputOffset++] = uBuffer.get(uInputOffset)
-                uInputOffset += uvPixelStride
-                vInputOffset += vPixelStride
-            }
-        }
-
-        return nv21
     }
 
     private fun hasCameraPermission(): Boolean {

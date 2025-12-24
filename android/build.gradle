@@ -68,6 +68,9 @@ dependencies {
     // OpenCV for document detection
     implementation 'org.opencv:opencv:4.9.0'
 
+    // ML Kit object detection for live rectangle hints
+    implementation 'com.google.mlkit:object-detection:17.0.1'
+
     // Coroutines for async operations
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
