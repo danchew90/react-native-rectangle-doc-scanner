@@ -242,7 +242,7 @@ class DocumentDetector {
             }
 
             val minDim = kotlin.math.min(viewWidth.toDouble(), viewHeight.toDouble())
-            val angleThreshold = max(40.0, minDim * 0.06)
+            val angleThreshold = max(60.0, minDim * 0.08)
 
             val topYDiff = abs(rectangle.topRight.y - rectangle.topLeft.y)
             val bottomYDiff = abs(rectangle.bottomLeft.y - rectangle.bottomRight.y)
@@ -253,7 +253,7 @@ class DocumentDetector {
                 return RectangleQuality.BAD_ANGLE
             }
 
-            val margin = max(80.0, minDim * 0.08)
+            val margin = max(120.0, minDim * 0.12)
             if (rectangle.topLeft.y > margin ||
                 rectangle.topRight.y > margin ||
                 rectangle.bottomLeft.y < (viewHeight - margin) ||

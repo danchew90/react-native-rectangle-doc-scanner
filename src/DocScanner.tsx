@@ -397,11 +397,13 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
           lastRectangleRef.current = payload.rectangleCoordinates ?? payload.rectangleOnScreen ?? null;
         }
 
-        const isGoodRectangle = payload.lastDetectionType === 0;
-        const hasValidRectangle = isGoodRectangle && rectangleOnScreen;
+        const hasAnyRectangle =
+          Platform.OS === 'android'
+            ? Boolean(rectangleOnScreen || payload.rectangleCoordinates)
+            : payload.lastDetectionType === 0 && Boolean(rectangleOnScreen);
 
-        // 그리드를 표시할 조건: 좋은 품질의 사각형이 화면에 있을 때만
-        if (hasValidRectangle) {
+        // 그리드를 표시할 조건: 사각형이 잡히면 품질과 무관하게 표시
+        if (hasAnyRectangle) {
           // 기존 타임아웃 클리어
           if (rectangleClearTimeoutRef.current) {
             clearTimeout(rectangleClearTimeoutRef.current);
