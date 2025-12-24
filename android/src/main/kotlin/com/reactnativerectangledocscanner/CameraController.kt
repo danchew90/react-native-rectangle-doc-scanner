@@ -9,6 +9,7 @@ import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.util.Log
+import android.util.Size
 import android.view.Surface
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -43,6 +44,9 @@ class CameraController(
     private val lastFrame = AtomicReference<LastFrame?>()
     private var analysisBound = false
     private var pendingBindAttempts = 0
+    private var triedLowResFallback = false
+    private val streamCheckHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var streamCheckRunnable: Runnable? = null
 
     private var useFrontCamera = false
     private var detectionEnabled = true
@@ -80,6 +84,7 @@ class CameraController(
         Log.d(TAG, "[CAMERAX-V6] startCamera called")
         this.useFrontCamera = useFrontCam
         this.detectionEnabled = enableDetection
+        triedLowResFallback = false
 
         if (!hasCameraPermission()) {
             Log.e(TAG, "[CAMERAX-V6] Camera permission not granted")
@@ -104,6 +109,7 @@ class CameraController(
         Log.d(TAG, "[CAMERAX-V6] stopCamera called")
         isAnalysisActive = false
         analysisHandler.removeCallbacks(analysisRunnable)
+        streamCheckRunnable?.let { streamCheckHandler.removeCallbacks(it) }
         cameraProvider?.unbindAll()
         analysisBound = false
     }
@@ -166,7 +172,7 @@ class CameraController(
         cameraExecutor.shutdown()
     }
 
-    private fun bindCameraUseCases() {
+    private fun bindCameraUseCases(useLowRes: Boolean = false) {
         if (!previewView.isAttachedToWindow || previewView.width == 0 || previewView.height == 0) {
             if (pendingBindAttempts < 5) {
                 pendingBindAttempts++
@@ -186,14 +192,16 @@ class CameraController(
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Build Preview without a fixed size to avoid unsupported stream configs.
-        preview = Preview.Builder()
+        // Build Preview; fall back to a low-res stream if the default config stalls.
+        val previewBuilder = Preview.Builder()
             .setTargetRotation(rotation)
-            .build()
-            .also {
-                // IMPORTANT: Set surface provider BEFORE binding
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
+        if (useLowRes) {
+            previewBuilder.setTargetResolution(Size(640, 480))
+        }
+        preview = previewBuilder.build().also {
+            // IMPORTANT: Set surface provider BEFORE binding
+            it.setSurfaceProvider(previewView.surfaceProvider)
+        }
 
         val cameraSelector = if (useFrontCamera) {
             CameraSelector.DEFAULT_FRONT_CAMERA
@@ -209,16 +217,37 @@ class CameraController(
                 preview
             )
 
-            Log.d(TAG, "[CAMERAX-V9] Preview bound, waiting for capture session to configure...")
+            if (useLowRes) {
+                Log.d(TAG, "[CAMERAX-V9] Preview bound with low-res fallback (640x480)")
+            } else {
+                Log.d(TAG, "[CAMERAX-V9] Preview bound, waiting for capture session to configure...")
+            }
 
             // Log session state after some time
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 Log.d(TAG, "[CAMERAX-V9] Camera state check - preview should be working now")
             }, 6000)
 
+            scheduleStreamCheck(useLowRes)
         } catch (e: Exception) {
             Log.e(TAG, "[CAMERAX-V8] Failed to bind preview", e)
         }
+    }
+
+    private fun scheduleStreamCheck(usingLowRes: Boolean) {
+        streamCheckRunnable?.let { streamCheckHandler.removeCallbacks(it) }
+        streamCheckRunnable = Runnable {
+            val state = previewView.previewStreamState.value
+            val streaming = state == PreviewView.StreamState.STREAMING
+            if (!streaming && !usingLowRes && !triedLowResFallback) {
+                triedLowResFallback = true
+                Log.w(TAG, "[CAMERAX-V9] Preview not streaming; retrying with low-res fallback")
+                bindCameraUseCases(useLowRes = true)
+            } else if (!streaming) {
+                Log.w(TAG, "[CAMERAX-V9] Preview still not streaming after fallback")
+            }
+        }
+        streamCheckHandler.postDelayed(streamCheckRunnable!!, 6500)
     }
 
     // Function removed - this device cannot handle ImageCapture + Preview simultaneously
