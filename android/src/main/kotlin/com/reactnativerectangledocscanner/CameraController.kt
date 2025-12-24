@@ -25,6 +25,7 @@ import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -55,6 +56,7 @@ class CameraController(
     private var torchEnabled = false
 
     private val pendingCapture = AtomicReference<PendingCapture?>()
+    private val analysisInFlight = AtomicBoolean(false)
 
     var onFrameAnalyzed: ((Rectangle?, Int, Int) -> Unit)? = null
 
@@ -245,10 +247,32 @@ class CameraController(
             yuvReader = ImageReader.newInstance(analysis.width, analysis.height, ImageFormat.YUV_420_888, 2).apply {
                 setOnImageAvailableListener({ reader ->
                     if (!detectionEnabled || onFrameAnalyzed == null) {
-                        reader.acquireLatestImage()?.close()
+                        try {
+                            reader.acquireLatestImage()?.close()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "[CAMERA2] Failed to drain analysis image", e)
+                        }
                         return@setOnImageAvailableListener
                     }
-                    val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                    if (!analysisInFlight.compareAndSet(false, true)) {
+                        try {
+                            reader.acquireLatestImage()?.close()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "[CAMERA2] Failed to drop analysis image", e)
+                        }
+                        return@setOnImageAvailableListener
+                    }
+                    val image = try {
+                        reader.acquireLatestImage()
+                    } catch (e: Exception) {
+                        analysisInFlight.set(false)
+                        Log.w(TAG, "[CAMERA2] acquireLatestImage failed", e)
+                        null
+                    }
+                    if (image == null) {
+                        analysisInFlight.set(false)
+                        return@setOnImageAvailableListener
+                    }
                     analysisHandler.post { analyzeImage(image) }
                 }, cameraHandler)
             }
@@ -340,6 +364,7 @@ class CameraController(
             Log.e(TAG, "[CAMERA2] Error analyzing frame", e)
         } finally {
             image.close()
+            analysisInFlight.set(false)
         }
     }
 
