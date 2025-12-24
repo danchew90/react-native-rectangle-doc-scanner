@@ -104,6 +104,7 @@ class DocumentDetector {
             val grayMat = Mat()
             val blurredMat = Mat()
             val cannyMat = Mat()
+            val morphMat = Mat()
 
             try {
                 // Convert to grayscale
@@ -113,17 +114,20 @@ class DocumentDetector {
                     srcMat.copyTo(grayMat)
                 }
 
-                // Apply Gaussian blur to reduce noise
-                Imgproc.GaussianBlur(grayMat, blurredMat, Size(5.0, 5.0), 0.0)
+                // Apply a light blur to reduce noise without killing small edges.
+                Imgproc.GaussianBlur(grayMat, blurredMat, Size(3.0, 3.0), 0.0)
 
-                // Apply Canny edge detection
-                Imgproc.Canny(blurredMat, cannyMat, 75.0, 200.0)
+                // Apply Canny edge detection with slightly lower thresholds for small documents.
+                Imgproc.Canny(blurredMat, cannyMat, 50.0, 150.0)
+                val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+                Imgproc.morphologyEx(cannyMat, morphMat, Imgproc.MORPH_CLOSE, kernel)
+                kernel.release()
 
                 // Find contours
                 val contours = mutableListOf<MatOfPoint>()
                 val hierarchy = Mat()
                 Imgproc.findContours(
-                    cannyMat,
+                    morphMat,
                     contours,
                     hierarchy,
                     Imgproc.RETR_EXTERNAL,
@@ -133,12 +137,13 @@ class DocumentDetector {
                 // Find the largest contour that approximates to a quadrilateral
                 var largestRectangle: Rectangle? = null
                 var largestArea = 0.0
+                val minArea = max(1000.0, (srcMat.rows() * srcMat.cols()) * 0.002)
 
                 for (contour in contours) {
                     val contourArea = Imgproc.contourArea(contour)
 
                     // Filter small contours
-                    if (contourArea < 1000) continue
+                    if (contourArea < minArea) continue
 
                     // Approximate contour to polygon
                     val approx = MatOfPoint2f()
@@ -168,6 +173,7 @@ class DocumentDetector {
                 grayMat.release()
                 blurredMat.release()
                 cannyMat.release()
+                morphMat.release()
             }
         }
 
