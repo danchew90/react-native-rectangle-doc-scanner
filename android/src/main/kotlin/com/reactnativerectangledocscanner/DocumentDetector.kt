@@ -106,6 +106,7 @@ class DocumentDetector {
             val blurredMat = Mat()
             val cannyMat = Mat()
             val morphMat = Mat()
+            val threshMat = Mat()
 
             try {
                 // Convert to grayscale
@@ -124,57 +125,74 @@ class DocumentDetector {
                 Imgproc.morphologyEx(cannyMat, morphMat, Imgproc.MORPH_CLOSE, kernel)
                 kernel.release()
 
-                // Find contours
-                val contours = mutableListOf<MatOfPoint>()
-                val hierarchy = Mat()
-                Imgproc.findContours(
-                    morphMat,
-                    contours,
-                    hierarchy,
-                    Imgproc.RETR_EXTERNAL,
-                    Imgproc.CHAIN_APPROX_SIMPLE
-                )
+                fun findLargestRectangle(source: Mat): Rectangle? {
+                    val contours = mutableListOf<MatOfPoint>()
+                    val hierarchy = Mat()
+                    Imgproc.findContours(
+                        source,
+                        contours,
+                        hierarchy,
+                        Imgproc.RETR_EXTERNAL,
+                        Imgproc.CHAIN_APPROX_SIMPLE
+                    )
 
-                // Find the largest contour that approximates to a quadrilateral
-                var largestRectangle: Rectangle? = null
-                var largestArea = 0.0
-                val minArea = max(600.0, (srcMat.rows() * srcMat.cols()) * 0.001)
+                    var largestRectangle: Rectangle? = null
+                    var largestArea = 0.0
+                    val minArea = max(500.0, (srcMat.rows() * srcMat.cols()) * 0.0008)
 
-                for (contour in contours) {
-                    val contourArea = Imgproc.contourArea(contour)
+                    for (contour in contours) {
+                        val contourArea = Imgproc.contourArea(contour)
+                        if (contourArea < minArea) continue
 
-                    // Filter small contours
-                    if (contourArea < minArea) continue
+                        val approx = MatOfPoint2f()
+                        val contour2f = MatOfPoint2f(*contour.toArray())
+                        val epsilon = 0.018 * Imgproc.arcLength(contour2f, true)
+                        Imgproc.approxPolyDP(contour2f, approx, epsilon, true)
 
-                    // Approximate contour to polygon
-                    val approx = MatOfPoint2f()
-                    val contour2f = MatOfPoint2f(*contour.toArray())
-                    val epsilon = 0.02 * Imgproc.arcLength(contour2f, true)
-                    Imgproc.approxPolyDP(contour2f, approx, epsilon, true)
-
-                    // Check if it's a quadrilateral
-                    if (approx.total() == 4L && Imgproc.isContourConvex(MatOfPoint(*approx.toArray()))) {
-                        val points = approx.toArray()
-
-                        if (contourArea > largestArea) {
-                            largestArea = contourArea
-                            largestRectangle = orderPoints(points)
+                        if (approx.total() == 4L && Imgproc.isContourConvex(MatOfPoint(*approx.toArray()))) {
+                            val points = approx.toArray()
+                            if (contourArea > largestArea) {
+                                largestArea = contourArea
+                                largestRectangle = orderPoints(points)
+                            }
                         }
+
+                        approx.release()
+                        contour2f.release()
                     }
 
-                    approx.release()
-                    contour2f.release()
+                    hierarchy.release()
+                    contours.forEach { it.release() }
+                    return largestRectangle
                 }
 
-                hierarchy.release()
-                contours.forEach { it.release() }
+                // First pass: Canny-based edges (good for strong edges).
+                var rectangle = findLargestRectangle(morphMat)
 
-                return largestRectangle
+                // Fallback: adaptive threshold (better for low-contrast cards).
+                if (rectangle == null) {
+                    Imgproc.adaptiveThreshold(
+                        blurredMat,
+                        threshMat,
+                        255.0,
+                        Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                        Imgproc.THRESH_BINARY,
+                        15,
+                        2.0
+                    )
+                    val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+                    Imgproc.morphologyEx(threshMat, morphMat, Imgproc.MORPH_CLOSE, kernel)
+                    kernel.release()
+                    rectangle = findLargestRectangle(morphMat)
+                }
+
+                return rectangle
             } finally {
                 grayMat.release()
                 blurredMat.release()
                 cannyMat.release()
                 morphMat.release()
+                threshMat.release()
             }
         }
 
