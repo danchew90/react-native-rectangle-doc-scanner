@@ -368,6 +368,8 @@ class CameraController(
 
     private fun analyzeImage(image: Image) {
         val rotationDegrees = computeRotationDegrees()
+        val imageWidth = image.width
+        val imageHeight = image.height
         val inputImage = try {
             InputImage.fromMediaImage(image, rotationDegrees)
         } catch (e: Exception) {
@@ -390,15 +392,19 @@ class CameraController(
                     else -> boxToRectangle(mlBox)
                 }
 
-                val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) image.height else image.width
-                val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) image.width else image.height
+                val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
+                val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
                 onFrameAnalyzed?.invoke(smoothRectangle(rectangle), frameWidth, frameHeight)
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "[CAMERA2] ML Kit detection failed", e)
             }
             .addOnCompleteListener {
-                image.close()
+                try {
+                    image.close()
+                } catch (e: Exception) {
+                    Log.w(TAG, "[CAMERA2] Failed to close image", e)
+                }
                 analysisInFlight.set(false)
             }
     }
