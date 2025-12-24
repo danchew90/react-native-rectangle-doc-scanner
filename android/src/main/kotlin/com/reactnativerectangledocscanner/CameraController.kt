@@ -10,7 +10,6 @@ import android.graphics.Rect
 import android.graphics.YuvImage
 import android.util.Log
 import android.view.Surface
-import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -189,7 +188,6 @@ class CameraController(
 
         // Build Preview without a fixed size to avoid unsupported stream configs.
         preview = Preview.Builder()
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(rotation)
             .build()
             .also {
@@ -211,8 +209,7 @@ class CameraController(
                 preview
             )
 
-            Log.d(TAG, "[CAMERAX-V9] Preview bound with 640x480 resolution")
-            Log.d(TAG, "[CAMERAX-V9] Waiting for capture session to configure...")
+            Log.d(TAG, "[CAMERAX-V9] Preview bound, waiting for capture session to configure...")
 
             // Log session state after some time
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({

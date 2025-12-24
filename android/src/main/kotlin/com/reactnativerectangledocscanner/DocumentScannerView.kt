@@ -78,8 +78,8 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             visibility = View.VISIBLE
             keepScreenOn = true
-            // SurfaceView path is more stable on some devices during session config.
-            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+            // TextureView mode avoids some device-specific Camera2 session timeouts.
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
             scaleType = PreviewView.ScaleType.FILL_CENTER
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
