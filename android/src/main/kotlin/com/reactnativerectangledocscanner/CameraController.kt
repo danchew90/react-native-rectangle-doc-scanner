@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
+import android.graphics.RectF
 import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -445,12 +446,17 @@ class CameraController(
         val bufferWidth = if (rotation == 90 || rotation == 270) preview.height.toFloat() else preview.width.toFloat()
         val bufferHeight = if (rotation == 90 || rotation == 270) preview.width.toFloat() else preview.height.toFloat()
 
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
-        val matrix = Matrix()
-        val centerX = viewWidth / 2f
-        val centerY = viewHeight / 2f
+        val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
+        val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
 
-        matrix.setScale(scale, scale, centerX, centerY)
+        val matrix = Matrix()
+        bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+
+        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
+        matrix.postScale(scale, scale, centerX, centerY)
         matrix.postRotate(rotation.toFloat(), centerX, centerY)
         previewView.setTransform(matrix)
     }
