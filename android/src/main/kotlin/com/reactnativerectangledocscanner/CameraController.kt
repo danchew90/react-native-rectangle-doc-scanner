@@ -43,6 +43,7 @@ class CameraController(
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val lastFrame = AtomicReference<LastFrame?>()
     private var analysisBound = false
+    private var pendingBindAttempts = 0
 
     private var useFrontCamera = false
     private var detectionEnabled = true
@@ -167,6 +168,18 @@ class CameraController(
     }
 
     private fun bindCameraUseCases() {
+        if (!previewView.isAttachedToWindow || previewView.width == 0 || previewView.height == 0) {
+            if (pendingBindAttempts < 5) {
+                pendingBindAttempts++
+                Log.d(TAG, "[CAMERAX-V9] PreviewView not ready (attached=${previewView.isAttachedToWindow}, w=${previewView.width}, h=${previewView.height}), retrying...")
+                previewView.post { bindCameraUseCases() }
+            } else {
+                Log.w(TAG, "[CAMERAX-V9] PreviewView still not ready after retries, aborting bind")
+            }
+            return
+        }
+        pendingBindAttempts = 0
+
         val provider = cameraProvider ?: return
         provider.unbindAll()
         analysisBound = false
