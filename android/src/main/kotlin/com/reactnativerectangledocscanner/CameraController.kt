@@ -588,7 +588,7 @@ class CameraController(
             val uprightWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
             val uprightHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
             val openCvRect = if (mlBox != null) {
-                val expanded = expandRect(mlBox, uprightWidth, uprightHeight, 0.1f)
+                val expanded = expandRect(mlBox, uprightWidth, uprightHeight, 0.25f)
                 DocumentDetector.detectRectangleInYUVWithRoi(
                     nv21,
                     imageWidth,
@@ -600,7 +600,7 @@ class CameraController(
                 DocumentDetector.detectRectangleInYUV(nv21, imageWidth, imageHeight, rotationDegrees)
             }
             if (openCvRect == null) {
-                mlBox?.let { boxToRectangle(insetBox(it, 0.85f)) }
+                mlBox?.let { boxToRectangle(insetBox(it, 0.9f)) }
             } else {
                 openCvRect
             }

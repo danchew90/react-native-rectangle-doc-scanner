@@ -173,8 +173,8 @@ class DocumentDetector {
                 // Apply a light blur to reduce noise without killing small edges.
                 Imgproc.GaussianBlur(grayMat, blurredMat, Size(3.0, 3.0), 0.0)
 
-                // Apply Canny edge detection with slightly lower thresholds for small documents.
-                Imgproc.Canny(blurredMat, cannyMat, 50.0, 150.0)
+                // Apply Canny edge detection with lower thresholds for small, low-contrast documents.
+                Imgproc.Canny(blurredMat, cannyMat, 40.0, 120.0)
                 val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
                 Imgproc.morphologyEx(cannyMat, morphMat, Imgproc.MORPH_CLOSE, kernel)
                 kernel.release()
@@ -217,6 +217,21 @@ class DocumentDetector {
                             if (contourArea > largestArea) {
                                 largestArea = contourArea
                                 largestRectangle = orderPoints(points)
+                            }
+                        } else {
+                            // Fallback: use rotated bounding box when contour is near-rectangular.
+                            val contour2fForRect = MatOfPoint2f(*contour.toArray())
+                            val rotated = Imgproc.minAreaRect(contour2fForRect)
+                            contour2fForRect.release()
+                            val rectArea = rotated.size.area()
+                            if (rectArea > 1.0) {
+                                val rectangularity = contourArea / rectArea
+                                if (rectangularity >= 0.6 && contourArea > largestArea) {
+                                    val boxPoints = Array(4) { Point() }
+                                    rotated.points(boxPoints)
+                                    largestArea = contourArea
+                                    largestRectangle = orderPoints(boxPoints)
+                                }
                             }
                         }
 
