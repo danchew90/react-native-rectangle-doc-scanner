@@ -602,11 +602,12 @@ class CameraController(
             }
 
             val bestDiff = pool.minOf { aspectDiff(it) }
-            // Use tight tolerance (0.05) to get the best aspect ratio match
-            val close = pool.filter { aspectDiff(it) <= bestDiff + 0.05 }
+            // Use very tight tolerance (0.001) to get only the best aspect ratio matches
+            val close = pool.filter { aspectDiff(it) <= bestDiff + 0.001 }
 
+            // Among best aspect ratio matches, prefer higher resolution
             val selected = close.maxByOrNull { it.width * it.height } ?: pool.maxByOrNull { it.width * it.height }
-            Log.d(TAG, "[SIZE_SELECTION] Best aspect diff: $bestDiff, selected: ${selected?.width}x${selected?.height}")
+            Log.d(TAG, "[SIZE_SELECTION] Best aspect diff: $bestDiff, candidates: ${close.size}, selected: ${selected?.width}x${selected?.height}")
             return selected
         }
 
