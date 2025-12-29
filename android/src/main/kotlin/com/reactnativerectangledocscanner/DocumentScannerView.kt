@@ -30,6 +30,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     private val themedContext = context
     private val previewView: TextureView
     private val overlayView: OverlayView
+    private val useNativeOverlay = false
     private var cameraController: CameraController? = null
     private val lifecycleRegistry = LifecycleRegistry(this)
 
@@ -224,8 +225,10 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         imageWidth: Int,
         imageHeight: Int
     ) {
-        // Update overlay
-        overlayView.setRectangle(rectangleOnScreen, overlayColor)
+        // Update native overlay only when explicitly enabled to avoid double-rendering with JS overlay
+        if (useNativeOverlay) {
+            overlayView.setRectangle(rectangleOnScreen, overlayColor)
+        }
 
         // Update stable counter based on quality
         if (rectangleCoordinates == null) {
@@ -327,14 +330,9 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             // Detect rectangle in captured image
             val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath)
                 ?: throw IllegalStateException("decode_failed")
-            var detectedRectangle = try {
-                DocumentDetector.detectRectangle(bitmap)
-            } catch (e: Exception) {
-                Log.w(TAG, "Rectangle detection failed, using original image", e)
-                null
-            }
-            if (detectedRectangle == null && lastDetectedImageWidth > 0 && lastDetectedImageHeight > 0) {
-                val rectangleFromView = lastRectangleOnScreen?.let {
+            var detectedRectangle: Rectangle? = null
+            val rectangleFromView = if (lastDetectedImageWidth > 0 && lastDetectedImageHeight > 0) {
+                lastRectangleOnScreen?.let {
                     viewToImageRectangle(
                         it,
                         width,
@@ -343,15 +341,35 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
                         lastDetectedImageHeight
                     )
                 }
-                val fallbackRect = rectangleFromView ?: lastDetectedRectangle
-                if (fallbackRect != null) {
-                    detectedRectangle = scaleRectangleToBitmap(
-                        fallbackRect,
-                        lastDetectedImageWidth,
-                        lastDetectedImageHeight,
-                        bitmap.width,
-                        bitmap.height
-                    )
+            } else {
+                null
+            }
+            if (rectangleFromView != null) {
+                detectedRectangle = scaleRectangleToBitmap(
+                    rectangleFromView,
+                    lastDetectedImageWidth,
+                    lastDetectedImageHeight,
+                    bitmap.width,
+                    bitmap.height
+                )
+            } else {
+                detectedRectangle = try {
+                    DocumentDetector.detectRectangle(bitmap)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Rectangle detection failed, using original image", e)
+                    null
+                }
+                if (detectedRectangle == null && lastDetectedImageWidth > 0 && lastDetectedImageHeight > 0) {
+                    val fallbackRect = lastDetectedRectangle
+                    if (fallbackRect != null) {
+                        detectedRectangle = scaleRectangleToBitmap(
+                            fallbackRect,
+                            lastDetectedImageWidth,
+                            lastDetectedImageHeight,
+                            bitmap.width,
+                            bitmap.height
+                        )
+                    }
                 }
             }
 

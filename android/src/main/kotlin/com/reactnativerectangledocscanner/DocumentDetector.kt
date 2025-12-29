@@ -192,7 +192,7 @@ class DocumentDetector {
 
                     var largestRectangle: Rectangle? = null
                     var largestArea = 0.0
-                    val minArea = max(500.0, (srcMat.rows() * srcMat.cols()) * 0.0008)
+                    val minArea = max(300.0, (srcMat.rows() * srcMat.cols()) * 0.0005)
 
                     for (contour in contours) {
                         val contourArea = Imgproc.contourArea(contour)
@@ -200,11 +200,20 @@ class DocumentDetector {
 
                         val approx = MatOfPoint2f()
                         val contour2f = MatOfPoint2f(*contour.toArray())
-                        val epsilon = 0.018 * Imgproc.arcLength(contour2f, true)
+                        val arcLength = Imgproc.arcLength(contour2f, true)
+                        val epsilon = 0.018 * arcLength
                         Imgproc.approxPolyDP(contour2f, approx, epsilon, true)
+                        val relaxed = if (approx.total() != 4L) {
+                            MatOfPoint2f().apply {
+                                Imgproc.approxPolyDP(contour2f, this, 0.03 * arcLength, true)
+                            }
+                        } else {
+                            null
+                        }
+                        val quad = if (relaxed?.total() == 4L) relaxed else approx
 
-                        if (approx.total() == 4L && Imgproc.isContourConvex(MatOfPoint(*approx.toArray()))) {
-                            val points = approx.toArray()
+                        if (quad.total() == 4L && Imgproc.isContourConvex(MatOfPoint(*quad.toArray()))) {
+                            val points = quad.toArray()
                             if (contourArea > largestArea) {
                                 largestArea = contourArea
                                 largestRectangle = orderPoints(points)
@@ -212,6 +221,7 @@ class DocumentDetector {
                         }
 
                         approx.release()
+                        relaxed?.release()
                         contour2f.release()
                     }
 

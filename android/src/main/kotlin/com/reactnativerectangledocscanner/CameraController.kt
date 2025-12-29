@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
 class CameraController(
     private val context: Context,
@@ -217,11 +218,13 @@ class CameraController(
             val previewSizes = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)
             previewSize = chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
 
+            val previewAspect = previewSize?.let { it.width.toDouble() / it.height.toDouble() } ?: viewAspect
             val analysisSizes = streamConfigMap.getOutputSizes(ImageFormat.YUV_420_888)
-            analysisSize = chooseBestSize(analysisSizes, viewAspect, null, preferClosestAspect = true)
+            analysisSize = chooseBestSize(analysisSizes, previewAspect, null, preferClosestAspect = true)
 
             val captureSizes = streamConfigMap.getOutputSizes(ImageFormat.JPEG)
-            captureSize = captureSizes?.maxByOrNull { it.width * it.height }
+            captureSize = chooseBestSize(captureSizes, previewAspect, null, preferClosestAspect = true)
+                ?: captureSizes?.maxByOrNull { it.width * it.height }
 
             setupImageReaders()
 
@@ -540,17 +543,22 @@ class CameraController(
             return sorted.first()
         }
 
+        fun aspectDiff(size: Size): Double {
+            val w = size.width.toDouble()
+            val h = size.height.toDouble()
+            val direct = abs(w / h - targetAspect)
+            val inverted = abs(h / w - targetAspect)
+            return min(direct, inverted)
+        }
+
         if (preferClosestAspect) {
             return capped.minWithOrNull(
-                compareBy<Size> { abs(it.width.toDouble() / it.height.toDouble() - targetAspect) }
+                compareBy<Size> { aspectDiff(it) }
                     .thenByDescending { it.width * it.height }
             )
         }
 
-        val matching = capped.filter {
-            val aspect = it.width.toDouble() / it.height.toDouble()
-            abs(aspect - targetAspect) <= ANALYSIS_ASPECT_TOLERANCE
-        }
+        val matching = capped.filter { aspectDiff(it) <= ANALYSIS_ASPECT_TOLERANCE }
 
         return matching.firstOrNull() ?: capped.first()
     }
