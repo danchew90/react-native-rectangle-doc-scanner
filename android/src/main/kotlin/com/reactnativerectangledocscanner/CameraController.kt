@@ -541,25 +541,25 @@ class CameraController(
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
+        // Rotate to match display orientation.
         val matrix = Matrix()
-
-        // Apply transformations in correct order:
-        // 1. Translate to center
-        matrix.postTranslate(-centerX, -centerY)
-
-        // 2. Rotate around origin
         if (rotation != 0) {
-            matrix.postRotate(rotation.toFloat())
+            matrix.postRotate(rotation.toFloat(), centerX, centerY)
         }
-
-        // 3. Scale to fill view
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
-        matrix.postScale(scale, scale)
-
-        // 4. Translate back to center
-        matrix.postTranslate(centerX, centerY)
-
         previewView.setTransform(matrix)
+
+        // Center-crop to fill the view.
+        val viewAspect = viewWidth / viewHeight
+        val bufferAspect = bufferWidth / bufferHeight
+        previewView.pivotX = centerX
+        previewView.pivotY = centerY
+        if (bufferAspect > viewAspect) {
+            previewView.scaleX = bufferAspect / viewAspect
+            previewView.scaleY = 1f
+        } else {
+            previewView.scaleX = 1f
+            previewView.scaleY = viewAspect / bufferAspect
+        }
     }
 
     private fun chooseBestSize(

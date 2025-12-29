@@ -308,18 +308,14 @@ class DocumentDetector {
          * Order points in consistent order: topLeft, topRight, bottomLeft, bottomRight
          */
         private fun orderPoints(points: Array<Point>): Rectangle {
-            // Sort by y-coordinate
-            val sorted = points.sortedBy { it.y }
+            // Use sum/diff ordering for robustness under rotation.
+            val sortedBySum = points.sortedBy { it.x + it.y }
+            val sortedByDiff = points.sortedBy { it.x - it.y }
 
-            // Top two points
-            val topPoints = sorted.take(2).sortedBy { it.x }
-            val topLeft = topPoints[0]
-            val topRight = topPoints[1]
-
-            // Bottom two points
-            val bottomPoints = sorted.takeLast(2).sortedBy { it.x }
-            val bottomLeft = bottomPoints[0]
-            val bottomRight = bottomPoints[1]
+            val topLeft = sortedBySum.first()
+            val bottomRight = sortedBySum.last()
+            val topRight = sortedByDiff.first()
+            val bottomLeft = sortedByDiff.last()
 
             return Rectangle(topLeft, topRight, bottomLeft, bottomRight)
         }
