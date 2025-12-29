@@ -130,6 +130,13 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         initializeCameraWhenReady()
     }
 
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        if (changed) {
+            Log.d(TAG, "[LAYOUT] View size: ${right - left}x${bottom - top}, PreviewView: ${previewView.width}x${previewView.height}")
+        }
+    }
+
     private fun initializeCameraWhenReady() {
         // If view is already laid out, start camera immediately
         if (width > 0 && height > 0) {
@@ -384,13 +391,23 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
                 shouldCrop = shouldCrop
             )
 
-            // Save or encode images
-            val result = if (useBase64) {
-                Arguments.createMap().apply {
-                    putString("croppedImage", ImageProcessor.bitmapToBase64(processed.croppedImage, quality))
-                    putString("initialImage", ImageProcessor.bitmapToBase64(processed.initialImage, quality))
-                    putMap("rectangleCoordinates", detectedRectangle?.toMap()?.toWritableMap())
+            fun buildResult(
+                croppedPath: String,
+                initialPath: String,
+                rectangle: Rectangle?
+            ): WritableMap {
+                return Arguments.createMap().apply {
+                    putString("croppedImage", croppedPath)
+                    putString("initialImage", initialPath)
+                    putMap("rectangleCoordinates", rectangle?.toMap()?.toWritableMap())
                 }
+            }
+
+            val (resultForPromise, resultForEvent) = if (useBase64) {
+                val croppedBase64 = ImageProcessor.bitmapToBase64(processed.croppedImage, quality)
+                val initialBase64 = ImageProcessor.bitmapToBase64(processed.initialImage, quality)
+                buildResult(croppedBase64, initialBase64, detectedRectangle) to
+                    buildResult(croppedBase64, initialBase64, detectedRectangle)
             } else {
                 val timestamp = System.currentTimeMillis()
                 val croppedPath = ImageProcessor.saveBitmapToFile(
@@ -405,22 +422,18 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
                     "initial_img_$timestamp.jpeg",
                     quality
                 )
-
-                Arguments.createMap().apply {
-                    putString("croppedImage", croppedPath)
-                    putString("initialImage", initialPath)
-                    putMap("rectangleCoordinates", detectedRectangle?.toMap()?.toWritableMap())
-                }
+                buildResult(croppedPath, initialPath, detectedRectangle) to
+                    buildResult(croppedPath, initialPath, detectedRectangle)
             }
 
             withContext(Dispatchers.Main) {
                 Log.d(TAG, "Processing completed, resolving promise: ${promise != null}")
 
                 // Resolve promise first (if provided) - matches iOS behavior
-                promise?.resolve(result)
+                promise?.resolve(resultForPromise)
 
                 // Then send event for backwards compatibility
-                sendPictureTakenEvent(result)
+                sendPictureTakenEvent(resultForEvent)
 
                 isCapturing = false
 
@@ -442,9 +455,8 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     }
 
     private fun sendPictureTakenEvent(data: WritableMap) {
-        val event = data.toHashMap().toWritableMap()
         themedContext.getJSModule(RCTEventEmitter::class.java)
-            .receiveEvent(id, "onPictureTaken", event)
+            .receiveEvent(id, "onPictureTaken", data)
     }
 
     private fun sendRectangleDetectEvent(

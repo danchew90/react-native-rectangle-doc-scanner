@@ -227,6 +227,13 @@ class CameraController(
                 ?: captureSizes?.maxByOrNull { it.width * it.height }
 
             setupImageReaders()
+            Log.d(
+                TAG,
+                "[CAMERA2] view=${previewView.width}x${previewView.height} " +
+                    "preview=${previewSize?.width}x${previewSize?.height} " +
+                    "analysis=${analysisSize?.width}x${analysisSize?.height} " +
+                    "capture=${captureSize?.width}x${captureSize?.height}"
+            )
 
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                 Log.e(TAG, "[CAMERA2] Camera permission not granted")
