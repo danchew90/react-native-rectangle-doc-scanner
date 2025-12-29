@@ -24,6 +24,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.delay
 import java.io.File
 import kotlin.math.min
+import kotlin.math.max
 
 class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), LifecycleOwner {
     private val themedContext = context
@@ -645,8 +646,8 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             viewWidth.toDouble() / imageWidth.toDouble(),
             viewHeight.toDouble() / imageHeight.toDouble()
         )
-        val scaledImageWidth = imageWidth * scale
-        val scaledImageHeight = imageHeight * scale
+        val scaledImageWidth = imageWidth.toDouble() * scale
+        val scaledImageHeight = imageHeight.toDouble() * scale
         val offsetX = (scaledImageWidth - viewWidth) / 2.0
         val offsetY = (scaledImageHeight - viewHeight) / 2.0
 
