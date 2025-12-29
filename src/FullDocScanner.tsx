@@ -718,7 +718,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     const stableCounter = event.stableCounter ?? 0;
     const rectangleCoordinates = event.rectangleOnScreen ?? event.rectangleCoordinates;
     const hasRectangle = Boolean(rectangleCoordinates);
-    const captureReady = hasRectangle && event.lastDetectionType === 0 && stableCounter >= 1;
+    const captureReady = hasRectangle && (Platform.OS === 'android' || (event.lastDetectionType === 0 && stableCounter >= 1));
 
     const scheduleClear = (
       ref: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
