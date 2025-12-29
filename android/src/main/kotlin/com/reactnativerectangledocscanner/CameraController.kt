@@ -517,17 +517,27 @@ class CameraController(
         val bufferWidth = if (rotation == 90 || rotation == 270) preview.height.toFloat() else preview.width.toFloat()
         val bufferHeight = if (rotation == 90 || rotation == 270) preview.width.toFloat() else preview.height.toFloat()
 
-        val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
-        val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
-        val centerX = viewRect.centerX()
-        val centerY = viewRect.centerY()
+        val centerX = viewWidth / 2f
+        val centerY = viewHeight / 2f
 
         val matrix = Matrix()
-        bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
+
+        // Apply transformations in correct order:
+        // 1. Translate to center
+        matrix.postTranslate(-centerX, -centerY)
+
+        // 2. Rotate around origin
+        if (rotation != 0) {
+            matrix.postRotate(rotation.toFloat())
+        }
+
+        // 3. Scale to fill view
         val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
-        matrix.postScale(scale, scale, centerX, centerY)
-        matrix.postRotate(rotation.toFloat(), centerX, centerY)
+        matrix.postScale(scale, scale)
+
+        // 4. Translate back to center
+        matrix.postTranslate(centerX, centerY)
+
         previewView.setTransform(matrix)
     }
 
