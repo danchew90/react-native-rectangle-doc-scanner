@@ -559,10 +559,13 @@ class CameraController(
         }
 
         if (preferClosestAspect) {
-            return capped.minWithOrNull(
-                compareBy<Size> { aspectDiff(it) }
-                    .thenByDescending { it.width * it.height }
-            )
+            val maxAreaOverall = capped.maxOf { it.width * it.height }
+            val minAcceptableArea = max(640 * 480, (maxAreaOverall * 0.1).toInt())
+            val sized = capped.filter { it.width * it.height >= minAcceptableArea }
+            val pool = if (sized.isNotEmpty()) sized else capped
+            val bestDiff = pool.minOf { aspectDiff(it) }
+            val close = pool.filter { aspectDiff(it) <= bestDiff + 0.05 }
+            return close.maxByOrNull { it.width * it.height } ?: pool.maxByOrNull { it.width * it.height }
         }
 
         val matching = capped.filter { aspectDiff(it) <= ANALYSIS_ASPECT_TOLERANCE }
