@@ -389,9 +389,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     }
 
     private fun sendPictureTakenEvent(data: WritableMap) {
-        val event = Arguments.createMap().apply {
-            merge(data)
-        }
+        val event = data.toHashMap().toWritableMap()
         themedContext.getJSModule(RCTEventEmitter::class.java)
             .receiveEvent(id, "onPictureTaken", event)
     }

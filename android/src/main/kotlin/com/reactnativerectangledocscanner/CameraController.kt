@@ -48,6 +48,7 @@ class CameraController(
     private var previewSize: Size? = null
     private var analysisSize: Size? = null
     private var captureSize: Size? = null
+    private var sensorOrientation: Int = 0
 
     private var yuvReader: ImageReader? = null
     private var jpegReader: ImageReader? = null
@@ -207,6 +208,7 @@ class CameraController(
             val characteristics = cameraManager.getCameraCharacteristics(cameraId)
             val streamConfigMap = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
                 ?: return
+            sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
 
             val viewAspect = if (previewView.height == 0) {
                 1.0
@@ -370,11 +372,35 @@ class CameraController(
         val rotationDegrees = computeRotationDegrees()
         val imageWidth = image.width
         val imageHeight = image.height
+        val nv21 = try {
+            imageToNv21(image)
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERA2] Failed to read image buffer", e)
+            try {
+                image.close()
+            } catch (closeError: Exception) {
+                Log.w(TAG, "[CAMERA2] Failed to close image", closeError)
+            }
+            analysisInFlight.set(false)
+            return
+        } finally {
+            try {
+                image.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "[CAMERA2] Failed to close image", e)
+            }
+        }
+
         val inputImage = try {
-            InputImage.fromMediaImage(image, rotationDegrees)
+            InputImage.fromByteArray(
+                nv21,
+                imageWidth,
+                imageHeight,
+                rotationDegrees,
+                InputImage.IMAGE_FORMAT_NV21
+            )
         } catch (e: Exception) {
             Log.e(TAG, "[CAMERA2] Failed to create InputImage", e)
-            image.close()
             analysisInFlight.set(false)
             return
         }
@@ -388,7 +414,9 @@ class CameraController(
                 val mlBox = best?.boundingBox
                 val rectangle = when {
                     mlBox == null -> null
-                    shouldRefineWithOpenCv() -> refineWithOpenCv(image, rotationDegrees, mlBox) ?: boxToRectangle(mlBox)
+                    shouldRefineWithOpenCv() ->
+                        refineWithOpenCv(nv21, imageWidth, imageHeight, rotationDegrees, mlBox)
+                            ?: boxToRectangle(mlBox)
                     else -> boxToRectangle(mlBox)
                 }
 
@@ -400,11 +428,6 @@ class CameraController(
                 Log.e(TAG, "[CAMERA2] ML Kit detection failed", e)
             }
             .addOnCompleteListener {
-                try {
-                    image.close()
-                } catch (e: Exception) {
-                    Log.w(TAG, "[CAMERA2] Failed to close image", e)
-                }
                 analysisInFlight.set(false)
             }
     }
@@ -454,9 +477,6 @@ class CameraController(
     }
 
     private fun computeRotationDegrees(): Int {
-        val cameraId = selectCameraId() ?: return 0
-        val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-        val sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
         val displayRotation = displayRotationDegrees()
         return if (useFrontCamera) {
             (sensorOrientation + displayRotation) % 360
@@ -482,7 +502,7 @@ class CameraController(
         val preview = previewSize ?: return
         if (viewWidth == 0f || viewHeight == 0f) return
 
-        val rotation = displayRotationDegrees()
+        val rotation = computeRotationDegrees()
         val bufferWidth = if (rotation == 90 || rotation == 270) preview.height.toFloat() else preview.width.toFloat()
         val bufferHeight = if (rotation == 90 || rotation == 270) preview.width.toFloat() else preview.height.toFloat()
 
@@ -557,16 +577,21 @@ class CameraController(
         return true
     }
 
-    private fun refineWithOpenCv(image: Image, rotationDegrees: Int, mlBox: Rect): Rectangle? {
+    private fun refineWithOpenCv(
+        nv21: ByteArray,
+        imageWidth: Int,
+        imageHeight: Int,
+        rotationDegrees: Int,
+        mlBox: Rect
+    ): Rectangle? {
         return try {
-            val nv21 = imageToNv21(image)
-            val uprightWidth = if (rotationDegrees == 90 || rotationDegrees == 270) image.height else image.width
-            val uprightHeight = if (rotationDegrees == 90 || rotationDegrees == 270) image.width else image.height
+            val uprightWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
+            val uprightHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
             val expanded = expandRect(mlBox, uprightWidth, uprightHeight, 0.2f)
             val openCvRect = DocumentDetector.detectRectangleInYUVWithRoi(
                 nv21,
-                image.width,
-                image.height,
+                imageWidth,
+                imageHeight,
                 rotationDegrees,
                 expanded
             )
