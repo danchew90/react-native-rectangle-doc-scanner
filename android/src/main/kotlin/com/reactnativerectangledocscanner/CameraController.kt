@@ -70,7 +70,6 @@ class CameraController(
             .enableMultipleObjects()
             .build()
     )
-    private var lastRefineTimestamp = 0L
     private var lastRectangle: Rectangle? = null
     private var lastRectangleTimestamp = 0L
 
@@ -78,7 +77,7 @@ class CameraController(
 
     companion object {
         private const val TAG = "CameraController"
-        private const val ANALYSIS_MAX_AREA = 1920 * 1080
+        private const val ANALYSIS_MAX_AREA = 2560 * 1920
         private const val ANALYSIS_ASPECT_TOLERANCE = 0.15
     }
 
@@ -412,13 +411,7 @@ class CameraController(
                     box.width() * box.height()
                 }
                 val mlBox = best?.boundingBox
-                val rectangle = when {
-                    mlBox == null -> null
-                    shouldRefineWithOpenCv() ->
-                        refineWithOpenCv(nv21, imageWidth, imageHeight, rotationDegrees, mlBox)
-                            ?: boxToRectangle(mlBox)
-                    else -> boxToRectangle(mlBox)
-                }
+                val rectangle = refineWithOpenCv(nv21, imageWidth, imageHeight, rotationDegrees, mlBox)
 
                 val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
                 val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
@@ -426,6 +419,15 @@ class CameraController(
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "[CAMERA2] ML Kit detection failed", e)
+                val rectangle = try {
+                    DocumentDetector.detectRectangleInYUV(nv21, imageWidth, imageHeight, rotationDegrees)
+                } catch (detectError: Exception) {
+                    Log.w(TAG, "[CAMERA2] OpenCV fallback failed", detectError)
+                    null
+                }
+                val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
+                val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
+                onFrameAnalyzed?.invoke(smoothRectangle(rectangle), frameWidth, frameHeight)
             }
             .addOnCompleteListener {
                 analysisInFlight.set(false)
@@ -568,38 +570,32 @@ class CameraController(
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
-    private fun shouldRefineWithOpenCv(): Boolean {
-        val now = System.currentTimeMillis()
-        if (now - lastRefineTimestamp < 150) {
-            return false
-        }
-        lastRefineTimestamp = now
-        return true
-    }
-
     private fun refineWithOpenCv(
         nv21: ByteArray,
         imageWidth: Int,
         imageHeight: Int,
         rotationDegrees: Int,
-        mlBox: Rect
+        mlBox: Rect?
     ): Rectangle? {
         return try {
             val uprightWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
             val uprightHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
-            val expanded = expandRect(mlBox, uprightWidth, uprightHeight, 0.2f)
-            val openCvRect = DocumentDetector.detectRectangleInYUVWithRoi(
-                nv21,
-                imageWidth,
-                imageHeight,
-                rotationDegrees,
-                expanded
-            )
-            if (openCvRect == null) {
-                null
+            val openCvRect = if (mlBox != null) {
+                val expanded = expandRect(mlBox, uprightWidth, uprightHeight, 0.2f)
+                DocumentDetector.detectRectangleInYUVWithRoi(
+                    nv21,
+                    imageWidth,
+                    imageHeight,
+                    rotationDegrees,
+                    expanded
+                )
             } else {
-                val openRectBounds = rectangleBounds(openCvRect)
-                if (computeIoU(openRectBounds, mlBox) >= 0.2f) openCvRect else null
+                DocumentDetector.detectRectangleInYUV(nv21, imageWidth, imageHeight, rotationDegrees)
+            }
+            if (openCvRect == null) {
+                mlBox?.let { boxToRectangle(it) }
+            } else {
+                openCvRect
             }
         } catch (e: Exception) {
             Log.w(TAG, "[CAMERA2] OpenCV refine failed", e)
@@ -630,32 +626,16 @@ class CameraController(
         val now = System.currentTimeMillis()
         val last = lastRectangle
         if (current == null) {
-            if (last != null && now - lastRectangleTimestamp < 250) {
+            if (last != null && now - lastRectangleTimestamp < 150) {
                 return last
             }
             lastRectangle = null
             return null
         }
 
-        val smoothed = if (last != null && now - lastRectangleTimestamp < 500) {
-            val t = 0.35
-            Rectangle(
-                Point(lerp(last.topLeft.x, current.topLeft.x, t), lerp(last.topLeft.y, current.topLeft.y, t)),
-                Point(lerp(last.topRight.x, current.topRight.x, t), lerp(last.topRight.y, current.topRight.y, t)),
-                Point(lerp(last.bottomLeft.x, current.bottomLeft.x, t), lerp(last.bottomLeft.y, current.bottomLeft.y, t)),
-                Point(lerp(last.bottomRight.x, current.bottomRight.x, t), lerp(last.bottomRight.y, current.bottomRight.y, t))
-            )
-        } else {
-            current
-        }
-
-        lastRectangle = smoothed
+        lastRectangle = current
         lastRectangleTimestamp = now
-        return smoothed
-    }
-
-    private fun lerp(start: Double, end: Double, t: Double): Double {
-        return start + (end - start) * t
+        return current
     }
 
     private fun rectangleBounds(rectangle: Rectangle): Rect {
@@ -664,17 +644,6 @@ class CameraController(
         val top = listOf(rectangle.topLeft.y, rectangle.bottomLeft.y, rectangle.topRight.y, rectangle.bottomRight.y).minOrNull() ?: 0.0
         val bottom = listOf(rectangle.topLeft.y, rectangle.bottomLeft.y, rectangle.topRight.y, rectangle.bottomRight.y).maxOrNull() ?: 0.0
         return Rect(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
-    }
-
-    private fun computeIoU(a: Rect, b: Rect): Float {
-        val left = max(a.left, b.left)
-        val top = max(a.top, b.top)
-        val right = minOf(a.right, b.right)
-        val bottom = minOf(a.bottom, b.bottom)
-        if (right <= left || bottom <= top) return 0f
-        val intersection = (right - left).toFloat() * (bottom - top).toFloat()
-        val union = (a.width() * a.height() + b.width() * b.height() - intersection).toFloat()
-        return if (union <= 0f) 0f else intersection / union
     }
 
     private fun imageToNv21(image: Image): ByteArray {
