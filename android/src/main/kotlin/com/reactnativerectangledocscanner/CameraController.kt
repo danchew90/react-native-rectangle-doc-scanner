@@ -77,7 +77,6 @@ class CameraController(
 
     companion object {
         private const val TAG = "CameraController"
-        private const val ANALYSIS_MAX_AREA = 2560 * 1920
         private const val ANALYSIS_ASPECT_TOLERANCE = 0.15
     }
 
@@ -219,7 +218,7 @@ class CameraController(
             previewSize = chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
 
             val analysisSizes = streamConfigMap.getOutputSizes(ImageFormat.YUV_420_888)
-            analysisSize = chooseBestSize(analysisSizes, viewAspect, ANALYSIS_MAX_AREA)
+            analysisSize = chooseBestSize(analysisSizes, viewAspect, null, preferClosestAspect = true)
 
             val captureSizes = streamConfigMap.getOutputSizes(ImageFormat.JPEG)
             captureSize = captureSizes?.maxByOrNull { it.width * it.height }
