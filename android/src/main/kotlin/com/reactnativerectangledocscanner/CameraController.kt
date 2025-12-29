@@ -234,7 +234,10 @@ class CameraController(
             Log.d(TAG, "[CAMERA2] viewAspect=$viewAspect (view: ${viewWidth}x${viewHeight})")
 
             val previewSizes = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)
+            Log.d(TAG, "[CAMERA2] Available preview sizes: ${previewSizes?.take(10)?.joinToString { "${it.width}x${it.height}" }}")
+
             previewSize = chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
+            Log.d(TAG, "[CAMERA2] Selected preview size: ${previewSize?.width}x${previewSize?.height}")
 
             val previewAspect = previewSize?.let { it.width.toDouble() / it.height.toDouble() } ?: viewAspect
             val analysisSizes = streamConfigMap.getOutputSizes(ImageFormat.YUV_420_888)
@@ -587,12 +590,16 @@ class CameraController(
         }
 
         if (preferClosestAspect) {
-            val maxAreaOverall = capped.maxOf { it.width * it.height }
-            val minAcceptableArea = max(640 * 480, (maxAreaOverall * 0.1).toInt())
-            val sized = capped.filter { it.width * it.height >= minAcceptableArea }
-            val pool = if (sized.isNotEmpty()) sized else capped
+            // Prefer high-resolution sizes: minimum 1080p (1920x1080 or 1080x1920)
+            val minAcceptableArea = 1920 * 1080
+            val highResSizes = capped.filter { it.width * it.height >= minAcceptableArea }
+            val pool = if (highResSizes.isNotEmpty()) highResSizes else capped
+
             val bestDiff = pool.minOf { aspectDiff(it) }
-            val close = pool.filter { aspectDiff(it) <= bestDiff + 0.05 }
+            // Allow slightly more tolerance for aspect ratio (0.15 instead of 0.05) to find better matches
+            val close = pool.filter { aspectDiff(it) <= bestDiff + 0.15 }
+
+            // Return the highest resolution among good aspect ratio matches
             return close.maxByOrNull { it.width * it.height } ?: pool.maxByOrNull { it.width * it.height }
         }
 
