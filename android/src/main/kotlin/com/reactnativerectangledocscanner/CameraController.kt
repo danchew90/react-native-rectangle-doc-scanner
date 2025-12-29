@@ -595,12 +595,19 @@ class CameraController(
             val highResSizes = capped.filter { it.width * it.height >= minAcceptableArea }
             val pool = if (highResSizes.isNotEmpty()) highResSizes else capped
 
-            val bestDiff = pool.minOf { aspectDiff(it) }
-            // Allow slightly more tolerance for aspect ratio (0.15 instead of 0.05) to find better matches
-            val close = pool.filter { aspectDiff(it) <= bestDiff + 0.15 }
+            // Debug: log aspect ratio diff for each size
+            pool.forEach { size ->
+                val diff = aspectDiff(size)
+                Log.d(TAG, "[SIZE_SELECTION] ${size.width}x${size.height} aspect=${size.width.toDouble()/size.height} diff=$diff")
+            }
 
-            // Return the highest resolution among good aspect ratio matches
-            return close.maxByOrNull { it.width * it.height } ?: pool.maxByOrNull { it.width * it.height }
+            val bestDiff = pool.minOf { aspectDiff(it) }
+            // Use tight tolerance (0.05) to get the best aspect ratio match
+            val close = pool.filter { aspectDiff(it) <= bestDiff + 0.05 }
+
+            val selected = close.maxByOrNull { it.width * it.height } ?: pool.maxByOrNull { it.width * it.height }
+            Log.d(TAG, "[SIZE_SELECTION] Best aspect diff: $bestDiff, selected: ${selected?.width}x${selected?.height}")
+            return selected
         }
 
         val matching = capped.filter { aspectDiff(it) <= ANALYSIS_ASPECT_TOLERANCE }
