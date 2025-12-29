@@ -209,11 +209,29 @@ class CameraController(
                 ?: return
             sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
 
-            val viewAspect = if (previewView.height == 0) {
-                1.0
+            // Calculate view aspect ratio considering sensor orientation
+            // For portrait mode with 90/270 degree sensor, we need to swap width/height
+            val displayRotation = displayRotationDegrees()
+            val totalRotation = if (useFrontCamera) {
+                (sensorOrientation + displayRotation) % 360
             } else {
-                previewView.width.toDouble() / previewView.height.toDouble()
+                (sensorOrientation - displayRotation + 360) % 360
             }
+
+            val viewWidth = previewView.width.takeIf { it > 0 } ?: 1200
+            val viewHeight = previewView.height.takeIf { it > 0 } ?: 1928
+
+            // If total rotation is 90 or 270, the sensor output is rotated, so we need to match against swapped aspect
+            val viewAspect = if (totalRotation == 90 || totalRotation == 270) {
+                // Sensor outputs landscape (e.g., 1920x1080), but we display portrait
+                // So we want to find sensor size with aspect ~= viewHeight/viewWidth
+                viewHeight.toDouble() / viewWidth.toDouble()
+            } else {
+                viewWidth.toDouble() / viewHeight.toDouble()
+            }
+
+            Log.d(TAG, "[CAMERA2] sensorOrientation=$sensorOrientation displayRotation=$displayRotation totalRotation=$totalRotation")
+            Log.d(TAG, "[CAMERA2] viewAspect=$viewAspect (view: ${viewWidth}x${viewHeight})")
 
             val previewSizes = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)
             previewSize = chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
