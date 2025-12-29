@@ -356,7 +356,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             }
 
             // Process image with detected rectangle
-            val shouldCrop = detectedRectangle != null && stableCounter > 0
+            val shouldCrop = detectedRectangle != null
             val processed = ImageProcessor.processImage(
                 imagePath = imageFile.absolutePath,
                 rectangle = detectedRectangle,

@@ -580,7 +580,7 @@ class CameraController(
             val uprightWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
             val uprightHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
             val openCvRect = if (mlBox != null) {
-                val expanded = expandRect(mlBox, uprightWidth, uprightHeight, 0.2f)
+                val expanded = expandRect(mlBox, uprightWidth, uprightHeight, 0.1f)
                 DocumentDetector.detectRectangleInYUVWithRoi(
                     nv21,
                     imageWidth,
@@ -592,7 +592,7 @@ class CameraController(
                 DocumentDetector.detectRectangleInYUV(nv21, imageWidth, imageHeight, rotationDegrees)
             }
             if (openCvRect == null) {
-                mlBox?.let { boxToRectangle(it) }
+                mlBox?.let { boxToRectangle(insetBox(it, 0.85f)) }
             } else {
                 openCvRect
             }
@@ -619,6 +619,18 @@ class CameraController(
         val right = (box.right + padX).coerceAtMost(maxWidth)
         val bottom = (box.bottom + padY).coerceAtMost(maxHeight)
         return Rect(left, top, right, bottom)
+    }
+
+    private fun insetBox(box: Rect, ratio: Float): Rect {
+        if (ratio >= 1f) return box
+        val insetX = ((1f - ratio) * box.width() / 2f).toInt()
+        val insetY = ((1f - ratio) * box.height() / 2f).toInt()
+        return Rect(
+            box.left + insetX,
+            box.top + insetY,
+            box.right - insetX,
+            box.bottom - insetY
+        )
     }
 
     private fun smoothRectangle(current: Rectangle?): Rectangle? {
