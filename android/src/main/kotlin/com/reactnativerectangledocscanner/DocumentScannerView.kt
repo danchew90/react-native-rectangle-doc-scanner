@@ -16,6 +16,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.events.RCTEventEmitter
@@ -54,6 +55,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     private var lastDetectedRectangle: Rectangle? = null
     private var lastDetectedImageWidth = 0
     private var lastDetectedImageHeight = 0
+    private var lastRectangleOnScreen: Rectangle? = null
 
     // Coroutine scope for async operations
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -201,6 +203,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         } else {
             null
         }
+        lastRectangleOnScreen = rectangleOnScreen
         val quality = when {
             rectangleOnScreen != null && width > 0 && height > 0 ->
                 DocumentDetector.evaluateRectangleQualityInView(rectangleOnScreen, width, height)
@@ -329,14 +332,26 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
                 Log.w(TAG, "Rectangle detection failed, using original image", e)
                 null
             }
-            if (detectedRectangle == null && lastDetectedRectangle != null && lastDetectedImageWidth > 0 && lastDetectedImageHeight > 0) {
-                detectedRectangle = scaleRectangleToBitmap(
-                    lastDetectedRectangle!!,
-                    lastDetectedImageWidth,
-                    lastDetectedImageHeight,
-                    bitmap.width,
-                    bitmap.height
-                )
+            if (detectedRectangle == null && lastDetectedImageWidth > 0 && lastDetectedImageHeight > 0) {
+                val rectangleFromView = lastRectangleOnScreen?.let {
+                    viewToImageRectangle(
+                        it,
+                        width,
+                        height,
+                        lastDetectedImageWidth,
+                        lastDetectedImageHeight
+                    )
+                }
+                val fallbackRect = rectangleFromView ?: lastDetectedRectangle
+                if (fallbackRect != null) {
+                    detectedRectangle = scaleRectangleToBitmap(
+                        fallbackRect,
+                        lastDetectedImageWidth,
+                        lastDetectedImageHeight,
+                        bitmap.width,
+                        bitmap.height
+                    )
+                }
             }
 
             // Process image with detected rectangle
@@ -420,14 +435,20 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         imageWidth: Int,
         imageHeight: Int
     ) {
+        val density = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
         val event = Arguments.createMap().apply {
             putInt("stableCounter", stableCounter)
             putInt("lastDetectionType", quality.ordinal)
             putMap("rectangleCoordinates", rectangleCoordinates?.toMap()?.toWritableMap())
-            putMap("rectangleOnScreen", rectangleOnScreen?.toMap()?.toWritableMap())
+            putMap("rectangleOnScreen", rectangleOnScreen?.toMap()?.toWritableMap()?.apply {
+                putMap("topLeft", mapPointToDp(getMap("topLeft"), density))
+                putMap("topRight", mapPointToDp(getMap("topRight"), density))
+                putMap("bottomLeft", mapPointToDp(getMap("bottomLeft"), density))
+                putMap("bottomRight", mapPointToDp(getMap("bottomRight"), density))
+            })
             putMap("previewSize", Arguments.createMap().apply {
-                putInt("width", width)
-                putInt("height", height)
+                putInt("width", (width / density).toInt())
+                putInt("height", (height / density).toInt())
             })
             putMap("imageSize", Arguments.createMap().apply {
                 putInt("width", imageWidth)
@@ -598,6 +619,52 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
                 canvas.drawPath(path, paint)
             }
         }
+    }
+
+    private fun mapPointToDp(point: ReadableMap?, density: Float): WritableMap? {
+        if (point == null) return null
+        val map = Arguments.createMap()
+        val x = if (point.hasKey("x")) point.getDouble("x") else 0.0
+        val y = if (point.hasKey("y")) point.getDouble("y") else 0.0
+        map.putDouble("x", x / density)
+        map.putDouble("y", y / density)
+        return map
+    }
+
+    private fun viewToImageRectangle(
+        rectangle: Rectangle,
+        viewWidth: Int,
+        viewHeight: Int,
+        imageWidth: Int,
+        imageHeight: Int
+    ): Rectangle {
+        if (viewWidth == 0 || viewHeight == 0 || imageWidth == 0 || imageHeight == 0) {
+            return rectangle
+        }
+        val scale = max(
+            viewWidth.toDouble() / imageWidth.toDouble(),
+            viewHeight.toDouble() / imageHeight.toDouble()
+        )
+        val scaledImageWidth = imageWidth * scale
+        val scaledImageHeight = imageHeight * scale
+        val offsetX = (scaledImageWidth - viewWidth) / 2.0
+        val offsetY = (scaledImageHeight - viewHeight) / 2.0
+
+        fun mapPoint(point: Point): Point {
+            val x = (point.x + offsetX) / scale
+            val y = (point.y + offsetY) / scale
+            return Point(
+                x.coerceIn(0.0, imageWidth.toDouble()),
+                y.coerceIn(0.0, imageHeight.toDouble())
+            )
+        }
+
+        return Rectangle(
+            mapPoint(rectangle.topLeft),
+            mapPoint(rectangle.topRight),
+            mapPoint(rectangle.bottomLeft),
+            mapPoint(rectangle.bottomRight)
+        )
     }
 
     private fun scaleRectangleToBitmap(
