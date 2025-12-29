@@ -171,10 +171,10 @@ class DocumentDetector {
                 }
 
                 // Apply a light blur to reduce noise without killing small edges.
-                Imgproc.GaussianBlur(grayMat, blurredMat, Size(3.0, 3.0), 0.0)
+                Imgproc.GaussianBlur(grayMat, blurredMat, Size(5.0, 5.0), 0.0)
 
-                // Apply Canny edge detection with lower thresholds for small, low-contrast documents.
-                Imgproc.Canny(blurredMat, cannyMat, 40.0, 120.0)
+                // Apply Canny edge detection with lower thresholds for better corner detection.
+                Imgproc.Canny(blurredMat, cannyMat, 30.0, 90.0)
                 val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
                 Imgproc.morphologyEx(cannyMat, morphMat, Imgproc.MORPH_CLOSE, kernel)
                 kernel.release()
@@ -188,12 +188,13 @@ class DocumentDetector {
                         Point(rectangle.bottomLeft.x.coerceIn(0.0, maxX), rectangle.bottomLeft.y.coerceIn(0.0, maxY)),
                         Point(rectangle.bottomRight.x.coerceIn(0.0, maxX), rectangle.bottomRight.y.coerceIn(0.0, maxY))
                     )
-                    val criteria = TermCriteria(TermCriteria.EPS + TermCriteria.MAX_ITER, 30, 0.01)
+                    // Use larger window for better sub-pixel corner refinement (matching iOS high accuracy)
+                    val criteria = TermCriteria(TermCriteria.EPS + TermCriteria.MAX_ITER, 40, 0.001)
                     return try {
                         Imgproc.cornerSubPix(
                             gray,
                             points,
-                            Size(5.0, 5.0),
+                            Size(11.0, 11.0),  // Increased from 5x5 to 11x11 for better accuracy
                             Size(-1.0, -1.0),
                             criteria
                         )
@@ -227,11 +228,13 @@ class DocumentDetector {
                         val approx = MatOfPoint2f()
                         val contour2f = MatOfPoint2f(*contour.toArray())
                         val arcLength = Imgproc.arcLength(contour2f, true)
-                        val epsilon = 0.018 * arcLength
+                        // Reduced epsilon for more accurate corner detection (matching iOS high accuracy)
+                        val epsilon = 0.01 * arcLength
                         Imgproc.approxPolyDP(contour2f, approx, epsilon, true)
                         val relaxed = if (approx.total() != 4L) {
                             MatOfPoint2f().apply {
-                                Imgproc.approxPolyDP(contour2f, this, 0.03 * arcLength, true)
+                                // Reduced fallback epsilon for better corner accuracy
+                                Imgproc.approxPolyDP(contour2f, this, 0.02 * arcLength, true)
                             }
                         } else {
                             null
