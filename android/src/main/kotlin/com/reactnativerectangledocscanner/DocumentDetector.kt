@@ -179,6 +179,32 @@ class DocumentDetector {
                 Imgproc.morphologyEx(cannyMat, morphMat, Imgproc.MORPH_CLOSE, kernel)
                 kernel.release()
 
+                fun refineRectangle(gray: Mat, rectangle: Rectangle): Rectangle {
+                    val maxX = (gray.cols() - 1).toDouble().coerceAtLeast(1.0)
+                    val maxY = (gray.rows() - 1).toDouble().coerceAtLeast(1.0)
+                    val points = MatOfPoint2f(
+                        Point(rectangle.topLeft.x.coerceIn(0.0, maxX), rectangle.topLeft.y.coerceIn(0.0, maxY)),
+                        Point(rectangle.topRight.x.coerceIn(0.0, maxX), rectangle.topRight.y.coerceIn(0.0, maxY)),
+                        Point(rectangle.bottomLeft.x.coerceIn(0.0, maxX), rectangle.bottomLeft.y.coerceIn(0.0, maxY)),
+                        Point(rectangle.bottomRight.x.coerceIn(0.0, maxX), rectangle.bottomRight.y.coerceIn(0.0, maxY))
+                    )
+                    val criteria = TermCriteria(TermCriteria.EPS + TermCriteria.MAX_ITER, 30, 0.01)
+                    return try {
+                        Imgproc.cornerSubPix(
+                            gray,
+                            points,
+                            Size(5.0, 5.0),
+                            Size(-1.0, -1.0),
+                            criteria
+                        )
+                        orderPoints(points.toArray())
+                    } catch (e: Exception) {
+                        rectangle
+                    } finally {
+                        points.release()
+                    }
+                }
+
                 fun findLargestRectangle(source: Mat): Rectangle? {
                     val contours = mutableListOf<MatOfPoint>()
                     val hierarchy = Mat()
@@ -216,7 +242,7 @@ class DocumentDetector {
                             val points = quad.toArray()
                             if (contourArea > largestArea) {
                                 largestArea = contourArea
-                                largestRectangle = orderPoints(points)
+                                largestRectangle = refineRectangle(grayMat, orderPoints(points))
                             }
                         } else {
                             // Fallback: use rotated bounding box when contour is near-rectangular.
@@ -230,7 +256,7 @@ class DocumentDetector {
                                     val boxPoints = Array(4) { Point() }
                                     rotated.points(boxPoints)
                                     largestArea = contourArea
-                                    largestRectangle = orderPoints(boxPoints)
+                                    largestRectangle = refineRectangle(grayMat, orderPoints(boxPoints))
                                 }
                             }
                         }

@@ -7,6 +7,7 @@ import {
   NativeModules,
   Platform,
   StyleSheet,
+  StatusBar,
   Text,
   TouchableOpacity,
   View,
@@ -775,6 +776,9 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   return (
     <View style={styles.container}>
+      {Platform.OS === 'android' && (
+        <StatusBar translucent backgroundColor="transparent" />
+      )}
       {croppedImageData ? (
         // check_DP: Show confirmation screen
         <View style={styles.confirmationContainer}>
