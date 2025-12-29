@@ -50,6 +50,9 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     private var lastDetectionTimestamp: Long = 0L
     private var isCapturing = false
     private var isDetaching = false
+    private var lastDetectedRectangle: Rectangle? = null
+    private var lastDetectedImageWidth = 0
+    private var lastDetectedImageHeight = 0
 
     // Coroutine scope for async operations
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -186,6 +189,12 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         }
         lastDetectionTimestamp = now
 
+        if (rectangle != null && imageWidth > 0 && imageHeight > 0) {
+            lastDetectedRectangle = rectangle
+            lastDetectedImageWidth = imageWidth
+            lastDetectedImageHeight = imageHeight
+        }
+
         val rectangleOnScreen = if (rectangle != null && width > 0 && height > 0) {
             DocumentDetector.transformRectangleToViewCoordinates(rectangle, imageWidth, imageHeight, width, height)
         } else {
@@ -313,11 +322,20 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             // Detect rectangle in captured image
             val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath)
                 ?: throw IllegalStateException("decode_failed")
-            val detectedRectangle = try {
+            var detectedRectangle = try {
                 DocumentDetector.detectRectangle(bitmap)
             } catch (e: Exception) {
                 Log.w(TAG, "Rectangle detection failed, using original image", e)
                 null
+            }
+            if (detectedRectangle == null && lastDetectedRectangle != null && lastDetectedImageWidth > 0 && lastDetectedImageHeight > 0) {
+                detectedRectangle = scaleRectangleToBitmap(
+                    lastDetectedRectangle!!,
+                    lastDetectedImageWidth,
+                    lastDetectedImageHeight,
+                    bitmap.width,
+                    bitmap.height
+                )
             }
 
             // Process image with detected rectangle
@@ -579,6 +597,27 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
                 canvas.drawPath(path, paint)
             }
         }
+    }
+
+    private fun scaleRectangleToBitmap(
+        rectangle: Rectangle,
+        srcWidth: Int,
+        srcHeight: Int,
+        dstWidth: Int,
+        dstHeight: Int
+    ): Rectangle {
+        if (srcWidth == 0 || srcHeight == 0) return rectangle
+        val scaleX = dstWidth.toDouble() / srcWidth.toDouble()
+        val scaleY = dstHeight.toDouble() / srcHeight.toDouble()
+        fun mapPoint(point: Point): Point {
+            return Point(point.x * scaleX, point.y * scaleY)
+        }
+        return Rectangle(
+            mapPoint(rectangle.topLeft),
+            mapPoint(rectangle.topRight),
+            mapPoint(rectangle.bottomLeft),
+            mapPoint(rectangle.bottomRight)
+        )
     }
 }
 

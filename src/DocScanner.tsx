@@ -452,7 +452,10 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
       [capture],
     );
 
-    const overlayPolygon = detectedRectangle?.rectangleOnScreen ?? detectedRectangle?.rectangleCoordinates ?? null;
+    const overlayPolygon =
+      Platform.OS === 'android'
+        ? detectedRectangle?.rectangleOnScreen ?? null
+        : detectedRectangle?.rectangleOnScreen ?? detectedRectangle?.rectangleCoordinates ?? null;
     const overlayIsActive = autoCapture ? isAutoCapturing : (detectedRectangle?.stableCounter ?? 0) > 0;
 
   const detectionThreshold = autoCapture ? minStableFrames : 99999;
