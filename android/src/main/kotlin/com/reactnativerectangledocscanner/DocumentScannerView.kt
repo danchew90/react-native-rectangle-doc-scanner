@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import org.opencv.core.Point
 import android.util.Log
 import android.view.TextureView
 import android.view.View
