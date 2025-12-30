@@ -523,15 +523,12 @@ class CameraController(
 
     private fun computeRotationDegrees(): Int {
         val displayRotation = displayRotationDegrees()
-
-        // For back camera with sensor orientation 0 and display rotation 90 (portrait),
-        // we need 270 degree rotation to display correctly
+        val baseRotation = (sensorOrientation + displayRotation) % 360
         val rotation = if (useFrontCamera) {
-            (sensorOrientation + displayRotation) % 360
+            (360 - baseRotation) % 360
         } else {
-            (sensorOrientation - displayRotation + 360) % 360
+            baseRotation
         }
-
         Log.d(TAG, "[ROTATION] sensor=$sensorOrientation display=$displayRotation front=$useFrontCamera -> rotation=$rotation")
         return rotation
     }
@@ -552,47 +549,28 @@ class CameraController(
         val viewHeight = previewView.height.toFloat()
         val preview = previewSize ?: return
         if (viewWidth == 0f || viewHeight == 0f) return
-
-        val rotation = computeRotationDegrees()
-        Log.d(TAG, "[TRANSFORM] rotation=$rotation view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}")
+        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
+        val rotationDegrees = displayRotationDegrees()
+        Log.d(TAG, "[TRANSFORM] rotation=$rotationDegrees view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}")
 
         val matrix = Matrix()
-        val centerX = viewWidth / 2f
-        val centerY = viewHeight / 2f
+        val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
+        val bufferRect = RectF(0f, 0f, preview.height.toFloat(), preview.width.toFloat())
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
 
-        // Match iOS behavior: use the full preview extent and scale to fill
-        if (rotation == 270 || rotation == 90) {
-            // After rotation, dimensions are swapped
-            val rotatedWidth = preview.height.toFloat()
-            val rotatedHeight = preview.width.toFloat()
-
-            Log.d(TAG, "[TRANSFORM] After rotation: ${rotatedWidth}x${rotatedHeight}")
-
-            // Calculate scale to completely fill the view (aspect fill - crop mode like iOS)
-            // This will crop the image but fill the entire screen
-            val scaleX = viewWidth / rotatedWidth
-            val scaleY = viewHeight / rotatedHeight
-            val scale = maxOf(scaleX, scaleY)
-
-            Log.d(TAG, "[TRANSFORM] scaleX=$scaleX scaleY=$scaleY finalScale=$scale")
-
-            // Apply rotation around center first
-            matrix.postRotate(rotation.toFloat(), centerX, centerY)
-
-            // Then scale to fill (will crop excess)
+        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+            val scale = max(
+                viewHeight / preview.height.toFloat(),
+                viewWidth / preview.width.toFloat()
+            )
             matrix.postScale(scale, scale, centerX, centerY)
-        } else {
-            // For 0 or 180 degree rotation
-            val scaleX = viewWidth / preview.width.toFloat()
-            val scaleY = viewHeight / preview.height.toFloat()
-            val scale = maxOf(scaleX, scaleY)
-
-            Log.d(TAG, "[TRANSFORM] scaleX=$scaleX scaleY=$scaleY finalScale=$scale")
-
-            if (rotation != 0) {
-                matrix.postRotate(rotation.toFloat(), centerX, centerY)
-            }
-            matrix.postScale(scale, scale, centerX, centerY)
+            val rotateDegrees = if (rotation == Surface.ROTATION_90) -90f else 90f
+            matrix.postRotate(rotateDegrees, centerX, centerY)
+        } else if (rotation == Surface.ROTATION_180) {
+            matrix.postRotate(180f, centerX, centerY)
         }
 
         previewView.setTransform(matrix)
