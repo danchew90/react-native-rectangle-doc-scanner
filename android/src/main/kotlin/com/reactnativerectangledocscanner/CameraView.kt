@@ -47,7 +47,8 @@ class CameraView(context: Context) : FrameLayout(context), LifecycleOwner {
     // Callback for detected rectangles
     var onRectangleDetected: ((Rectangle?) -> Unit)? = null
 
-    override fun getLifecycle(): Lifecycle = lifecycleRegistry
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry
 
     init {
         // Create preview view

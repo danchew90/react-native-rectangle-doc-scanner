@@ -66,7 +66,8 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         private const val TAG = "DocumentScannerView"
     }
 
-    override fun getLifecycle(): Lifecycle = lifecycleRegistry
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry
 
     init {
         Log.d(TAG, "╔════════════════════════════════════════╗")
