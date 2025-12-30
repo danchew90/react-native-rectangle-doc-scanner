@@ -240,8 +240,9 @@ class CameraController(
             val previewSizes = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)
             Log.d(TAG, "[CAMERA2] Available preview sizes: ${previewSizes?.take(10)?.joinToString { "${it.width}x${it.height}" }}")
 
-            previewSize = chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
-            Log.d(TAG, "[CAMERA2] Selected preview size: ${previewSize?.width}x${previewSize?.height}")
+            // Use the largest available preview size to fill the screen (like iOS uses full image extent)
+            previewSize = previewSizes?.maxByOrNull { it.width * it.height }
+            Log.d(TAG, "[CAMERA2] Selected LARGEST preview size: ${previewSize?.width}x${previewSize?.height}")
 
             val previewAspect = previewSize?.let { it.width.toDouble() / it.height.toDouble() } ?: viewAspect
             val analysisSizes = streamConfigMap.getOutputSizes(ImageFormat.YUV_420_888)
@@ -551,28 +552,26 @@ class CameraController(
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
-        // For 270 degree rotation (portrait mode with back camera):
-        // - The camera sensor output is landscape (1920x1088)
-        // - We need to rotate 270 degrees to display it in portrait
-        // - Then scale to fill the entire view
+        // Match iOS behavior: use the full preview extent and scale to fill
         if (rotation == 270 || rotation == 90) {
-            // Rotate first
-            matrix.postRotate(rotation.toFloat(), centerX, centerY)
-
-            // After rotation, the dimensions are swapped
+            // After rotation, dimensions are swapped
             val rotatedWidth = preview.height.toFloat()
             val rotatedHeight = preview.width.toFloat()
 
             Log.d(TAG, "[TRANSFORM] After rotation: ${rotatedWidth}x${rotatedHeight}")
 
-            // Calculate scale to fill the view completely (aspect fill/crop mode)
+            // Calculate scale to completely fill the view (aspect fill - crop mode like iOS)
+            // This will crop the image but fill the entire screen
             val scaleX = viewWidth / rotatedWidth
             val scaleY = viewHeight / rotatedHeight
             val scale = maxOf(scaleX, scaleY)
 
             Log.d(TAG, "[TRANSFORM] scaleX=$scaleX scaleY=$scaleY finalScale=$scale")
 
-            // Apply scale at center
+            // Apply rotation around center first
+            matrix.postRotate(rotation.toFloat(), centerX, centerY)
+
+            // Then scale to fill (will crop excess)
             matrix.postScale(scale, scale, centerX, centerY)
         } else {
             // For 0 or 180 degree rotation
