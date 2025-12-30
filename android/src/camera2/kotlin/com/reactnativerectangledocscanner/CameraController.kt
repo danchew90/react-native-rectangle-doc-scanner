@@ -150,6 +150,10 @@ class CameraController(
         }
 
         try {
+            // Use 90 degrees for back camera in portrait mode
+            val jpegOrientation = 90
+            Log.d(TAG, "[CAPTURE] Setting JPEG_ORIENTATION to $jpegOrientation")
+
             val requestBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                 addTarget(reader.surface)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
@@ -157,7 +161,7 @@ class CameraController(
                 if (torchEnabled) {
                     set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
                 }
-                set(CaptureRequest.JPEG_ORIENTATION, 0)
+                set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation)
             }
 
             session.capture(requestBuilder.build(), object : CameraCaptureSession.CaptureCallback() {}, cameraHandler)
@@ -645,33 +649,18 @@ class CameraController(
     private fun rotateAndMirror(bitmap: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
         Log.d(TAG, "[ROTATE_MIRROR] rotationDegrees=$rotationDegrees mirror=$mirror bitmap=${bitmap.width}x${bitmap.height}")
 
+        // JPEG_ORIENTATION is already set to 90, so the image should already be rotated correctly
+        // We only need to apply mirror for front camera
+        if (!mirror) {
+            // Back camera: no additional processing needed since JPEG_ORIENTATION handles rotation
+            Log.d(TAG, "[ROTATE_MIRROR] Back camera: returning bitmap as-is (JPEG_ORIENTATION=90 already applied)")
+            return bitmap
+        }
+
+        // Front camera: apply horizontal mirror
         val matrix = Matrix()
-
-        // For 270 degree rotation (back camera in portrait mode):
-        // 1. First rotate 90 degrees (not 270)
-        // 2. Then flip horizontally if needed
-        // This is because the sensor orientation is 0, but we're holding the phone at 90 degrees
-        val actualRotation = when (rotationDegrees) {
-            270 -> 90  // Convert 270 to 90 for correct orientation
-            90 -> 270  // Convert 90 to 270 for front camera
-            else -> rotationDegrees
-        }
-
-        Log.d(TAG, "[ROTATE_MIRROR] Adjusted rotation: $rotationDegrees -> $actualRotation")
-
-        // Apply rotation first
-        if (actualRotation != 0) {
-            matrix.postRotate(actualRotation.toFloat())
-            Log.d(TAG, "[ROTATE_MIRROR] Applied rotation: $actualRotation degrees")
-        }
-
-        // Apply mirror for front camera only
-        if (mirror) {
-            // Front camera needs horizontal flip after rotation
-            val rotatedWidth = if (actualRotation == 90 || actualRotation == 270) bitmap.height else bitmap.width
-            matrix.postScale(-1f, 1f, rotatedWidth / 2f, 0f)
-            Log.d(TAG, "[ROTATE_MIRROR] Applied horizontal flip for front camera")
-        }
+        matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+        Log.d(TAG, "[ROTATE_MIRROR] Front camera: applied horizontal mirror")
 
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
