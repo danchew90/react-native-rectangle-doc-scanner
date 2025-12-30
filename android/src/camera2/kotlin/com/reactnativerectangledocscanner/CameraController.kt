@@ -118,10 +118,10 @@ class CameraController(
             return
         }
 
+        // Always set the listener so we get size-change callbacks for transform updates.
+        previewView.surfaceTextureListener = textureListener
         if (previewView.isAvailable) {
             openCamera()
-        } else {
-            previewView.surfaceTextureListener = textureListener
         }
     }
 
@@ -150,8 +150,8 @@ class CameraController(
         }
 
         try {
-            // Use 90 degrees for back camera in portrait mode
-            val jpegOrientation = 90
+            // Match JPEG orientation to current device rotation and sensor orientation.
+            val jpegOrientation = computeRotationDegrees()
             Log.d(TAG, "[CAPTURE] Setting JPEG_ORIENTATION to $jpegOrientation")
 
             val requestBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
@@ -240,9 +240,10 @@ class CameraController(
             val previewSizes = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)
             Log.d(TAG, "[CAMERA2] Available preview sizes: ${previewSizes?.take(10)?.joinToString { "${it.width}x${it.height}" }}")
 
-            // Use the largest available preview size to fill the screen (like iOS uses full image extent)
-            previewSize = previewSizes?.maxByOrNull { it.width * it.height }
-            Log.d(TAG, "[CAMERA2] Selected LARGEST preview size: ${previewSize?.width}x${previewSize?.height}")
+            // Prefer a preview size that matches the view aspect to avoid letterboxing.
+            previewSize = chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
+                ?: previewSizes?.maxByOrNull { it.width * it.height }
+            Log.d(TAG, "[CAMERA2] Selected preview size: ${previewSize?.width}x${previewSize?.height}")
 
             val previewAspect = previewSize?.let { it.width.toDouble() / it.height.toDouble() } ?: viewAspect
             val analysisSizes = streamConfigMap.getOutputSizes(ImageFormat.YUV_420_888)
@@ -648,11 +649,11 @@ class CameraController(
     private fun rotateAndMirror(bitmap: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
         Log.d(TAG, "[ROTATE_MIRROR] rotationDegrees=$rotationDegrees mirror=$mirror bitmap=${bitmap.width}x${bitmap.height}")
 
-        // JPEG_ORIENTATION is already set to 90, so the image should already be rotated correctly
-        // We only need to apply mirror for front camera
+        // JPEG_ORIENTATION is already set, so the image should already be rotated correctly.
+        // We only need to apply mirror for front camera.
         if (!mirror) {
-            // Back camera: no additional processing needed since JPEG_ORIENTATION handles rotation
-            Log.d(TAG, "[ROTATE_MIRROR] Back camera: returning bitmap as-is (JPEG_ORIENTATION=90 already applied)")
+            // Back camera: no additional processing needed since JPEG_ORIENTATION handles rotation.
+            Log.d(TAG, "[ROTATE_MIRROR] Back camera: returning bitmap as-is (JPEG_ORIENTATION already applied)")
             return bitmap
         }
 
