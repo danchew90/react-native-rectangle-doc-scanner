@@ -548,18 +548,12 @@ class CameraController(
         }
         previewView.setTransform(matrix)
 
-        // Center-crop to fill the view.
-        val viewAspect = viewWidth / viewHeight
-        val bufferAspect = bufferWidth / bufferHeight
+        // Uniform center-crop to fill the view.
+        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
         previewView.pivotX = centerX
         previewView.pivotY = centerY
-        if (bufferAspect > viewAspect) {
-            previewView.scaleX = bufferAspect / viewAspect
-            previewView.scaleY = 1f
-        } else {
-            previewView.scaleX = 1f
-            previewView.scaleY = viewAspect / bufferAspect
-        }
+        previewView.scaleX = scale
+        previewView.scaleY = scale
     }
 
     private fun chooseBestSize(
