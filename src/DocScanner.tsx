@@ -611,7 +611,7 @@ const VisionCameraScanner = forwardRef<DocScannerHandle, Props>(
   },
 );
 
-export const DocScanner = forwardRef<DocScannerHandle, Props>(
+const NativeScanner = forwardRef<DocScannerHandle, Props>(
   (
     {
       onCapture,
@@ -631,29 +631,6 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
     },
     ref,
   ) => {
-    if (hasVisionCamera) {
-      return (
-        <VisionCameraScanner
-          ref={ref}
-          onCapture={onCapture}
-          overlayColor={overlayColor}
-          autoCapture={autoCapture}
-          minStableFrames={minStableFrames}
-          enableTorch={enableTorch}
-          quality={quality}
-          useBase64={useBase64}
-          showGrid={showGrid}
-          gridColor={gridColor}
-          gridLineWidth={gridLineWidth}
-          detectionConfig={detectionConfig}
-          onRectangleDetect={onRectangleDetect}
-          showManualCaptureButton={showManualCaptureButton}
-        >
-          {children}
-        </VisionCameraScanner>
-      );
-    }
-
     const scannerRef = useRef<any>(null);
     const captureResolvers = useRef<{
       resolve: (value: PictureEvent) => void;
@@ -1012,6 +989,28 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
     );
   },
 );
+
+export const DocScanner = forwardRef<DocScannerHandle, Props>((props, ref) => {
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+    if (hasVisionCamera) {
+      console.log('[DocScanner] Using VisionCamera pipeline');
+    } else {
+      console.warn('[DocScanner] VisionCamera pipeline unavailable, falling back to native view.', {
+        hasVisionCameraModule: Boolean(visionCameraModule),
+        hasReanimated: Boolean(reanimatedModule),
+      });
+    }
+  }, []);
+
+  if (hasVisionCamera) {
+    return <VisionCameraScanner ref={ref} {...props} />;
+  }
+
+  return <NativeScanner ref={ref} {...props} />;
+});
 
 const styles = StyleSheet.create({
   container: {
