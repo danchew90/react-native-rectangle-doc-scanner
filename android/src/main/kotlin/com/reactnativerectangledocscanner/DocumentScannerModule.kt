@@ -43,15 +43,22 @@ class DocumentScannerModule(reactContext: ReactApplicationContext) :
                 try {
                     val view = uiManager.resolveView(tag)
 
-                    if (view is DocumentScannerView) {
-                        Log.d(TAG, "Found DocumentScannerView, triggering capture with promise")
+                    // Use reflection to avoid compile-time dependency on DocumentScannerView
+                    try {
+                        val docScannerViewClass = Class.forName("com.reactnativerectangledocscanner.DocumentScannerView")
+                        if (docScannerViewClass.isInstance(view)) {
+                            Log.d(TAG, "Found DocumentScannerView, triggering capture with promise")
 
-                        // Pass promise to view so it can be resolved when capture completes
-                        // This matches iOS behavior where promise is resolved with actual image data
-                        view.captureWithPromise(promise)
-                    } else {
-                        Log.e(TAG, "View with tag $tag is not DocumentScannerView: ${view?.javaClass?.simpleName}")
-                        promise.reject("INVALID_VIEW", "View is not a DocumentScannerView")
+                            // Pass promise to view so it can be resolved when capture completes
+                            val captureMethod = docScannerViewClass.getMethod("captureWithPromise", Promise::class.java)
+                            captureMethod.invoke(view, promise)
+                        } else {
+                            Log.e(TAG, "View with tag $tag is not DocumentScannerView: ${view?.javaClass?.simpleName}")
+                            promise.reject("INVALID_VIEW", "View is not a DocumentScannerView")
+                        }
+                    } catch (e: ClassNotFoundException) {
+                        Log.e(TAG, "DocumentScannerView not available (VisionCamera mode)", e)
+                        promise.reject("VIEW_NOT_AVAILABLE", "Camera2 views not available in VisionCamera mode")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error resolving view", e)

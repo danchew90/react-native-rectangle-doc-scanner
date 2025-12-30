@@ -25,11 +25,21 @@ class DocumentScannerPackage : ReactPackage {
             // VisionCamera is available, no need to register Camera2 view managers
             emptyList()
         } catch (e: ClassNotFoundException) {
-            // VisionCamera not available, register Camera2 view managers
-            listOf(
-                DocumentScannerViewManager(),
-                CameraViewManager()
-            )
+            // VisionCamera not available, register Camera2 view managers using reflection
+            try {
+                val viewManagers = mutableListOf<ViewManager<*, *>>()
+
+                val docScannerViewManagerClass = Class.forName("com.reactnativerectangledocscanner.DocumentScannerViewManager")
+                val cameraViewManagerClass = Class.forName("com.reactnativerectangledocscanner.CameraViewManager")
+
+                viewManagers.add(docScannerViewManagerClass.newInstance() as ViewManager<*, *>)
+                viewManagers.add(cameraViewManagerClass.newInstance() as ViewManager<*, *>)
+
+                viewManagers
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to instantiate Camera2 view managers", e)
+                emptyList()
+            }
         }
     }
 
