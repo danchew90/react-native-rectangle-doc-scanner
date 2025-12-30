@@ -549,25 +549,37 @@ class CameraController(
         if (viewWidth == 0f || viewHeight == 0f) return
 
         val rotation = computeRotationDegrees()
+        Log.d(TAG, "[TRANSFORM] rotation=$rotation view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}")
+
+        // Calculate buffer dimensions after rotation
         val bufferWidth = if (rotation == 90 || rotation == 270) preview.height.toFloat() else preview.width.toFloat()
         val bufferHeight = if (rotation == 90 || rotation == 270) preview.width.toFloat() else preview.height.toFloat()
+
+        Log.d(TAG, "[TRANSFORM] buffer after rotation: ${bufferWidth}x${bufferHeight}")
 
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
-        // Rotate to match display orientation.
         val matrix = Matrix()
+
+        // Apply rotation
         if (rotation != 0) {
             matrix.postRotate(rotation.toFloat(), centerX, centerY)
         }
+
+        // Calculate scale to fill the view (crop mode)
+        val scaleX = viewWidth / bufferWidth
+        val scaleY = viewHeight / bufferHeight
+        val scale = maxOf(scaleX, scaleY)
+
+        Log.d(TAG, "[TRANSFORM] scaleX=$scaleX scaleY=$scaleY finalScale=$scale")
+
+        // Apply scale
+        matrix.postScale(scale, scale, centerX, centerY)
+
         previewView.setTransform(matrix)
 
-        // Uniform center-crop to fill the view.
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
-        previewView.pivotX = centerX
-        previewView.pivotY = centerY
-        previewView.scaleX = scale
-        previewView.scaleY = scale
+        Log.d(TAG, "[TRANSFORM] Matrix applied successfully")
     }
 
     private fun chooseBestSize(
