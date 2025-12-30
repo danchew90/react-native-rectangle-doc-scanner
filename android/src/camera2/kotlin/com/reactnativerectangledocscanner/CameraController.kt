@@ -510,25 +510,17 @@ class CameraController(
 
     private fun computeRotationDegrees(): Int {
         val displayRotation = displayRotationDegrees()
-        if (sensorOrientation == 0) {
-            return if (useFrontCamera) {
-                (360 - displayRotation) % 360
-            } else {
-                displayRotation
-            }
-        }
-        if (sensorOrientation == 180) {
-            return if (useFrontCamera) {
-                (180 + displayRotation) % 360
-            } else {
-                (180 - displayRotation + 360) % 360
-            }
-        }
-        return if (useFrontCamera) {
+
+        // For back camera with sensor orientation 0 and display rotation 90 (portrait),
+        // we need 270 degree rotation to display correctly
+        val rotation = if (useFrontCamera) {
             (sensorOrientation + displayRotation) % 360
         } else {
             (sensorOrientation - displayRotation + 360) % 360
         }
+
+        Log.d(TAG, "[ROTATION] sensor=$sensorOrientation display=$displayRotation front=$useFrontCamera -> rotation=$rotation")
+        return rotation
     }
 
     private fun displayRotationDegrees(): Int {
