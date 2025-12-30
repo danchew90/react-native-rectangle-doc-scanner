@@ -19,10 +19,18 @@ class DocumentScannerPackage : ReactPackage {
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
-        return listOf(
-            DocumentScannerViewManager(),
-            CameraViewManager()
-        )
+        // Only register Camera2-based view managers if VisionCamera is not available
+        return try {
+            Class.forName(VISION_CAMERA_REGISTRY)
+            // VisionCamera is available, no need to register Camera2 view managers
+            emptyList()
+        } catch (e: ClassNotFoundException) {
+            // VisionCamera not available, register Camera2 view managers
+            listOf(
+                DocumentScannerViewManager(),
+                CameraViewManager()
+            )
+        }
     }
 
     private fun registerVisionCameraPlugin() {
