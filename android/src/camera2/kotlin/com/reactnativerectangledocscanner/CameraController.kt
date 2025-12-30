@@ -543,34 +543,48 @@ class CameraController(
         val rotation = computeRotationDegrees()
         Log.d(TAG, "[TRANSFORM] rotation=$rotation view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}")
 
-        // Calculate buffer dimensions after rotation
-        val bufferWidth = if (rotation == 90 || rotation == 270) preview.height.toFloat() else preview.width.toFloat()
-        val bufferHeight = if (rotation == 90 || rotation == 270) preview.width.toFloat() else preview.height.toFloat()
-
-        Log.d(TAG, "[TRANSFORM] buffer after rotation: ${bufferWidth}x${bufferHeight}")
-
+        val matrix = Matrix()
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
-        val matrix = Matrix()
-
-        // Apply rotation
-        if (rotation != 0) {
+        // For 270 degree rotation (portrait mode with back camera):
+        // - The camera sensor output is landscape (1920x1088)
+        // - We need to rotate 270 degrees to display it in portrait
+        // - Then scale to fill the entire view
+        if (rotation == 270 || rotation == 90) {
+            // Rotate first
             matrix.postRotate(rotation.toFloat(), centerX, centerY)
+
+            // After rotation, the dimensions are swapped
+            val rotatedWidth = preview.height.toFloat()
+            val rotatedHeight = preview.width.toFloat()
+
+            Log.d(TAG, "[TRANSFORM] After rotation: ${rotatedWidth}x${rotatedHeight}")
+
+            // Calculate scale to fill the view completely (aspect fill/crop mode)
+            val scaleX = viewWidth / rotatedWidth
+            val scaleY = viewHeight / rotatedHeight
+            val scale = maxOf(scaleX, scaleY)
+
+            Log.d(TAG, "[TRANSFORM] scaleX=$scaleX scaleY=$scaleY finalScale=$scale")
+
+            // Apply scale at center
+            matrix.postScale(scale, scale, centerX, centerY)
+        } else {
+            // For 0 or 180 degree rotation
+            val scaleX = viewWidth / preview.width.toFloat()
+            val scaleY = viewHeight / preview.height.toFloat()
+            val scale = maxOf(scaleX, scaleY)
+
+            Log.d(TAG, "[TRANSFORM] scaleX=$scaleX scaleY=$scaleY finalScale=$scale")
+
+            if (rotation != 0) {
+                matrix.postRotate(rotation.toFloat(), centerX, centerY)
+            }
+            matrix.postScale(scale, scale, centerX, centerY)
         }
 
-        // Calculate scale to fill the view (crop mode)
-        val scaleX = viewWidth / bufferWidth
-        val scaleY = viewHeight / bufferHeight
-        val scale = maxOf(scaleX, scaleY)
-
-        Log.d(TAG, "[TRANSFORM] scaleX=$scaleX scaleY=$scaleY finalScale=$scale")
-
-        // Apply scale
-        matrix.postScale(scale, scale, centerX, centerY)
-
         previewView.setTransform(matrix)
-
         Log.d(TAG, "[TRANSFORM] Matrix applied successfully")
     }
 
@@ -630,27 +644,35 @@ class CameraController(
 
     private fun rotateAndMirror(bitmap: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
         Log.d(TAG, "[ROTATE_MIRROR] rotationDegrees=$rotationDegrees mirror=$mirror bitmap=${bitmap.width}x${bitmap.height}")
-        if (rotationDegrees == 0 && !mirror) {
-            return bitmap
-        }
+
         val matrix = Matrix()
 
-        // For back camera, we need to mirror horizontally to fix the flip issue
-        // The camera sensor output is already mirrored, so we need to flip it back
-        if (!mirror) {
-            // Back camera: flip horizontally
-            matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
-            Log.d(TAG, "[ROTATE_MIRROR] Applied horizontal flip for back camera")
-        } else {
-            // Front camera: keep mirror
-            matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+        // For 270 degree rotation (back camera in portrait mode):
+        // 1. First rotate 90 degrees (not 270)
+        // 2. Then flip horizontally if needed
+        // This is because the sensor orientation is 0, but we're holding the phone at 90 degrees
+        val actualRotation = when (rotationDegrees) {
+            270 -> 90  // Convert 270 to 90 for correct orientation
+            90 -> 270  // Convert 90 to 270 for front camera
+            else -> rotationDegrees
+        }
+
+        Log.d(TAG, "[ROTATE_MIRROR] Adjusted rotation: $rotationDegrees -> $actualRotation")
+
+        // Apply rotation first
+        if (actualRotation != 0) {
+            matrix.postRotate(actualRotation.toFloat())
+            Log.d(TAG, "[ROTATE_MIRROR] Applied rotation: $actualRotation degrees")
+        }
+
+        // Apply mirror for front camera only
+        if (mirror) {
+            // Front camera needs horizontal flip after rotation
+            val rotatedWidth = if (actualRotation == 90 || actualRotation == 270) bitmap.height else bitmap.width
+            matrix.postScale(-1f, 1f, rotatedWidth / 2f, 0f)
             Log.d(TAG, "[ROTATE_MIRROR] Applied horizontal flip for front camera")
         }
 
-        if (rotationDegrees != 0) {
-            matrix.postRotate(rotationDegrees.toFloat(), bitmap.width / 2f, bitmap.height / 2f)
-            Log.d(TAG, "[ROTATE_MIRROR] Applied rotation: $rotationDegrees degrees")
-        }
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
