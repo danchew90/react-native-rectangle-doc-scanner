@@ -24,12 +24,14 @@ import android.util.Size
 import android.view.Surface
 import android.view.TextureView
 import androidx.core.content.ContextCompat
+import androidx.exifinterface.media.ExifInterface
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.objects.ObjectDetection
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
 import org.opencv.core.Point
 import java.io.File
 import java.io.FileOutputStream
+import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -129,6 +131,10 @@ class CameraController(
         Log.d(TAG, "[CAMERA2] stopCamera called")
         previewView.surfaceTextureListener = null
         closeSession()
+    }
+
+    fun refreshTransform() {
+        configureTransform()
     }
 
     fun capturePhoto(
@@ -475,10 +481,11 @@ class CameraController(
             val buffer = image.planes[0].buffer
             val bytes = ByteArray(buffer.remaining())
             buffer.get(bytes)
+            val exifRotation = readExifRotation(bytes)
             val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 ?: throw IllegalStateException("Failed to decode JPEG")
 
-            val rotated = rotateAndMirror(bitmap, computeRotationDegrees(), useFrontCamera)
+            val rotated = rotateAndMirror(bitmap, exifRotation, useFrontCamera)
             val photoFile = File(pending.outputDirectory, "doc_scan_${System.currentTimeMillis()}.jpg")
             FileOutputStream(photoFile).use { out ->
                 rotated.compress(Bitmap.CompressFormat.JPEG, 95, out)
@@ -649,20 +656,35 @@ class CameraController(
     private fun rotateAndMirror(bitmap: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
         Log.d(TAG, "[ROTATE_MIRROR] rotationDegrees=$rotationDegrees mirror=$mirror bitmap=${bitmap.width}x${bitmap.height}")
 
-        // JPEG_ORIENTATION is already set, so the image should already be rotated correctly.
-        // We only need to apply mirror for front camera.
-        if (!mirror) {
-            // Back camera: no additional processing needed since JPEG_ORIENTATION handles rotation.
-            Log.d(TAG, "[ROTATE_MIRROR] Back camera: returning bitmap as-is (JPEG_ORIENTATION already applied)")
+        if (rotationDegrees == 0 && !mirror) {
+            Log.d(TAG, "[ROTATE_MIRROR] No rotation/mirror needed, returning bitmap as-is")
             return bitmap
         }
 
-        // Front camera: apply horizontal mirror
         val matrix = Matrix()
-        matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
-        Log.d(TAG, "[ROTATE_MIRROR] Front camera: applied horizontal mirror")
+        if (rotationDegrees != 0) {
+            matrix.postRotate(rotationDegrees.toFloat(), bitmap.width / 2f, bitmap.height / 2f)
+        }
+        if (mirror) {
+            matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+        }
 
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    }
+
+    private fun readExifRotation(bytes: ByteArray): Int {
+        return try {
+            val exif = ExifInterface(ByteArrayInputStream(bytes))
+            when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[CAMERA2] Failed to read EXIF rotation", e)
+            0
+        }
     }
 
     private fun refineWithOpenCv(

@@ -135,6 +135,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         super.onLayout(changed, left, top, right, bottom)
         if (changed) {
             Log.d(TAG, "[LAYOUT] View size: ${right - left}x${bottom - top}, PreviewView: ${previewView.width}x${previewView.height}")
+            cameraController?.refreshTransform()
         }
     }
 
