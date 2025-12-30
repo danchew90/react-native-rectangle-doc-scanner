@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import {
   Platform,
+  PixelRatio,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -51,6 +52,21 @@ const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
 const { RNPdfScannerManager } = NativeModules;
+
+const safeRequire = (moduleName: string) => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require(moduleName);
+  } catch {
+    return null;
+  }
+};
+
+const visionCameraModule = Platform.OS === 'android' ? safeRequire('react-native-vision-camera') : null;
+const reanimatedModule = Platform.OS === 'android' ? safeRequire('react-native-reanimated') : null;
+const hasVisionCamera =
+  Platform.OS === 'android' &&
+  Boolean(visionCameraModule?.Camera && visionCameraModule?.useCameraDevice && visionCameraModule?.useFrameProcessor);
 
 const normalizePoint = (point?: { x?: number; y?: number } | null): Point | null => {
   if (!point || !isFiniteNumber(point.x) || !isFiniteNumber(point.y)) {
@@ -114,6 +130,487 @@ export type DocScannerHandle = {
 
 const DEFAULT_OVERLAY_COLOR = '#0b7ef4';
 
+const RectangleQuality = {
+  GOOD: 0,
+  BAD_ANGLE: 1,
+  TOO_FAR: 2,
+} as const;
+
+const evaluateRectangleQualityInView = (rectangle: Rectangle, viewWidth: number, viewHeight: number) => {
+  if (!viewWidth || !viewHeight) {
+    return RectangleQuality.TOO_FAR;
+  }
+
+  const minDim = Math.min(viewWidth, viewHeight);
+  const angleThreshold = Math.max(60, minDim * 0.08);
+  const topYDiff = Math.abs(rectangle.topRight.y - rectangle.topLeft.y);
+  const bottomYDiff = Math.abs(rectangle.bottomLeft.y - rectangle.bottomRight.y);
+  const leftXDiff = Math.abs(rectangle.topLeft.x - rectangle.bottomLeft.x);
+  const rightXDiff = Math.abs(rectangle.topRight.x - rectangle.bottomRight.x);
+
+  if (
+    topYDiff > angleThreshold ||
+    bottomYDiff > angleThreshold ||
+    leftXDiff > angleThreshold ||
+    rightXDiff > angleThreshold
+  ) {
+    return RectangleQuality.BAD_ANGLE;
+  }
+
+  const margin = Math.max(120, minDim * 0.12);
+  if (
+    rectangle.topLeft.y > margin ||
+    rectangle.topRight.y > margin ||
+    rectangle.bottomLeft.y < viewHeight - margin ||
+    rectangle.bottomRight.y < viewHeight - margin
+  ) {
+    return RectangleQuality.TOO_FAR;
+  }
+
+  return RectangleQuality.GOOD;
+};
+
+const mirrorRectangleHorizontally = (rectangle: Rectangle, imageWidth: number): Rectangle => ({
+  topLeft: { x: imageWidth - rectangle.topRight.x, y: rectangle.topRight.y },
+  topRight: { x: imageWidth - rectangle.topLeft.x, y: rectangle.topLeft.y },
+  bottomLeft: { x: imageWidth - rectangle.bottomRight.x, y: rectangle.bottomRight.y },
+  bottomRight: { x: imageWidth - rectangle.bottomLeft.x, y: rectangle.bottomLeft.y },
+});
+
+const mapRectangleToView = (
+  rectangle: Rectangle,
+  imageWidth: number,
+  imageHeight: number,
+  viewWidth: number,
+  viewHeight: number,
+  density: number,
+): Rectangle => {
+  const viewWidthPx = viewWidth * density;
+  const viewHeightPx = viewHeight * density;
+  const scale = Math.max(viewWidthPx / imageWidth, viewHeightPx / imageHeight);
+  const scaledImageWidth = imageWidth * scale;
+  const scaledImageHeight = imageHeight * scale;
+  const offsetX = (scaledImageWidth - viewWidthPx) / 2;
+  const offsetY = (scaledImageHeight - viewHeightPx) / 2;
+
+  const mapPoint = (point: Point): Point => ({
+    x: (point.x * scale - offsetX) / density,
+    y: (point.y * scale - offsetY) / density,
+  });
+
+  return {
+    topLeft: mapPoint(rectangle.topLeft),
+    topRight: mapPoint(rectangle.topRight),
+    bottomRight: mapPoint(rectangle.bottomRight),
+    bottomLeft: mapPoint(rectangle.bottomLeft),
+  };
+};
+
+const VisionCameraScanner = forwardRef<DocScannerHandle, Props>(
+  (
+    {
+      onCapture,
+      overlayColor = DEFAULT_OVERLAY_COLOR,
+      autoCapture = true,
+      minStableFrames = 8,
+      enableTorch = false,
+      quality = 90,
+      useBase64 = false,
+      children,
+      showGrid = true,
+      gridColor,
+      gridLineWidth,
+      detectionConfig,
+      onRectangleDetect,
+      showManualCaptureButton = false,
+    },
+    ref,
+  ) => {
+    const cameraRef = useRef<any>(null);
+    const captureResolvers = useRef<{
+      resolve: (value: PictureEvent) => void;
+      reject: (reason?: unknown) => void;
+    } | null>(null);
+    const captureOriginRef = useRef<'auto' | 'manual'>('auto');
+    const captureInProgressRef = useRef(false);
+    const stableCounterRef = useRef(0);
+    const lastDetectionTimestampRef = useRef(0);
+    const lastRectangleRef = useRef<Rectangle | null>(null);
+    const lastImageSizeRef = useRef<{ width: number; height: number } | null>(null);
+    const rectangleClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const [isAutoCapturing, setIsAutoCapturing] = useState(false);
+    const [detectedRectangle, setDetectedRectangle] = useState<RectangleDetectEvent | null>(null);
+    const [viewSize, setViewSize] = useState({ width: 0, height: 0 });
+    const [hasPermission, setHasPermission] = useState(false);
+
+    const normalizedQuality = useMemo(() => Math.min(100, Math.max(0, quality)), [quality]);
+    const density = PixelRatio.get() || 1;
+
+    const CameraComponent = visionCameraModule?.Camera;
+    const runOnJS = reanimatedModule?.runOnJS;
+
+    const device = visionCameraModule.useCameraDevice('back');
+
+    useEffect(() => {
+      let mounted = true;
+
+      const requestPermission = async () => {
+        try {
+          if (!CameraComponent?.requestCameraPermission) {
+            if (mounted) {
+              setHasPermission(true);
+            }
+            return;
+          }
+
+          const status = await CameraComponent.requestCameraPermission();
+          if (mounted) {
+            setHasPermission(status === 'authorized');
+          }
+        } catch (error) {
+          if (mounted) {
+            setHasPermission(false);
+          }
+        }
+      };
+
+      requestPermission();
+
+      return () => {
+        mounted = false;
+      };
+    }, [CameraComponent]);
+
+    useEffect(() => {
+      if (!autoCapture) {
+        setIsAutoCapturing(false);
+      }
+    }, [autoCapture]);
+
+    useEffect(() => {
+      return () => {
+        if (rectangleClearTimeoutRef.current) {
+          clearTimeout(rectangleClearTimeoutRef.current);
+        }
+      };
+    }, []);
+
+    const handlePictureTaken = useCallback(
+      (event: PictureEvent) => {
+        const captureError = (event as any)?.error;
+        if (captureError) {
+          console.error('[DocScanner] Native capture error received:', captureError);
+          captureOriginRef.current = 'auto';
+          setIsAutoCapturing(false);
+          setDetectedRectangle(null);
+
+          if (captureResolvers.current) {
+            captureResolvers.current.reject(new Error(String(captureError)));
+            captureResolvers.current = null;
+          }
+
+          return;
+        }
+
+        setIsAutoCapturing(false);
+
+        const normalizedRectangle =
+          normalizeRectangle(event.rectangleCoordinates ?? null) ??
+          normalizeRectangle(event.rectangleOnScreen ?? null) ??
+          lastRectangleRef.current;
+        const quad = normalizedRectangle ? rectangleToQuad(normalizedRectangle) : null;
+        const origin = captureOriginRef.current;
+        captureOriginRef.current = 'auto';
+
+        const initialPath = event.initialImage ?? null;
+        const croppedPath = event.croppedImage ?? null;
+        const editablePath = initialPath ?? croppedPath;
+
+        if (editablePath) {
+          onCapture?.({
+            path: editablePath,
+            initialPath,
+            croppedPath,
+            quad,
+            rectangle: normalizedRectangle,
+            width: event.width ?? 0,
+            height: event.height ?? 0,
+            origin,
+          });
+        }
+
+        setDetectedRectangle(null);
+
+        if (captureResolvers.current) {
+          captureResolvers.current.resolve(event);
+          captureResolvers.current = null;
+        }
+      },
+      [onCapture],
+    );
+
+    const handleError = useCallback((error: Error) => {
+      if (captureResolvers.current) {
+        captureResolvers.current.reject(error);
+        captureResolvers.current = null;
+      }
+    }, []);
+
+    const applyRectangleEvent = useCallback(
+      (payload: RectangleDetectEvent) => {
+        if (autoCapture) {
+          if (payload.stableCounter >= Math.max(minStableFrames - 1, 0)) {
+            setIsAutoCapturing(true);
+          } else if (payload.stableCounter === 0) {
+            setIsAutoCapturing(false);
+          }
+        }
+
+        const hasAnyRectangle = Boolean(payload.rectangleOnScreen || payload.rectangleCoordinates);
+
+        if (hasAnyRectangle) {
+          if (rectangleClearTimeoutRef.current) {
+            clearTimeout(rectangleClearTimeoutRef.current);
+          }
+          setDetectedRectangle(payload);
+          rectangleClearTimeoutRef.current = setTimeout(() => {
+            setDetectedRectangle(null);
+            rectangleClearTimeoutRef.current = null;
+          }, 500);
+        } else {
+          if (rectangleClearTimeoutRef.current) {
+            clearTimeout(rectangleClearTimeoutRef.current);
+            rectangleClearTimeoutRef.current = null;
+          }
+          setDetectedRectangle(null);
+        }
+
+        onRectangleDetect?.(payload);
+      },
+      [autoCapture, minStableFrames, onRectangleDetect],
+    );
+
+    const captureVision = useCallback(
+      async (origin: 'auto' | 'manual') => {
+        if (captureInProgressRef.current) {
+          throw new Error('capture_in_progress');
+        }
+
+        if (!cameraRef.current?.takePhoto) {
+          throw new Error('capture_not_supported');
+        }
+
+        if (!RNPdfScannerManager?.processImage) {
+          throw new Error('process_image_not_supported');
+        }
+
+        captureInProgressRef.current = true;
+        captureOriginRef.current = origin;
+
+        try {
+          const photo = await cameraRef.current.takePhoto({ flash: 'off' });
+          const imageSize = lastImageSizeRef.current;
+          const payload = await RNPdfScannerManager.processImage({
+            imagePath: photo.path,
+            rectangleCoordinates: lastRectangleRef.current,
+            rectangleWidth: imageSize?.width ?? 0,
+            rectangleHeight: imageSize?.height ?? 0,
+            useBase64,
+            quality: normalizedQuality,
+            brightness: 0,
+            contrast: 1,
+            saturation: 1,
+            saveInAppDocument: false,
+          });
+          handlePictureTaken(payload);
+          return payload;
+        } catch (error) {
+          handleError(error as Error);
+          throw error;
+        } finally {
+          captureInProgressRef.current = false;
+        }
+      },
+      [handleError, handlePictureTaken, normalizedQuality, useBase64],
+    );
+
+    const capture = useCallback((): Promise<PictureEvent> => {
+      captureOriginRef.current = 'manual';
+
+      if (captureResolvers.current) {
+        captureOriginRef.current = 'auto';
+        return Promise.reject(new Error('capture_in_progress'));
+      }
+
+      return new Promise<PictureEvent>((resolve, reject) => {
+        captureResolvers.current = { resolve, reject };
+        captureVision('manual').catch((error) => {
+          captureResolvers.current = null;
+          captureOriginRef.current = 'auto';
+          reject(error);
+        });
+      });
+    }, [captureVision]);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        capture,
+        reset: () => {
+          if (captureResolvers.current) {
+            captureResolvers.current.reject(new Error('reset'));
+            captureResolvers.current = null;
+          }
+
+          if (rectangleClearTimeoutRef.current) {
+            clearTimeout(rectangleClearTimeoutRef.current);
+            rectangleClearTimeoutRef.current = null;
+          }
+
+          lastRectangleRef.current = null;
+          lastImageSizeRef.current = null;
+          stableCounterRef.current = 0;
+          setDetectedRectangle(null);
+          setIsAutoCapturing(false);
+          captureOriginRef.current = 'auto';
+        },
+      }),
+      [capture],
+    );
+
+    const handleVisionResult = useCallback(
+      (result: any) => {
+        const now = Date.now();
+        if (now - lastDetectionTimestampRef.current < 100) {
+          return;
+        }
+        lastDetectionTimestampRef.current = now;
+
+        const imageWidth = Number(result?.imageWidth) || 0;
+        const imageHeight = Number(result?.imageHeight) || 0;
+        const isMirrored = Boolean(result?.isMirrored);
+
+        let rectangleCoordinates = normalizeRectangle(result?.rectangle ?? null);
+        if (rectangleCoordinates && isMirrored && imageWidth) {
+          rectangleCoordinates = mirrorRectangleHorizontally(rectangleCoordinates, imageWidth);
+        }
+
+        const rectangleOnScreen =
+          rectangleCoordinates && viewSize.width && viewSize.height && imageWidth && imageHeight
+            ? mapRectangleToView(
+                rectangleCoordinates,
+                imageWidth,
+                imageHeight,
+                viewSize.width,
+                viewSize.height,
+                density,
+              )
+            : null;
+
+        const quality = rectangleOnScreen
+          ? evaluateRectangleQualityInView(rectangleOnScreen, viewSize.width, viewSize.height)
+          : RectangleQuality.TOO_FAR;
+
+        if (!rectangleCoordinates) {
+          stableCounterRef.current = 0;
+        } else if (quality === RectangleQuality.GOOD) {
+          const cap = autoCapture ? minStableFrames : 99999;
+          stableCounterRef.current = Math.min(stableCounterRef.current + 1, cap);
+        } else if (stableCounterRef.current > 0) {
+          stableCounterRef.current -= 1;
+        }
+
+        if (rectangleCoordinates) {
+          lastRectangleRef.current = rectangleCoordinates;
+          if (imageWidth && imageHeight) {
+            lastImageSizeRef.current = { width: imageWidth, height: imageHeight };
+          }
+        }
+
+        const payload: RectangleDetectEvent = {
+          stableCounter: stableCounterRef.current,
+          lastDetectionType: quality,
+          rectangleCoordinates,
+          rectangleOnScreen,
+          previewSize: viewSize.width && viewSize.height ? { width: viewSize.width, height: viewSize.height } : undefined,
+          imageSize: imageWidth && imageHeight ? { width: imageWidth, height: imageHeight } : undefined,
+        };
+
+        applyRectangleEvent(payload);
+
+        if (
+          autoCapture &&
+          rectangleCoordinates &&
+          stableCounterRef.current >= minStableFrames &&
+          !captureInProgressRef.current
+        ) {
+          stableCounterRef.current = 0;
+          captureVision('auto').catch(() => {});
+        }
+      },
+      [applyRectangleEvent, autoCapture, captureVision, density, minStableFrames, viewSize],
+    );
+
+    const plugin = useMemo(() => {
+      if (!visionCameraModule?.VisionCameraProxy?.initFrameProcessorPlugin) {
+        return null;
+      }
+      return visionCameraModule.VisionCameraProxy.initFrameProcessorPlugin('DocumentScanner', detectionConfig ?? {});
+    }, [detectionConfig]);
+
+    const frameProcessor = visionCameraModule.useFrameProcessor((frame: any) => {
+      'worklet';
+      if (!plugin || !runOnJS) {
+        return;
+      }
+      const output = plugin.call(frame, null);
+      runOnJS(handleVisionResult)(output ?? null);
+    }, [plugin, runOnJS, handleVisionResult]);
+
+    const handleLayout = useCallback((event: any) => {
+      const { width, height } = event.nativeEvent.layout;
+      if (width && height) {
+        setViewSize({ width, height });
+      }
+    }, []);
+
+    const overlayPolygon = detectedRectangle?.rectangleOnScreen ?? null;
+    const overlayIsActive = autoCapture ? isAutoCapturing : (detectedRectangle?.stableCounter ?? 0) > 0;
+
+    return (
+      <View style={styles.container} onLayout={handleLayout}>
+        {CameraComponent && device && hasPermission ? (
+          <CameraComponent
+            ref={cameraRef}
+            style={styles.scanner}
+            device={device}
+            isActive={true}
+            photo={true}
+            torch={enableTorch ? 'on' : 'off'}
+            frameProcessor={frameProcessor}
+            frameProcessorFps={10}
+          />
+        ) : (
+          <View style={styles.scanner} />
+        )}
+        {showGrid && overlayPolygon && (
+          <ScannerOverlay
+            active={overlayIsActive}
+            color={gridColor ?? overlayColor}
+            lineWidth={gridLineWidth}
+            polygon={overlayPolygon}
+          />
+        )}
+        {showManualCaptureButton && (
+          <TouchableOpacity style={styles.button} onPress={() => captureVision('manual')} />
+        )}
+        {children}
+      </View>
+    );
+  },
+);
+
 export const DocScanner = forwardRef<DocScannerHandle, Props>(
   (
     {
@@ -134,6 +631,29 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>(
     },
     ref,
   ) => {
+    if (hasVisionCamera) {
+      return (
+        <VisionCameraScanner
+          ref={ref}
+          onCapture={onCapture}
+          overlayColor={overlayColor}
+          autoCapture={autoCapture}
+          minStableFrames={minStableFrames}
+          enableTorch={enableTorch}
+          quality={quality}
+          useBase64={useBase64}
+          showGrid={showGrid}
+          gridColor={gridColor}
+          gridLineWidth={gridLineWidth}
+          detectionConfig={detectionConfig}
+          onRectangleDetect={onRectangleDetect}
+          showManualCaptureButton={showManualCaptureButton}
+        >
+          {children}
+        </VisionCameraScanner>
+      );
+    }
+
     const scannerRef = useRef<any>(null);
     const captureResolvers = useRef<{
       resolve: (value: PictureEvent) => void;

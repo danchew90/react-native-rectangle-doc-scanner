@@ -5,6 +5,7 @@ import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.uimanager.UIManagerModule
 import kotlinx.coroutines.*
+import org.opencv.core.Point
 
 class DocumentScannerModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -114,8 +115,188 @@ class DocumentScannerModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    /**
+     * Process a captured image from JS (VisionCamera path).
+     * Options map keys:
+     * - imagePath: String (required)
+     * - rectangleCoordinates: Map (optional)
+     * - rectangleWidth: Int (optional)
+     * - rectangleHeight: Int (optional)
+     * - useBase64: Boolean (optional)
+     * - quality: Double (optional)
+     * - brightness: Double (optional)
+     * - contrast: Double (optional)
+     * - saturation: Double (optional)
+     * - saveInAppDocument: Boolean (optional)
+     */
+    @ReactMethod
+    fun processImage(options: ReadableMap, promise: Promise) {
+        scope.launch {
+            try {
+                val imagePath = options.getString("imagePath")
+                    ?: throw IllegalArgumentException("imagePath is required")
+                val rectangleMap = if (options.hasKey("rectangleCoordinates")) {
+                    options.getMap("rectangleCoordinates")
+                } else {
+                    null
+                }
+                val rectangleWidth = if (options.hasKey("rectangleWidth")) {
+                    options.getInt("rectangleWidth")
+                } else {
+                    0
+                }
+                val rectangleHeight = if (options.hasKey("rectangleHeight")) {
+                    options.getInt("rectangleHeight")
+                } else {
+                    0
+                }
+                val useBase64 = options.hasKey("useBase64") && options.getBoolean("useBase64")
+                val quality = if (options.hasKey("quality")) {
+                    options.getDouble("quality").toFloat()
+                } else {
+                    0.95f
+                }
+                val brightness = if (options.hasKey("brightness")) {
+                    options.getDouble("brightness").toFloat()
+                } else {
+                    0f
+                }
+                val contrast = if (options.hasKey("contrast")) {
+                    options.getDouble("contrast").toFloat()
+                } else {
+                    1f
+                }
+                val saturation = if (options.hasKey("saturation")) {
+                    options.getDouble("saturation").toFloat()
+                } else {
+                    1f
+                }
+                val saveInAppDocument = options.hasKey("saveInAppDocument") && options.getBoolean("saveInAppDocument")
+
+                withContext(Dispatchers.IO) {
+                    val bitmap = BitmapFactory.decodeFile(imagePath)
+                        ?: throw IllegalStateException("decode_failed")
+                    val rectangle = rectangleMap?.let { mapToRectangle(it) }
+                    val scaledRectangle = if (rectangle != null && rectangleWidth > 0 && rectangleHeight > 0) {
+                        scaleRectangleToBitmap(rectangle, rectangleWidth, rectangleHeight, bitmap.width, bitmap.height)
+                    } else {
+                        rectangle
+                    }
+
+                    val processed = ImageProcessor.processImage(
+                        imagePath = imagePath,
+                        rectangle = scaledRectangle,
+                        brightness = brightness,
+                        contrast = contrast,
+                        saturation = saturation,
+                        shouldCrop = scaledRectangle != null
+                    )
+
+                    val outputDir = if (saveInAppDocument) {
+                        reactApplicationContext.filesDir
+                    } else {
+                        reactApplicationContext.cacheDir
+                    }
+
+                    val timestamp = System.currentTimeMillis()
+
+                    val result = Arguments.createMap()
+                    if (useBase64) {
+                        val croppedBase64 = ImageProcessor.bitmapToBase64(processed.croppedImage, quality)
+                        val initialBase64 = ImageProcessor.bitmapToBase64(processed.initialImage, quality)
+                        result.putString("croppedImage", croppedBase64)
+                        result.putString("initialImage", initialBase64)
+                    } else {
+                        val croppedPath = ImageProcessor.saveBitmapToFile(
+                            processed.croppedImage,
+                            outputDir,
+                            "cropped_img_$timestamp.jpeg",
+                            quality
+                        )
+                        val initialPath = ImageProcessor.saveBitmapToFile(
+                            processed.initialImage,
+                            outputDir,
+                            "initial_img_$timestamp.jpeg",
+                            quality
+                        )
+                        result.putString("croppedImage", croppedPath)
+                        result.putString("initialImage", initialPath)
+                    }
+
+                    result.putMap("rectangleCoordinates", scaledRectangle?.let { rectangleToWritableMap(it) })
+                    result.putInt("width", processed.croppedImage.width)
+                    result.putInt("height", processed.croppedImage.height)
+
+                    withContext(Dispatchers.Main) {
+                        promise.resolve(result)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to process image", e)
+                promise.reject("PROCESSING_FAILED", "Failed to process image: ${e.message}", e)
+            }
+        }
+    }
+
     override fun onCatalystInstanceDestroy() {
         super.onCatalystInstanceDestroy()
         scope.cancel()
+    }
+
+    private fun mapToRectangle(map: ReadableMap): Rectangle? {
+        fun toPoint(pointMap: ReadableMap?): Point? {
+            if (pointMap == null) return null
+            if (!pointMap.hasKey("x") || !pointMap.hasKey("y")) return null
+            return Point(pointMap.getDouble("x"), pointMap.getDouble("y"))
+        }
+
+        val topLeft = toPoint(map.getMap("topLeft"))
+        val topRight = toPoint(map.getMap("topRight"))
+        val bottomLeft = toPoint(map.getMap("bottomLeft"))
+        val bottomRight = toPoint(map.getMap("bottomRight"))
+
+        if (topLeft == null || topRight == null || bottomLeft == null || bottomRight == null) {
+            return null
+        }
+
+        return Rectangle(topLeft, topRight, bottomLeft, bottomRight)
+    }
+
+    private fun rectangleToWritableMap(rectangle: Rectangle): WritableMap {
+        val map = Arguments.createMap()
+        fun putPoint(key: String, point: Point) {
+            val pointMap = Arguments.createMap()
+            pointMap.putDouble("x", point.x)
+            pointMap.putDouble("y", point.y)
+            map.putMap(key, pointMap)
+        }
+        putPoint("topLeft", rectangle.topLeft)
+        putPoint("topRight", rectangle.topRight)
+        putPoint("bottomLeft", rectangle.bottomLeft)
+        putPoint("bottomRight", rectangle.bottomRight)
+        return map
+    }
+
+    private fun scaleRectangleToBitmap(
+        rectangle: Rectangle,
+        srcWidth: Int,
+        srcHeight: Int,
+        dstWidth: Int,
+        dstHeight: Int
+    ): Rectangle {
+        if (srcWidth == 0 || srcHeight == 0) return rectangle
+        val scaleX = dstWidth.toDouble() / srcWidth.toDouble()
+        val scaleY = dstHeight.toDouble() / srcHeight.toDouble()
+
+        fun mapPoint(point: Point): Point {
+            return Point(point.x * scaleX, point.y * scaleY)
+        }
+
+        return Rectangle(
+            mapPoint(rectangle.topLeft),
+            mapPoint(rectangle.topRight),
+            mapPoint(rectangle.bottomLeft),
+            mapPoint(rectangle.bottomRight)
+        )
     }
 }
