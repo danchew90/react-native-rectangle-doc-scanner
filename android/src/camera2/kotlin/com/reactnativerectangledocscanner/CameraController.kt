@@ -629,15 +629,27 @@ class CameraController(
     }
 
     private fun rotateAndMirror(bitmap: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
+        Log.d(TAG, "[ROTATE_MIRROR] rotationDegrees=$rotationDegrees mirror=$mirror bitmap=${bitmap.width}x${bitmap.height}")
         if (rotationDegrees == 0 && !mirror) {
             return bitmap
         }
         val matrix = Matrix()
-        if (mirror) {
+
+        // For back camera, we need to mirror horizontally to fix the flip issue
+        // The camera sensor output is already mirrored, so we need to flip it back
+        if (!mirror) {
+            // Back camera: flip horizontally
             matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+            Log.d(TAG, "[ROTATE_MIRROR] Applied horizontal flip for back camera")
+        } else {
+            // Front camera: keep mirror
+            matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+            Log.d(TAG, "[ROTATE_MIRROR] Applied horizontal flip for front camera")
         }
+
         if (rotationDegrees != 0) {
             matrix.postRotate(rotationDegrees.toFloat(), bitmap.width / 2f, bitmap.height / 2f)
+            Log.d(TAG, "[ROTATE_MIRROR] Applied rotation: $rotationDegrees degrees")
         }
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
