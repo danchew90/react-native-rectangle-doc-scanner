@@ -1,6 +1,6 @@
 {
   "name": "react-native-rectangle-doc-scanner",
-  "version": "5.0.0",
+  "version": "6.0.0",
   "description": "Native-backed document scanner for React Native with customizable overlays.",
   "license": "MIT",
   "main": "dist/index.js",
