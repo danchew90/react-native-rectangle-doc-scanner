@@ -20,7 +20,6 @@ import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
-import android.util.SparseIntArray
 import android.util.Size
 import android.view.Surface
 import android.view.TextureView
@@ -82,12 +81,6 @@ class CameraController(
     companion object {
         private const val TAG = "CameraController"
         private const val ANALYSIS_ASPECT_TOLERANCE = 0.15
-        private val ORIENTATIONS = SparseIntArray().apply {
-            append(Surface.ROTATION_0, 90)
-            append(Surface.ROTATION_90, 0)
-            append(Surface.ROTATION_180, 270)
-            append(Surface.ROTATION_270, 180)
-        }
     }
 
     private data class PendingCapture(
@@ -492,12 +485,7 @@ class CameraController(
             val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 ?: throw IllegalStateException("Failed to decode JPEG")
 
-            val computedRotation = computeRotationDegrees()
-            val rotation = if (exifRotation == 0 || exifRotation != computedRotation) {
-                computedRotation
-            } else {
-                exifRotation
-            }
+            val rotation = if (exifRotation != 0) exifRotation else computeRotationDegrees()
             val rotated = rotateAndMirror(bitmap, rotation, useFrontCamera)
             val photoFile = File(pending.outputDirectory, "doc_scan_${System.currentTimeMillis()}.jpg")
             FileOutputStream(photoFile).use { out ->
@@ -535,13 +523,13 @@ class CameraController(
     }
 
     private fun computeRotationDegrees(): Int {
-        val displayRotation = previewView.display?.rotation ?: Surface.ROTATION_0
-        val deviceRotation = ORIENTATIONS.get(displayRotation, 0)
-        var rotation = (sensorOrientation + deviceRotation + 360) % 360
-        if (useFrontCamera) {
-            rotation = (360 - rotation) % 360
+        val displayRotation = displayRotationDegrees()
+        val rotation = if (useFrontCamera) {
+            (sensorOrientation + displayRotation) % 360
+        } else {
+            (sensorOrientation - displayRotation + 360) % 360
         }
-        Log.d(TAG, "[ROTATION] sensor=$sensorOrientation display=${displayRotationDegrees()} front=$useFrontCamera -> rotation=$rotation")
+        Log.d(TAG, "[ROTATION] sensor=$sensorOrientation display=$displayRotation front=$useFrontCamera -> rotation=$rotation")
         return rotation
     }
 
@@ -566,23 +554,28 @@ class CameraController(
         Log.d(TAG, "[TRANSFORM] rotation=$rotationDegrees view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}")
 
         val matrix = Matrix()
-        val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
-        val bufferRect = RectF(0f, 0f, preview.height.toFloat(), preview.width.toFloat())
-        val centerX = viewRect.centerX()
-        val centerY = viewRect.centerY()
+        val centerX = viewWidth / 2f
+        val centerY = viewHeight / 2f
+        val isSwapped = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
+        val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
+        val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
+        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
+        val scaledWidth = bufferWidth * scale
+        val scaledHeight = bufferHeight * scale
+        val dx = (viewWidth - scaledWidth) / 2f
+        val dy = (viewHeight - scaledHeight) / 2f
 
-        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
-            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
-            val scale = max(
-                viewHeight / preview.height.toFloat(),
-                viewWidth / preview.width.toFloat()
-            )
-            matrix.postScale(scale, scale, centerX, centerY)
-            val rotateDegrees = 90f * (rotation - 2)
+        matrix.setScale(scale, scale)
+        matrix.postTranslate(dx, dy)
+
+        if (rotation != Surface.ROTATION_0) {
+            val rotateDegrees = when (rotation) {
+                Surface.ROTATION_90 -> -90f
+                Surface.ROTATION_180 -> 180f
+                Surface.ROTATION_270 -> 90f
+                else -> 0f
+            }
             matrix.postRotate(rotateDegrees, centerX, centerY)
-        } else if (rotation == Surface.ROTATION_180) {
-            matrix.postRotate(180f, centerX, centerY)
         }
 
         previewView.setTransform(matrix)
