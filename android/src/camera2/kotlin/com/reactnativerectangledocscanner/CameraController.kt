@@ -486,7 +486,13 @@ class CameraController(
                 ?: throw IllegalStateException("Failed to decode JPEG")
 
             val rotation = if (exifRotation != 0) exifRotation else computeRotationDegrees()
-            val rotated = rotateAndMirror(bitmap, rotation, useFrontCamera)
+            val shouldRotate = if (rotation == 90 || rotation == 270) {
+                bitmap.width > bitmap.height
+            } else {
+                bitmap.height > bitmap.width
+            }
+            val appliedRotation = if (shouldRotate) rotation else 0
+            val rotated = rotateAndMirror(bitmap, appliedRotation, useFrontCamera)
             val photoFile = File(pending.outputDirectory, "doc_scan_${System.currentTimeMillis()}.jpg")
             FileOutputStream(photoFile).use { out ->
                 rotated.compress(Bitmap.CompressFormat.JPEG, 95, out)
