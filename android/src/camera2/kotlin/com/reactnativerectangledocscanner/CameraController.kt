@@ -249,7 +249,8 @@ class CameraController(
             // Prefer 4:3 to match iOS FOV on phones; use view aspect on tablets to reduce crop.
             val isTablet = context.resources.configuration.smallestScreenWidthDp >= 600
             val targetPreviewAspect = if (isTablet) viewAspect else 4.0 / 3.0
-            previewSize = chooseBestSize(previewSizes, targetPreviewAspect, null, preferClosestAspect = true)
+            val minPreviewArea = if (isTablet) 1280 * 720 else 960 * 720
+            previewSize = chooseBestSize(previewSizes, targetPreviewAspect, null, minPreviewArea, preferClosestAspect = true)
                 ?: chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
                 ?: previewSizes?.maxByOrNull { it.width * it.height }
             Log.d(TAG, "[CAMERA2] Selected preview size: ${previewSize?.width}x${previewSize?.height}")
@@ -593,6 +594,7 @@ class CameraController(
         sizes: Array<Size>?,
         targetAspect: Double,
         maxArea: Int?,
+        minArea: Int? = null,
         preferClosestAspect: Boolean = false
     ): Size? {
         if (sizes == null || sizes.isEmpty()) return null
@@ -608,6 +610,14 @@ class CameraController(
             return sorted.first()
         }
 
+        val minCapped = if (minArea != null) {
+            capped.filter { it.width * it.height >= minArea }
+        } else {
+            capped
+        }
+
+        val poolForSelection = if (minCapped.isNotEmpty()) minCapped else capped
+
         fun aspectDiff(size: Size): Double {
             val w = size.width.toDouble()
             val h = size.height.toDouble()
@@ -617,26 +627,22 @@ class CameraController(
         }
 
         if (preferClosestAspect) {
-            // Avoid tiny preview sizes even if aspect matches; prefer reasonable resolution.
-            val minAcceptableArea = 640 * 480
-            val pool = capped.filter { it.width * it.height >= minAcceptableArea }.ifEmpty { capped }
-
             // Prefer aspect ratio match first, then pick the highest resolution among matches.
-            pool.forEach { size ->
+            poolForSelection.forEach { size ->
                 val diff = aspectDiff(size)
                 Log.d(TAG, "[SIZE_SELECTION] ${size.width}x${size.height} aspect=${size.width.toDouble()/size.height} diff=$diff")
             }
 
-            val bestDiff = pool.minOf { aspectDiff(it) }
-            val close = pool.filter { aspectDiff(it) <= bestDiff + 0.001 }
-            val selected = close.maxByOrNull { it.width * it.height } ?: pool.maxByOrNull { it.width * it.height }
+            val bestDiff = poolForSelection.minOf { aspectDiff(it) }
+            val close = poolForSelection.filter { aspectDiff(it) <= bestDiff + 0.001 }
+            val selected = close.maxByOrNull { it.width * it.height } ?: poolForSelection.maxByOrNull { it.width * it.height }
             Log.d(TAG, "[SIZE_SELECTION] Best aspect diff: $bestDiff, candidates: ${close.size}, selected: ${selected?.width}x${selected?.height}")
             return selected
         }
 
-        val matching = capped.filter { aspectDiff(it) <= ANALYSIS_ASPECT_TOLERANCE }
+        val matching = poolForSelection.filter { aspectDiff(it) <= ANALYSIS_ASPECT_TOLERANCE }
 
-        return matching.firstOrNull() ?: capped.first()
+        return matching.firstOrNull() ?: poolForSelection.first()
     }
 
     private fun rotateAndMirror(bitmap: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
