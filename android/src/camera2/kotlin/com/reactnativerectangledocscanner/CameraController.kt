@@ -554,14 +554,13 @@ class CameraController(
         val viewHeight = previewView.height.toFloat()
         val preview = previewSize ?: return
         if (viewWidth == 0f || viewHeight == 0f) return
-        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
-        val rotationDegrees = displayRotationDegrees()
+        val rotationDegrees = computeRotationDegrees()
         Log.d(TAG, "[TRANSFORM] rotation=$rotationDegrees view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}")
 
         val matrix = Matrix()
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
-        val isSwapped = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
+        val isSwapped = rotationDegrees == 90 || rotationDegrees == 270
         val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
         val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
         val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
@@ -572,14 +571,8 @@ class CameraController(
         matrix.setScale(scale, scale)
         matrix.postTranslate(dx, dy)
 
-        if (rotation != Surface.ROTATION_0) {
-            val rotateDegrees = when (rotation) {
-                Surface.ROTATION_90 -> -90f
-                Surface.ROTATION_180 -> 180f
-                Surface.ROTATION_270 -> 90f
-                else -> 0f
-            }
-            matrix.postRotate(rotateDegrees, centerX, centerY)
+        if (rotationDegrees != 0) {
+            matrix.postRotate(rotationDegrees.toFloat(), centerX, centerY)
         }
 
         previewView.setTransform(matrix)
