@@ -575,17 +575,18 @@ class CameraController(
         val centerX = viewRect.centerX()
         val centerY = viewRect.centerY()
 
-        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
-            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-            matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
-            val scale = max(
-                viewWidth / preview.width.toFloat(),
-                viewHeight / preview.height.toFloat()
-            )
-            matrix.postScale(scale, scale, centerX, centerY)
-            matrix.postRotate(90f * (rotation - 2), centerX, centerY)
-        } else if (rotation == Surface.ROTATION_180) {
-            matrix.postRotate(180f, centerX, centerY)
+        // Center-crop without distortion for all rotations.
+        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
+        val scale = max(viewWidth / bufferRect.width(), viewHeight / bufferRect.height())
+        matrix.postScale(scale, scale, centerX, centerY)
+        val rotateDegrees = when (rotation) {
+            Surface.ROTATION_90 -> -90f
+            Surface.ROTATION_180 -> 180f
+            Surface.ROTATION_270 -> 90f
+            else -> 0f
+        }
+        if (rotateDegrees != 0f) {
+            matrix.postRotate(rotateDegrees, centerX, centerY)
         }
 
         previewView.setTransform(matrix)
