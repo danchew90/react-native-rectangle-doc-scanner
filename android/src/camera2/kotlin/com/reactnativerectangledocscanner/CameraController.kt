@@ -564,27 +564,25 @@ class CameraController(
         )
 
         val matrix = Matrix()
-        val isSwapped = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
-        val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
-        val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
         val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
-        val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
+        val bufferRect = RectF(0f, 0f, preview.height.toFloat(), preview.width.toFloat())
         val centerX = viewRect.centerX()
         val centerY = viewRect.centerY()
 
-        // Preserve aspect ratio, then scale to fill (center-crop) without distortion.
-        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
-        matrix.postScale(scale, scale, centerX, centerY)
-
-        if (rotation != Surface.ROTATION_0) {
-            val rotateDegrees = when (rotation) {
-                Surface.ROTATION_90 -> -90f
-                Surface.ROTATION_180 -> 180f
-                Surface.ROTATION_270 -> 90f
-                else -> 0f
-            }
-            matrix.postRotate(rotateDegrees, centerX, centerY)
+        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+            val scale = max(viewHeight / preview.height.toFloat(), viewWidth / preview.width.toFloat())
+            matrix.postScale(scale, scale, centerX, centerY)
+            matrix.postRotate(90f * (rotation - 2), centerX, centerY)
+        } else if (rotation == Surface.ROTATION_180) {
+            matrix.postRotate(180f, centerX, centerY)
+        } else {
+            val scale = max(viewWidth / preview.width.toFloat(), viewHeight / preview.height.toFloat())
+            val scaledWidth = preview.width.toFloat() * scale
+            val scaledHeight = preview.height.toFloat() * scale
+            matrix.setScale(scale, scale)
+            matrix.postTranslate((viewWidth - scaledWidth) / 2f, (viewHeight - scaledHeight) / 2f)
         }
 
         previewView.setTransform(matrix)
