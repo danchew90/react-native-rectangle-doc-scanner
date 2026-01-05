@@ -558,36 +558,27 @@ class CameraController(
         val viewHeight = previewView.height.toFloat()
         val preview = previewSize ?: return
         if (viewWidth == 0f || viewHeight == 0f) return
-        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
+        val rotationDegrees = computeRotationDegrees()
         Log.d(
             TAG,
             "[TRANSFORM] rotation=${displayRotationDegrees()} view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
         )
 
         val matrix = Matrix()
-        val isSwapped = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
-        val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
-        val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
-        val centerX = viewWidth / 2f
-        val centerY = viewHeight / 2f
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
-        val scaledWidth = bufferWidth * scale
-        val scaledHeight = bufferHeight * scale
-        val dx = (viewWidth - scaledWidth) / 2f
-        val dy = (viewHeight - scaledHeight) / 2f
+        val bufferWidth = preview.width.toFloat()
+        val bufferHeight = preview.height.toFloat()
+        val rotateDegrees = rotationDegrees.toFloat()
 
-        matrix.setScale(scale, scale)
-        matrix.postTranslate(dx, dy)
-
-        if (rotation != Surface.ROTATION_0) {
-            val rotateDegrees = when (rotation) {
-                Surface.ROTATION_90 -> -90f
-                Surface.ROTATION_180 -> 180f
-                Surface.ROTATION_270 -> 90f
-                else -> 0f
-            }
-            matrix.postRotate(rotateDegrees, centerX, centerY)
+        // Move buffer center to origin, rotate, scale uniformly to fill view, then move to view center.
+        matrix.postTranslate(-bufferWidth / 2f, -bufferHeight / 2f)
+        if (rotateDegrees != 0f) {
+            matrix.postRotate(rotateDegrees)
         }
+        val rotatedWidth = if (rotationDegrees == 90 || rotationDegrees == 270) bufferHeight else bufferWidth
+        val rotatedHeight = if (rotationDegrees == 90 || rotationDegrees == 270) bufferWidth else bufferHeight
+        val scale = max(viewWidth / rotatedWidth, viewHeight / rotatedHeight)
+        matrix.postScale(scale, scale)
+        matrix.postTranslate(viewWidth / 2f, viewHeight / 2f)
 
         previewView.setTransform(matrix)
         Log.d(TAG, "[TRANSFORM] Matrix applied successfully")
@@ -621,23 +612,15 @@ class CameraController(
         }
 
         if (preferClosestAspect) {
-            // Prefer high-resolution sizes: minimum 1080p (1920x1080 or 1080x1920)
-            val minAcceptableArea = 1920 * 1080
-            val highResSizes = capped.filter { it.width * it.height >= minAcceptableArea }
-            val pool = if (highResSizes.isNotEmpty()) highResSizes else capped
-
-            // Debug: log aspect ratio diff for each size
-            pool.forEach { size ->
+            // Prefer aspect ratio match first, then pick the highest resolution among matches.
+            capped.forEach { size ->
                 val diff = aspectDiff(size)
                 Log.d(TAG, "[SIZE_SELECTION] ${size.width}x${size.height} aspect=${size.width.toDouble()/size.height} diff=$diff")
             }
 
-            val bestDiff = pool.minOf { aspectDiff(it) }
-            // Use very tight tolerance (0.001) to get only the best aspect ratio matches
-            val close = pool.filter { aspectDiff(it) <= bestDiff + 0.001 }
-
-            // Among best aspect ratio matches, prefer higher resolution
-            val selected = close.maxByOrNull { it.width * it.height } ?: pool.maxByOrNull { it.width * it.height }
+            val bestDiff = capped.minOf { aspectDiff(it) }
+            val close = capped.filter { aspectDiff(it) <= bestDiff + 0.001 }
+            val selected = close.maxByOrNull { it.width * it.height } ?: capped.maxByOrNull { it.width * it.height }
             Log.d(TAG, "[SIZE_SELECTION] Best aspect diff: $bestDiff, candidates: ${close.size}, selected: ${selected?.width}x${selected?.height}")
             return selected
         }
