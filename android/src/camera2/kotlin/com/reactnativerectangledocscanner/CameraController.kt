@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -554,25 +555,35 @@ class CameraController(
         val viewHeight = previewView.height.toFloat()
         val preview = previewSize ?: return
         if (viewWidth == 0f || viewHeight == 0f) return
-        val rotationDegrees = computeRotationDegrees()
-        Log.d(TAG, "[TRANSFORM] rotation=$rotationDegrees view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}")
+        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
+        Log.d(
+            TAG,
+            "[TRANSFORM] rotation=${displayRotationDegrees()} view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
+        )
 
         val matrix = Matrix()
-        val centerX = viewWidth / 2f
-        val centerY = viewHeight / 2f
-        val isSwapped = rotationDegrees == 90 || rotationDegrees == 270
-        val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
-        val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
-        val scaledWidth = bufferWidth * scale
-        val scaledHeight = bufferHeight * scale
-        val dx = (viewWidth - scaledWidth) / 2f
-        val dy = (viewHeight - scaledHeight) / 2f
-        matrix.setScale(scale, scale)
-        matrix.postTranslate(dx, dy)
+        val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
+        val bufferRect = RectF(0f, 0f, preview.width.toFloat(), preview.height.toFloat())
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
 
-        if (rotationDegrees != 0) {
-            matrix.postRotate(rotationDegrees.toFloat(), centerX, centerY)
+        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+            val scale = max(
+                viewHeight / preview.height.toFloat(),
+                viewWidth / preview.width.toFloat()
+            )
+            matrix.postScale(scale, scale, centerX, centerY)
+            matrix.postRotate(90f * (rotation - 2), centerX, centerY)
+        } else if (rotation == Surface.ROTATION_180) {
+            matrix.postRotate(180f, centerX, centerY)
+        } else {
+            val scale = max(viewWidth / preview.width.toFloat(), viewHeight / preview.height.toFloat())
+            val scaledWidth = preview.width.toFloat() * scale
+            val scaledHeight = preview.height.toFloat() * scale
+            matrix.setScale(scale, scale)
+            matrix.postTranslate((viewWidth - scaledWidth) / 2f, (viewHeight - scaledHeight) / 2f)
         }
 
         previewView.setTransform(matrix)
