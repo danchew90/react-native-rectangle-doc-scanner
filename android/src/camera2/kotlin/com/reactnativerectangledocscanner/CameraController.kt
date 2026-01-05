@@ -580,12 +580,18 @@ class CameraController(
         val centerY = viewRect.centerY()
 
         if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
-            val swappedBufferRect = RectF(0f, 0f, preview.height.toFloat(), preview.width.toFloat())
-            swappedBufferRect.offset(centerX - swappedBufferRect.centerX(), centerY - swappedBufferRect.centerY())
-            matrix.setRectToRect(viewRect, swappedBufferRect, Matrix.ScaleToFit.CENTER)
-            val scale = max(viewHeight / preview.height.toFloat(), viewWidth / preview.width.toFloat())
-            matrix.postScale(scale, scale, centerX, centerY)
+            // When rotated 90/270, preview dimensions are swapped
+            val swappedWidth = preview.height.toFloat()
+            val swappedHeight = preview.width.toFloat()
+
+            // Calculate scale to fill the view while maintaining aspect ratio
+            val scaleX = viewWidth / swappedWidth
+            val scaleY = viewHeight / swappedHeight
+            val scale = max(scaleX, scaleY)
+
+            // Apply transformations: first rotate, then scale
             matrix.postRotate(90f * (rotation - 2), centerX, centerY)
+            matrix.postScale(scale, scale, centerX, centerY)
         } else if (rotation == Surface.ROTATION_180) {
             matrix.postRotate(180f, centerX, centerY)
         } else {
