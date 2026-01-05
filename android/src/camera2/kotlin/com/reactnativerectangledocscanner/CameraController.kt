@@ -565,29 +565,23 @@ class CameraController(
             "[TRANSFORM] rotation=${displayRotationDegrees()} view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
         )
 
-        val matrix = Matrix()
-        val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
-        val bufferRect = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
-            RectF(0f, 0f, preview.height.toFloat(), preview.width.toFloat())
-        } else {
-            RectF(0f, 0f, preview.width.toFloat(), preview.height.toFloat())
-        }
-        val centerX = viewRect.centerX()
-        val centerY = viewRect.centerY()
+        val rotationDegrees = displayRotationDegrees()
+        val bufferWidth = preview.width.toFloat()
+        val bufferHeight = preview.height.toFloat()
+        val isSwapped = rotationDegrees == 90 || rotationDegrees == 270
+        val rotatedWidth = if (isSwapped) bufferHeight else bufferWidth
+        val rotatedHeight = if (isSwapped) bufferWidth else bufferHeight
+        val scale = max(viewWidth / rotatedWidth, viewHeight / rotatedHeight)
+        val rotateDegrees = -rotationDegrees.toFloat()
 
-        // Center-crop without distortion for all rotations.
-        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
-        val scale = max(viewWidth / bufferRect.width(), viewHeight / bufferRect.height())
-        matrix.postScale(scale, scale, centerX, centerY)
-        val rotateDegrees = when (rotation) {
-            Surface.ROTATION_90 -> -90f
-            Surface.ROTATION_180 -> 180f
-            Surface.ROTATION_270 -> 90f
-            else -> 0f
-        }
+        // Rotate around buffer center, then scale uniformly and center in the view (aspect-fill).
+        val matrix = Matrix()
+        matrix.postTranslate(-bufferWidth / 2f, -bufferHeight / 2f)
         if (rotateDegrees != 0f) {
-            matrix.postRotate(rotateDegrees, centerX, centerY)
+            matrix.postRotate(rotateDegrees)
         }
+        matrix.postScale(scale, scale)
+        matrix.postTranslate(viewWidth / 2f, viewHeight / 2f)
 
         previewView.setTransform(matrix)
         Log.d(TAG, "[TRANSFORM] Matrix applied successfully")
