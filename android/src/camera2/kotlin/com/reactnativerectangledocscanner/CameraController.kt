@@ -582,7 +582,7 @@ class CameraController(
         if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
             val swappedBufferRect = RectF(0f, 0f, preview.height.toFloat(), preview.width.toFloat())
             swappedBufferRect.offset(centerX - swappedBufferRect.centerX(), centerY - swappedBufferRect.centerY())
-            matrix.setRectToRect(viewRect, swappedBufferRect, Matrix.ScaleToFit.FILL)
+            matrix.setRectToRect(viewRect, swappedBufferRect, Matrix.ScaleToFit.CENTER)
             val scale = max(viewHeight / preview.height.toFloat(), viewWidth / preview.width.toFloat())
             matrix.postScale(scale, scale, centerX, centerY)
             matrix.postRotate(90f * (rotation - 2), centerX, centerY)
