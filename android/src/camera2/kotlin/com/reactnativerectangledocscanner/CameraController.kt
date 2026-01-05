@@ -559,27 +559,34 @@ class CameraController(
         val viewHeight = previewView.height.toFloat()
         val preview = previewSize ?: return
         if (viewWidth == 0f || viewHeight == 0f) return
-        val rotationDegrees = computeRotationDegrees()
+        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
         Log.d(
             TAG,
             "[TRANSFORM] rotation=${displayRotationDegrees()} view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
         )
 
         val matrix = Matrix()
-        val bufferWidth = preview.width.toFloat()
-        val bufferHeight = preview.height.toFloat()
-        val rotateDegrees = -rotationDegrees.toFloat()
-
-        // Move buffer center to origin, rotate, scale uniformly to fill view, then move to view center.
-        matrix.postTranslate(-bufferWidth / 2f, -bufferHeight / 2f)
-        if (rotateDegrees != 0f) {
-            matrix.postRotate(rotateDegrees)
+        val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
+        val bufferRect = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            RectF(0f, 0f, preview.height.toFloat(), preview.width.toFloat())
+        } else {
+            RectF(0f, 0f, preview.width.toFloat(), preview.height.toFloat())
         }
-        val rotatedWidth = if (rotationDegrees == 90 || rotationDegrees == 270) bufferHeight else bufferWidth
-        val rotatedHeight = if (rotationDegrees == 90 || rotationDegrees == 270) bufferWidth else bufferHeight
-        val scale = max(viewWidth / rotatedWidth, viewHeight / rotatedHeight)
-        matrix.postScale(scale, scale)
-        matrix.postTranslate(viewWidth / 2f, viewHeight / 2f)
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
+
+        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+            matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
+            val scale = max(
+                viewWidth / preview.width.toFloat(),
+                viewHeight / preview.height.toFloat()
+            )
+            matrix.postScale(scale, scale, centerX, centerY)
+            matrix.postRotate(90f * (rotation - 2), centerX, centerY)
+        } else if (rotation == Surface.ROTATION_180) {
+            matrix.postRotate(180f, centerX, centerY)
+        }
 
         previewView.setTransform(matrix)
         Log.d(TAG, "[TRANSFORM] Matrix applied successfully")
