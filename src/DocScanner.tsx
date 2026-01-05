@@ -874,7 +874,28 @@ const NativeScanner = forwardRef<DocScannerHandle, Props>(
     const handleRectangleDetect = useCallback(
       (event: RectangleEventPayload) => {
         const rectangleCoordinates = normalizeRectangle(event.rectangleCoordinates ?? null);
-        const rectangleOnScreen = normalizeRectangle(event.rectangleOnScreen ?? null);
+        let rectangleOnScreen = normalizeRectangle(event.rectangleOnScreen ?? null);
+        const density = PixelRatio.get();
+
+        if (
+          Platform.OS === 'android' &&
+          rectangleCoordinates &&
+          event.imageSize &&
+          event.previewSize &&
+          event.imageSize.width &&
+          event.imageSize.height &&
+          event.previewSize.width &&
+          event.previewSize.height
+        ) {
+          rectangleOnScreen = mapRectangleToView(
+            rectangleCoordinates,
+            event.imageSize.width,
+            event.imageSize.height,
+            event.previewSize.width,
+            event.previewSize.height,
+            density,
+          );
+        }
 
         const payload: RectangleDetectEvent = {
           ...event,
