@@ -246,8 +246,10 @@ class CameraController(
             val previewSizes = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)
             Log.d(TAG, "[CAMERA2] Available preview sizes: ${previewSizes?.take(10)?.joinToString { "${it.width}x${it.height}" }}")
 
-            // Prefer a preview size that matches the view aspect to avoid letterboxing.
-            previewSize = chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
+            // Match iOS photo preset behavior (4:3) when available for consistent FOV.
+            val targetPreviewAspect = 4.0 / 3.0
+            previewSize = chooseBestSize(previewSizes, targetPreviewAspect, null, preferClosestAspect = true)
+                ?: chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
                 ?: previewSizes?.maxByOrNull { it.width * it.height }
             Log.d(TAG, "[CAMERA2] Selected preview size: ${previewSize?.width}x${previewSize?.height}")
 
