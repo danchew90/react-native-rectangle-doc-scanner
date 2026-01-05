@@ -563,7 +563,11 @@ class CameraController(
 
         val matrix = Matrix()
         val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
-        val bufferRect = RectF(0f, 0f, preview.width.toFloat(), preview.height.toFloat())
+        val bufferRect = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            RectF(0f, 0f, preview.height.toFloat(), preview.width.toFloat())
+        } else {
+            RectF(0f, 0f, preview.width.toFloat(), preview.height.toFloat())
+        }
         val centerX = viewRect.centerX()
         val centerY = viewRect.centerY()
 
