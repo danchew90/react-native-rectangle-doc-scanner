@@ -8,7 +8,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.graphics.Rect
-import android.graphics.RectF
 import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -565,11 +564,13 @@ class CameraController(
         val isSwapped = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
         val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
         val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
-        val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
-        val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
-
-        // Scale to fill while preserving aspect ratio; avoid double-scaling.
-        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
+        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
+        val scaledWidth = bufferWidth * scale
+        val scaledHeight = bufferHeight * scale
+        val dx = (viewWidth - scaledWidth) / 2f
+        val dy = (viewHeight - scaledHeight) / 2f
+        matrix.setScale(scale, scale)
+        matrix.postTranslate(dx, dy)
 
         if (rotation != Surface.ROTATION_0) {
             val rotateDegrees = when (rotation) {
