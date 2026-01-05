@@ -569,19 +569,24 @@ class CameraController(
         val bufferWidth = preview.width.toFloat()
         val bufferHeight = preview.height.toFloat()
         val isSwapped = rotationDegrees == 90 || rotationDegrees == 270
-        val rotatedWidth = if (isSwapped) bufferHeight else bufferWidth
-        val rotatedHeight = if (isSwapped) bufferWidth else bufferHeight
-        val scale = max(viewWidth / rotatedWidth, viewHeight / rotatedHeight)
-        val rotateDegrees = -rotationDegrees.toFloat()
 
-        // Rotate around buffer center, then scale uniformly and center in the view (aspect-fill).
-        val matrix = Matrix()
-        matrix.postTranslate(-bufferWidth / 2f, -bufferHeight / 2f)
-        if (rotateDegrees != 0f) {
-            matrix.postRotate(rotateDegrees)
+        val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
+        val bufferRect = if (isSwapped) {
+            RectF(0f, 0f, bufferHeight, bufferWidth)
+        } else {
+            RectF(0f, 0f, bufferWidth, bufferHeight)
         }
-        matrix.postScale(scale, scale)
-        matrix.postTranslate(viewWidth / 2f, viewHeight / 2f)
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
+        val scale = max(viewWidth / bufferRect.width(), viewHeight / bufferRect.height())
+
+        // Map buffer to view with uniform scale (aspect-fill), then rotate in view space.
+        val matrix = Matrix()
+        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
+        matrix.postScale(scale, scale, centerX, centerY)
+        if (rotationDegrees != 0) {
+            matrix.postRotate(rotationDegrees.toFloat(), centerX, centerY)
+        }
 
         previewView.setTransform(matrix)
         Log.d(TAG, "[TRANSFORM] Matrix applied successfully")
