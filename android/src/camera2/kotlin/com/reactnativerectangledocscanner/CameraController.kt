@@ -558,7 +558,7 @@ class CameraController(
         val viewHeight = previewView.height.toFloat()
         val preview = previewSize ?: return
         if (viewWidth == 0f || viewHeight == 0f) return
-        val rotationDegrees = computeRotationDegrees()
+        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
         Log.d(
             TAG,
             "[TRANSFORM] rotation=${displayRotationDegrees()} view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
@@ -567,15 +567,20 @@ class CameraController(
         val matrix = Matrix()
         val bufferWidth = preview.width.toFloat()
         val bufferHeight = preview.height.toFloat()
-        val rotateDegrees = rotationDegrees.toFloat()
+        val rotateDegrees = when (rotation) {
+            Surface.ROTATION_90 -> -90f
+            Surface.ROTATION_180 -> 180f
+            Surface.ROTATION_270 -> 90f
+            else -> 0f
+        }
 
         // Move buffer center to origin, rotate, scale uniformly to fill view, then move to view center.
         matrix.postTranslate(-bufferWidth / 2f, -bufferHeight / 2f)
         if (rotateDegrees != 0f) {
             matrix.postRotate(rotateDegrees)
         }
-        val rotatedWidth = if (rotationDegrees == 90 || rotationDegrees == 270) bufferHeight else bufferWidth
-        val rotatedHeight = if (rotationDegrees == 90 || rotationDegrees == 270) bufferWidth else bufferHeight
+        val rotatedWidth = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) bufferHeight else bufferWidth
+        val rotatedHeight = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) bufferWidth else bufferHeight
         val scale = max(viewWidth / rotatedWidth, viewHeight / rotatedHeight)
         matrix.postScale(scale, scale)
         matrix.postTranslate(viewWidth / 2f, viewHeight / 2f)
@@ -612,15 +617,19 @@ class CameraController(
         }
 
         if (preferClosestAspect) {
+            // Avoid tiny preview sizes even if aspect matches; prefer reasonable resolution.
+            val minAcceptableArea = 640 * 480
+            val pool = capped.filter { it.width * it.height >= minAcceptableArea }.ifEmpty { capped }
+
             // Prefer aspect ratio match first, then pick the highest resolution among matches.
-            capped.forEach { size ->
+            pool.forEach { size ->
                 val diff = aspectDiff(size)
                 Log.d(TAG, "[SIZE_SELECTION] ${size.width}x${size.height} aspect=${size.width.toDouble()/size.height} diff=$diff")
             }
 
-            val bestDiff = capped.minOf { aspectDiff(it) }
-            val close = capped.filter { aspectDiff(it) <= bestDiff + 0.001 }
-            val selected = close.maxByOrNull { it.width * it.height } ?: capped.maxByOrNull { it.width * it.height }
+            val bestDiff = pool.minOf { aspectDiff(it) }
+            val close = pool.filter { aspectDiff(it) <= bestDiff + 0.001 }
+            val selected = close.maxByOrNull { it.width * it.height } ?: pool.maxByOrNull { it.width * it.height }
             Log.d(TAG, "[SIZE_SELECTION] Best aspect diff: $bestDiff, candidates: ${close.size}, selected: ${selected?.width}x${selected?.height}")
             return selected
         }
