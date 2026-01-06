@@ -661,10 +661,10 @@ class CameraController(
         if (viewWidth == 0f || viewHeight == 0f) return
 
         val rotationDegrees = computeRotationDegrees()
-        val transformRotation = rotationDegrees
+        val displayRotation = displayRotationDegrees()
         Log.d(
             TAG,
-            "[TRANSFORM] rotation=$transformRotation view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
+            "[TRANSFORM] rotations sensor=$sensorOrientation display=$displayRotation computed=$rotationDegrees view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
         )
 
         val matrix = Matrix()
@@ -672,24 +672,24 @@ class CameraController(
         val centerX = viewRect.centerX()
         val centerY = viewRect.centerY()
 
-        val isSwapped = transformRotation == 90 || transformRotation == 270
+        val isSwapped = rotationDegrees == 90 || rotationDegrees == 270
         val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
         val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
         val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
         bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
 
-        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
+        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+        val scale = max(viewWidth / bufferRect.width(), viewHeight / bufferRect.height())
         matrix.postScale(scale, scale, centerX, centerY)
-        if (transformRotation != 0) {
-            matrix.postRotate(transformRotation.toFloat(), centerX, centerY)
+        if (rotationDegrees != 0) {
+            matrix.postRotate(rotationDegrees.toFloat(), centerX, centerY)
         }
 
         previewView.setTransform(matrix)
         latestTransform = Matrix(matrix)
         latestBufferWidth = preview.width
         latestBufferHeight = preview.height
-        latestTransformRotation = transformRotation
+        latestTransformRotation = rotationDegrees
 
         val pts = floatArrayOf(
             0f, 0f,
@@ -704,6 +704,10 @@ class CameraController(
                 "buffer=${bufferWidth}x${bufferHeight} scale=$scale center=${centerX}x${centerY} matrix=$matrix " +
                 "pts=[${pts[0]},${pts[1]} ${pts[2]},${pts[3]} ${pts[4]},${pts[5]} ${pts[6]},${pts[7]}]"
         )
+        val recomputed = computeRotationDegrees()
+        if (rotationDegrees != recomputed) {
+            Log.e(TAG, "[TRANSFORM] rotation mismatch computed=$rotationDegrees recomputed=$recomputed")
+        }
         Log.d(TAG, "[TRANSFORM] Matrix applied successfully")
     }
 
