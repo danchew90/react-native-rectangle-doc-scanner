@@ -669,8 +669,9 @@ class CameraController(
         val centerX = viewRect.centerX()
         val centerY = viewRect.centerY()
 
-        val appliedRotation = rotationDegrees
-        val swap = appliedRotation == 90 || appliedRotation == 270
+        // Portrait-only mode: swap buffer dimensions based on sensor orientation
+        // sensorOrientation=90 means camera is rotated 90° from device natural orientation
+        val swap = sensorOrientation == 90 || sensorOrientation == 270
         val bufferWidth = if (swap) preview.height.toFloat() else preview.width.toFloat()
         val bufferHeight = if (swap) preview.width.toFloat() else preview.height.toFloat()
         val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
@@ -680,9 +681,7 @@ class CameraController(
         matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
         val scale = max(viewWidth / bufferRect.width(), viewHeight / bufferRect.height())
         matrix.postScale(scale, scale, centerX, centerY)
-        if (appliedRotation != 0) {
-            matrix.postRotate(appliedRotation.toFloat(), centerX, centerY)
-        }
+        // Portrait-only: no additional rotation needed, sensor orientation is already handled by buffer swap
 
         val pts = floatArrayOf(
             0f, 0f,
@@ -694,26 +693,20 @@ class CameraController(
 
         Log.d(
             TAG,
-            "[TRANSFORM] rotations sensor=$sensorOrientation display=$displayRotation computed=$rotationDegrees applied=$appliedRotation " +
-                "view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
+            "[TRANSFORM] sensor=$sensorOrientation display=$displayRotation swap=$swap " +
+                "view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height} buffer=${bufferWidth}x${bufferHeight}"
         )
 
         previewView.setTransform(matrix)
         latestTransform = Matrix(matrix)
         latestBufferWidth = preview.width
         latestBufferHeight = preview.height
-        latestTransformRotation = appliedRotation
+        latestTransformRotation = 0  // Portrait-only mode, no rotation applied
 
         Log.d(
             TAG,
-            "[TRANSFORM] viewClass=${previewView.javaClass.name} isTextureView=${previewView is TextureView} " +
-                "buffer=${bufferWidth}x${bufferHeight} scale=$scale center=${centerX}x${centerY} matrix=$matrix " +
-                "pts=[${pts[0]},${pts[1]} ${pts[2]},${pts[3]} ${pts[4]},${pts[5]} ${pts[6]},${pts[7]}]"
+            "[TRANSFORM] scale=$scale matrix=$matrix"
         )
-        val recomputed = computeRotationDegrees()
-        if (rotationDegrees != recomputed) {
-            Log.e(TAG, "[TRANSFORM] rotation mismatch computed=$rotationDegrees recomputed=$recomputed")
-        }
         Log.d(TAG, "[TRANSFORM] Matrix applied successfully")
     }
 
