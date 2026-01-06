@@ -578,19 +578,27 @@ class CameraController(
         val centerY = viewRect.centerY()
 
         val isSwapped = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
-        val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
-        val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
-        val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
-
-        // Center-fit, then uniformly scale to fill the view (no distortion).
-        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
-        matrix.postScale(scale, scale, centerX, centerY)
-
         if (isSwapped) {
+            val bufferRect = RectF(0f, 0f, preview.height.toFloat(), preview.width.toFloat())
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+            val scale = max(
+                viewHeight / preview.height.toFloat(),
+                viewWidth / preview.width.toFloat()
+            )
+            matrix.postScale(scale, scale, centerX, centerY)
             matrix.postRotate(90f * (rotation - 2), centerX, centerY)
-        } else if (rotation == Surface.ROTATION_180) {
-            matrix.postRotate(180f, centerX, centerY)
+        } else {
+            val bufferRect = RectF(0f, 0f, preview.width.toFloat(), preview.height.toFloat())
+            matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.CENTER)
+            val scale = max(
+                viewWidth / preview.width.toFloat(),
+                viewHeight / preview.height.toFloat()
+            )
+            matrix.postScale(scale, scale, centerX, centerY)
+            if (rotation == Surface.ROTATION_180) {
+                matrix.postRotate(180f, centerX, centerY)
+            }
         }
 
         previewView.setTransform(matrix)
