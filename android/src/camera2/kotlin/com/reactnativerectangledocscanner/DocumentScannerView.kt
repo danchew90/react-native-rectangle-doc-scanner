@@ -210,7 +210,8 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         }
 
         val rectangleOnScreen = if (rectangle != null && width > 0 && height > 0) {
-            DocumentDetector.transformRectangleToViewCoordinates(rectangle, imageWidth, imageHeight, width, height)
+            cameraController?.mapRectangleToView(rectangle, imageWidth, imageHeight)
+                ?: DocumentDetector.transformRectangleToViewCoordinates(rectangle, imageWidth, imageHeight, width, height)
         } else {
             null
         }

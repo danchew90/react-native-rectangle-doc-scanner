@@ -67,6 +67,9 @@ class CameraController(
 
     private val pendingCapture = AtomicReference<PendingCapture?>()
     private val analysisInFlight = AtomicBoolean(false)
+    private var latestTransform: Matrix? = null
+    private var latestBufferWidth = 0
+    private var latestBufferHeight = 0
     private val objectDetector = ObjectDetection.getClient(
         ObjectDetectorOptions.Builder()
             .setDetectorMode(ObjectDetectorOptions.STREAM_MODE)
@@ -206,6 +209,71 @@ class CameraController(
         objectDetector.close()
         cameraThread.quitSafely()
         analysisThread.quitSafely()
+    }
+
+    fun mapRectangleToView(rectangle: Rectangle?, imageWidth: Int, imageHeight: Int): Rectangle? {
+        val transform = latestTransform ?: return null
+        if (rectangle == null || imageWidth <= 0 || imageHeight <= 0) return null
+        if (latestBufferWidth <= 0 || latestBufferHeight <= 0) return null
+
+        val rotationDegrees = computeRotationDegrees()
+        val inverseRotation = (360 - rotationDegrees) % 360
+
+        fun rotatePoint(point: Point): Point {
+            return when (inverseRotation) {
+                90 -> Point(imageHeight - point.y, point.x)
+                180 -> Point(imageWidth - point.x, imageHeight - point.y)
+                270 -> Point(point.y, imageWidth - point.x)
+                else -> point
+            }
+        }
+
+        val rotated = Rectangle(
+            rotatePoint(rectangle.topLeft),
+            rotatePoint(rectangle.topRight),
+            rotatePoint(rectangle.bottomLeft),
+            rotatePoint(rectangle.bottomRight)
+        )
+
+        val bufferWidth = if (inverseRotation == 90 || inverseRotation == 270) {
+            imageHeight.toDouble()
+        } else {
+            imageWidth.toDouble()
+        }
+        val bufferHeight = if (inverseRotation == 90 || inverseRotation == 270) {
+            imageWidth.toDouble()
+        } else {
+            imageHeight.toDouble()
+        }
+
+        val scaleX = latestBufferWidth.toDouble() / bufferWidth
+        val scaleY = latestBufferHeight.toDouble() / bufferHeight
+
+        fun scalePoint(point: Point): Point {
+            return Point(point.x * scaleX, point.y * scaleY)
+        }
+
+        val scaled = Rectangle(
+            scalePoint(rotated.topLeft),
+            scalePoint(rotated.topRight),
+            scalePoint(rotated.bottomLeft),
+            scalePoint(rotated.bottomRight)
+        )
+
+        val pts = floatArrayOf(
+            scaled.topLeft.x.toFloat(), scaled.topLeft.y.toFloat(),
+            scaled.topRight.x.toFloat(), scaled.topRight.y.toFloat(),
+            scaled.bottomLeft.x.toFloat(), scaled.bottomLeft.y.toFloat(),
+            scaled.bottomRight.x.toFloat(), scaled.bottomRight.y.toFloat()
+        )
+        transform.mapPoints(pts)
+
+        return Rectangle(
+            Point(pts[0].toDouble(), pts[1].toDouble()),
+            Point(pts[2].toDouble(), pts[3].toDouble()),
+            Point(pts[4].toDouble(), pts[5].toDouble()),
+            Point(pts[6].toDouble(), pts[7].toDouble())
+        )
     }
 
     private fun openCamera() {
@@ -570,22 +638,30 @@ class CameraController(
         val centerX = viewRect.centerX()
         val centerY = viewRect.centerY()
 
-        val isSwapped = rotationDegrees == 90 || rotationDegrees == 270
-        val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
-        val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
-        val scaledWidth = bufferWidth * scale
-        val scaledHeight = bufferHeight * scale
-        val dx = (viewWidth - scaledWidth) / 2f
-        val dy = (viewHeight - scaledHeight) / 2f
+        val bufferWidth = preview.width.toFloat()
+        val bufferHeight = preview.height.toFloat()
+        val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
+        val rotatedRect = RectF(bufferRect)
 
-        matrix.setScale(scale, scale)
-        matrix.postTranslate(dx, dy)
         if (rotationDegrees != 0) {
-            matrix.postRotate(rotationDegrees.toFloat(), centerX, centerY)
+            matrix.postRotate(rotationDegrees.toFloat(), bufferRect.centerX(), bufferRect.centerY())
+            matrix.mapRect(rotatedRect, bufferRect)
         }
 
+        val scale = max(viewWidth / rotatedRect.width(), viewHeight / rotatedRect.height())
+        matrix.postScale(scale, scale, rotatedRect.centerX(), rotatedRect.centerY())
+        matrix.postTranslate(centerX - rotatedRect.centerX(), centerY - rotatedRect.centerY())
+
         previewView.setTransform(matrix)
+        latestTransform = Matrix(matrix)
+        latestBufferWidth = preview.width
+        latestBufferHeight = preview.height
+        Log.d(
+            TAG,
+            "[TRANSFORM] viewClass=${previewView.javaClass.name} isTextureView=${previewView is TextureView} " +
+                "buffer=${preview.width}x${preview.height} rotated=${rotatedRect.width()}x${rotatedRect.height()} " +
+                "scale=$scale center=${centerX}x${centerY} matrix=$matrix"
+        )
         Log.d(TAG, "[TRANSFORM] Matrix applied successfully")
     }
 
