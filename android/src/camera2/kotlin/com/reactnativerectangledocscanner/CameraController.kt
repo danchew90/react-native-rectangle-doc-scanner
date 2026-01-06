@@ -587,31 +587,30 @@ class CameraController(
             // Android: Use 90% of view height for 10% vertical padding
             val effectiveHeight = viewHeight * 0.90f
 
-            // Calculate scale to fit the preview proportionally
-            // Use min to ensure entire preview fits (no cropping, no stretching)
-            val scaleX = viewWidth / bufferWidth
-            val scaleY = effectiveHeight / bufferHeight
-            val scale = min(scaleX, scaleY)  // This maintains aspect ratio
-
-            // Create swap buffer rect (before rotation: height x width)
+            // Create rectangles for the transformation
+            // bufferRect represents the camera preview texture (after rotation)
             val bufferRect = RectF(0f, 0f, bufferHeight, bufferWidth)
+            val viewTargetRect = RectF(0f, 0f, viewWidth, effectiveHeight)
 
-            // Apply the transformation
-            // 1. Scale uniformly to fit in view
-            matrix.postScale(scale, scale)
+            // Calculate the center of viewTargetRect within the actual view
+            val targetCenterX = viewWidth / 2f
+            val targetCenterY = viewHeight / 2f
 
-            // 2. Rotate 90 degrees
-            val scaledWidth = bufferWidth * scale
-            val scaledHeight = bufferHeight * scale
-            matrix.postRotate(90f * (rotation - 2), scaledHeight / 2f, scaledWidth / 2f)
+            // Step 1: Map buffer rect to view target rect with CENTER mode (maintains aspect ratio)
+            matrix.setRectToRect(bufferRect, viewTargetRect, Matrix.ScaleToFit.CENTER)
 
-            // 3. Center in view
+            // Step 2: Translate to center of actual view
+            val scaledBufferWidth = bufferWidth * (effectiveHeight / bufferHeight)
+            val scaledBufferHeight = effectiveHeight
             matrix.postTranslate(
-                centerX - scaledHeight / 2f,
-                centerY - scaledWidth / 2f
+                targetCenterX - scaledBufferWidth / 2f,
+                targetCenterY - scaledBufferHeight / 2f
             )
 
-            Log.d(TAG, "[TRANSFORM] Android: buffer=${bufferWidth}x${bufferHeight}, scale=$scale, final=${scaledWidth}x${scaledHeight}")
+            // Step 3: Rotate around the center
+            matrix.postRotate(90f * (rotation - 2), targetCenterX, targetCenterY)
+
+            Log.d(TAG, "[TRANSFORM] Android: buffer=${bufferWidth}x${bufferHeight}, effectiveH=$effectiveHeight, target=${scaledBufferWidth}x${scaledBufferHeight}")
         } else if (rotation == Surface.ROTATION_180) {
             matrix.postRotate(180f, centerX, centerY)
         } else {
