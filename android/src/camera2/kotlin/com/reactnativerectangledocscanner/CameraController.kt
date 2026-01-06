@@ -575,50 +575,23 @@ class CameraController(
 
         val matrix = Matrix()
         val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
-        val bufferRect = RectF(0f, 0f, preview.width.toFloat(), preview.height.toFloat())
         val centerX = viewRect.centerX()
         val centerY = viewRect.centerY()
 
-        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
-            // When rotated 90/270, preview dimensions are swapped
-            val bufferWidth = preview.height.toFloat()  // 1088
-            val bufferHeight = preview.width.toFloat()   // 1920
+        val isSwapped = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
+        val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
+        val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
+        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
+        val scaledWidth = bufferWidth * scale
+        val scaledHeight = bufferHeight * scale
 
-            // Android: Use 90% of view height for 10% vertical padding
-            val effectiveHeight = viewHeight * 0.90f
+        matrix.setScale(scale, scale)
+        matrix.postTranslate((viewWidth - scaledWidth) / 2f, (viewHeight - scaledHeight) / 2f)
 
-            // Create rectangles for the transformation
-            // bufferRect represents the camera preview texture (after rotation)
-            val bufferRect = RectF(0f, 0f, bufferHeight, bufferWidth)
-            val viewTargetRect = RectF(0f, 0f, viewWidth, effectiveHeight)
-
-            // Calculate the center of viewTargetRect within the actual view
-            val targetCenterX = viewWidth / 2f
-            val targetCenterY = viewHeight / 2f
-
-            // Step 1: Map buffer rect to view target rect with CENTER mode (maintains aspect ratio)
-            matrix.setRectToRect(bufferRect, viewTargetRect, Matrix.ScaleToFit.CENTER)
-
-            // Step 2: Translate to center of actual view
-            val scaledBufferWidth = bufferWidth * (effectiveHeight / bufferHeight)
-            val scaledBufferHeight = effectiveHeight
-            matrix.postTranslate(
-                targetCenterX - scaledBufferWidth / 2f,
-                targetCenterY - scaledBufferHeight / 2f
-            )
-
-            // Step 3: Rotate around the center
-            matrix.postRotate(90f * (rotation - 2), targetCenterX, targetCenterY)
-
-            Log.d(TAG, "[TRANSFORM] Android: buffer=${bufferWidth}x${bufferHeight}, effectiveH=$effectiveHeight, target=${scaledBufferWidth}x${scaledBufferHeight}")
+        if (isSwapped) {
+            matrix.postRotate(90f * (rotation - 2), centerX, centerY)
         } else if (rotation == Surface.ROTATION_180) {
             matrix.postRotate(180f, centerX, centerY)
-        } else {
-            val scale = max(viewWidth / preview.width.toFloat(), viewHeight / preview.height.toFloat())
-            val scaledWidth = preview.width.toFloat() * scale
-            val scaledHeight = preview.height.toFloat() * scale
-            matrix.setScale(scale, scale)
-            matrix.postTranslate((viewWidth - scaledWidth) / 2f, (viewHeight - scaledHeight) / 2f)
         }
 
         previewView.setTransform(matrix)
