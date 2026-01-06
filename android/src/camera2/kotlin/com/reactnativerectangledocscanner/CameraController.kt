@@ -662,9 +662,9 @@ class CameraController(
 
         val rotationDegrees = computeRotationDegrees()
         val transformRotation = if (useFrontCamera) {
-            rotationDegrees
-        } else {
             (360 - rotationDegrees) % 360
+        } else {
+            rotationDegrees
         }
         Log.d(
             TAG,
