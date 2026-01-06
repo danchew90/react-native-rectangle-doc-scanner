@@ -661,11 +661,7 @@ class CameraController(
         if (viewWidth == 0f || viewHeight == 0f) return
 
         val rotationDegrees = computeRotationDegrees()
-        val transformRotation = when (rotationDegrees) {
-            90 -> 270
-            270 -> 90
-            else -> rotationDegrees
-        }
+        val transformRotation = rotationDegrees
         Log.d(
             TAG,
             "[TRANSFORM] rotation=$transformRotation view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
@@ -682,7 +678,7 @@ class CameraController(
         val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
         bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
 
-        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+        matrix.setRectToRect(bufferRect, viewRect, Matrix.ScaleToFit.FILL)
         val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
         matrix.postScale(scale, scale, centerX, centerY)
         if (transformRotation != 0) {
