@@ -470,6 +470,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         imageHeight: Int
     ) {
         val density = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        val previewViewport = cameraController?.getPreviewViewport()
         val event = Arguments.createMap().apply {
             putInt("stableCounter", stableCounter)
             putInt("lastDetectionType", quality.ordinal)
@@ -480,6 +481,14 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
                 putMap("bottomLeft", mapPointToDp(getMap("bottomLeft"), density))
                 putMap("bottomRight", mapPointToDp(getMap("bottomRight"), density))
             })
+            previewViewport?.let {
+                putMap("previewViewport", Arguments.createMap().apply {
+                    putDouble("left", it.left / density)
+                    putDouble("top", it.top / density)
+                    putDouble("width", it.width() / density)
+                    putDouble("height", it.height() / density)
+                })
+            }
             putMap("previewSize", Arguments.createMap().apply {
                 putInt("width", (width / density).toInt())
                 putInt("height", (height / density).toInt())

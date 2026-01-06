@@ -35,6 +35,7 @@ type PictureEvent = {
 export type RectangleDetectEvent = Omit<RectangleEventPayload, 'rectangleCoordinates' | 'rectangleOnScreen'> & {
   rectangleCoordinates?: Rectangle | null;
   rectangleOnScreen?: Rectangle | null;
+  previewViewport?: { left: number; top: number; width: number; height: number };
 };
 
 export type DocScannerCapture = {
@@ -600,6 +601,7 @@ const VisionCameraScanner = forwardRef<DocScannerHandle, Props>(
             color={gridColor ?? overlayColor}
             lineWidth={gridLineWidth}
             polygon={overlayPolygon}
+            clipRect={detectedRectangle?.previewViewport ?? null}
           />
         )}
         {showManualCaptureButton && (
@@ -1000,6 +1002,7 @@ const NativeScanner = forwardRef<DocScannerHandle, Props>(
             color={gridColor ?? overlayColor}
             lineWidth={gridLineWidth}
             polygon={overlayPolygon}
+            clipRect={detectedRectangle?.previewViewport ?? null}
           />
         )}
         {showManualCaptureButton && (

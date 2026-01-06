@@ -78,6 +78,7 @@ export interface ScannerOverlayProps {
   color?: string;
   lineWidth?: number;
   polygon?: Rectangle | null;
+  clipRect?: { left: number; top: number; width: number; height: number } | null;
 }
 
 export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
@@ -85,20 +86,41 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
   color = '#0b7ef4',
   lineWidth = StyleSheet.hairlineWidth,
   polygon,
+  clipRect,
 }) => {
-  const points = useMemo(() => (polygon ? createPointsString(polygon) : null), [polygon]);
-  const gridLines = useMemo(() => (polygon ? createGridLines(polygon) : []), [polygon]);
-  const bounds = useMemo(() => (polygon ? getBounds(polygon) : null), [polygon]);
+  const offset = useMemo(
+    () => (clipRect ? { x: -clipRect.left, y: -clipRect.top } : { x: 0, y: 0 }),
+    [clipRect],
+  );
+  const shiftedPolygon = useMemo(() => {
+    if (!polygon) return null;
+    return {
+      topLeft: { x: polygon.topLeft.x + offset.x, y: polygon.topLeft.y + offset.y },
+      topRight: { x: polygon.topRight.x + offset.x, y: polygon.topRight.y + offset.y },
+      bottomRight: { x: polygon.bottomRight.x + offset.x, y: polygon.bottomRight.y + offset.y },
+      bottomLeft: { x: polygon.bottomLeft.x + offset.x, y: polygon.bottomLeft.y + offset.y },
+    };
+  }, [polygon, offset]);
+  const points = useMemo(() => (shiftedPolygon ? createPointsString(shiftedPolygon) : null), [shiftedPolygon]);
+  const gridLines = useMemo(() => (shiftedPolygon ? createGridLines(shiftedPolygon) : []), [shiftedPolygon]);
+  const bounds = useMemo(() => (shiftedPolygon ? getBounds(shiftedPolygon) : null), [shiftedPolygon]);
 
-  if (!polygon || !points || !bounds) {
+  if (!shiftedPolygon || !points || !bounds) {
     return null;
   }
+
+  const containerStyle = clipRect
+    ? [
+        StyleSheet.absoluteFill,
+        { left: clipRect.left, top: clipRect.top, width: clipRect.width, height: clipRect.height, overflow: 'hidden' },
+      ]
+    : StyleSheet.absoluteFill;
 
   if (SvgModule) {
     const { default: Svg, Polygon, Line } = SvgModule;
 
     return (
-      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <View pointerEvents="none" style={containerStyle}>
         <Svg style={StyleSheet.absoluteFill}>
           <Polygon points={points} fill={color} opacity={0.15} />
           {gridLines.map((line, index) => (
@@ -120,7 +142,7 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
   }
 
   return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+    <View pointerEvents="none" style={containerStyle}>
       <View
         style={[
           styles.fallbackBox,

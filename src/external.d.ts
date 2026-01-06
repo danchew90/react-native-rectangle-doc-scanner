@@ -46,6 +46,7 @@ declare module 'react-native-document-scanner' {
     lastDetectionType: number;
     rectangleCoordinates?: Rectangle | null;
     rectangleOnScreen?: Rectangle | null;
+    previewViewport?: { left: number; top: number; width: number; height: number };
     previewSize?: { width: number; height: number };
     imageSize?: { width: number; height: number };
   };

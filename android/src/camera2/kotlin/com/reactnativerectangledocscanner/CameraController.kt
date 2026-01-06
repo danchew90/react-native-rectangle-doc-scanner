@@ -70,6 +70,7 @@ class CameraController(
     private var latestTransform: Matrix? = null
     private var latestBufferWidth = 0
     private var latestBufferHeight = 0
+    private var latestTransformRotation = 0
     private val objectDetector = ObjectDetection.getClient(
         ObjectDetectorOptions.Builder()
             .setDetectorMode(ObjectDetectorOptions.STREAM_MODE)
@@ -216,7 +217,7 @@ class CameraController(
         if (rectangle == null || imageWidth <= 0 || imageHeight <= 0) return null
         if (latestBufferWidth <= 0 || latestBufferHeight <= 0) return null
 
-        val rotationDegrees = computeRotationDegrees()
+        val rotationDegrees = latestTransformRotation
         val inverseRotation = (360 - rotationDegrees) % 360
 
         fun rotatePoint(point: Point): Point {
@@ -274,6 +275,30 @@ class CameraController(
             Point(pts[4].toDouble(), pts[5].toDouble()),
             Point(pts[6].toDouble(), pts[7].toDouble())
         )
+    }
+
+    fun getPreviewViewport(): RectF? {
+        val transform = latestTransform ?: return null
+        if (latestBufferWidth <= 0 || latestBufferHeight <= 0) return null
+        val rotation = latestTransformRotation
+        val isSwapped = rotation == 90 || rotation == 270
+        val bufferWidth = if (isSwapped) latestBufferHeight.toFloat() else latestBufferWidth.toFloat()
+        val bufferHeight = if (isSwapped) latestBufferWidth.toFloat() else latestBufferHeight.toFloat()
+
+        val pts = floatArrayOf(
+            0f, 0f,
+            bufferWidth, 0f,
+            0f, bufferHeight,
+            bufferWidth, bufferHeight
+        )
+        transform.mapPoints(pts)
+
+        val minX = min(min(pts[0], pts[2]), min(pts[4], pts[6]))
+        val maxX = max(max(pts[0], pts[2]), max(pts[4], pts[6]))
+        val minY = min(min(pts[1], pts[3]), min(pts[5], pts[7]))
+        val maxY = max(max(pts[1], pts[3]), max(pts[5], pts[7]))
+
+        return RectF(minX, minY, maxX, maxY)
     }
 
     private fun openCamera() {
@@ -636,9 +661,14 @@ class CameraController(
         if (viewWidth == 0f || viewHeight == 0f) return
 
         val rotationDegrees = computeRotationDegrees()
+        val transformRotation = if (useFrontCamera) {
+            rotationDegrees
+        } else {
+            (360 - rotationDegrees) % 360
+        }
         Log.d(
             TAG,
-            "[TRANSFORM] rotation=$rotationDegrees view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
+            "[TRANSFORM] rotation=$transformRotation view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
         )
 
         val matrix = Matrix()
@@ -646,7 +676,7 @@ class CameraController(
         val centerX = viewRect.centerX()
         val centerY = viewRect.centerY()
 
-        val isSwapped = rotationDegrees == 90 || rotationDegrees == 270
+        val isSwapped = transformRotation == 90 || transformRotation == 270
         val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
         val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
         val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
@@ -655,14 +685,15 @@ class CameraController(
         matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
         val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
         matrix.postScale(scale, scale, centerX, centerY)
-        if (rotationDegrees != 0) {
-            matrix.postRotate(rotationDegrees.toFloat(), centerX, centerY)
+        if (transformRotation != 0) {
+            matrix.postRotate(transformRotation.toFloat(), centerX, centerY)
         }
 
         previewView.setTransform(matrix)
         latestTransform = Matrix(matrix)
         latestBufferWidth = preview.width
         latestBufferHeight = preview.height
+        latestTransformRotation = transformRotation
 
         val pts = floatArrayOf(
             0f, 0f,
