@@ -483,10 +483,10 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             })
             previewViewport?.let {
                 putMap("previewViewport", Arguments.createMap().apply {
-                    putDouble("left", it.left / density)
-                    putDouble("top", it.top / density)
-                    putDouble("width", it.width() / density)
-                    putDouble("height", it.height() / density)
+                    putDouble("left", (it.left / density).toDouble())
+                    putDouble("top", (it.top / density).toDouble())
+                    putDouble("width", (it.width() / density).toDouble())
+                    putDouble("height", (it.height() / density).toDouble())
                 })
             }
             putMap("previewSize", Arguments.createMap().apply {
