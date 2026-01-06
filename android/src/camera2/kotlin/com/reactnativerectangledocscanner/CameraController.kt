@@ -88,10 +88,13 @@ class CameraController(
         }
 
         // Preview UseCase
+        Log.d(TAG, "[CAMERAX] PreviewView size: ${previewView.width}x${previewView.height}")
+        Log.d(TAG, "[CAMERAX] PreviewView visibility: ${previewView.visibility}")
         preview = Preview.Builder()
             .build()
             .also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
+                Log.d(TAG, "[CAMERAX] SurfaceProvider set successfully")
             }
 
         // ImageAnalysis UseCase for document detection
