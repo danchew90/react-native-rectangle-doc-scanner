@@ -246,10 +246,9 @@ class CameraController(
             val previewSizes = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)
             Log.d(TAG, "[CAMERA2] Available preview sizes: ${previewSizes?.take(10)?.joinToString { "${it.width}x${it.height}" }}")
 
-            // Prefer 4:3 to match iOS FOV on phones; use view aspect on tablets to reduce crop.
-            val isTablet = context.resources.configuration.smallestScreenWidthDp >= 600
-            val targetPreviewAspect = if (isTablet) viewAspect else 4.0 / 3.0
-            val minPreviewArea = if (isTablet) 1280 * 720 else 960 * 720
+            // Prefer 4:3 so height-based scaling fills the screen without stretching.
+            val targetPreviewAspect = 4.0 / 3.0
+            val minPreviewArea = 960 * 720
             previewSize = chooseBestSize(previewSizes, targetPreviewAspect, null, minPreviewArea, preferClosestAspect = true)
                 ?: chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
                 ?: previewSizes?.maxByOrNull { it.width * it.height }
@@ -581,7 +580,15 @@ class CameraController(
         val isSwapped = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
         val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
         val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
-        val scale = max(viewWidth / bufferWidth, viewHeight / bufferHeight)
+        var scale = if (isSwapped) {
+            // Scale by height to preserve aspect, then ensure width fills the view.
+            viewHeight / bufferHeight
+        } else {
+            viewHeight / bufferHeight
+        }
+        if (bufferWidth * scale < viewWidth) {
+            scale = viewWidth / bufferWidth
+        }
         val scaledWidth = bufferWidth * scale
         val scaledHeight = bufferHeight * scale
 
