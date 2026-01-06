@@ -90,6 +90,8 @@ class CameraController(
         // Preview UseCase
         Log.d(TAG, "[CAMERAX] PreviewView size: ${previewView.width}x${previewView.height}")
         Log.d(TAG, "[CAMERAX] PreviewView visibility: ${previewView.visibility}")
+        Log.d(TAG, "[CAMERAX] PreviewView scaleType: ${previewView.scaleType}")
+        Log.d(TAG, "[CAMERAX] PreviewView implementationMode: ${previewView.implementationMode}")
         preview = Preview.Builder()
             .build()
             .also {
@@ -130,6 +132,19 @@ class CameraController(
             )
 
             Log.d(TAG, "[CAMERAX] Camera bound successfully")
+
+            // Monitor preview stream state
+            previewView.previewStreamState.observe(lifecycleOwner) { state ->
+                Log.d(TAG, "[CAMERAX] PreviewStreamState changed: $state")
+                when (state) {
+                    androidx.camera.view.PreviewView.StreamState.IDLE ->
+                        Log.w(TAG, "[CAMERAX] Preview stream is IDLE")
+                    androidx.camera.view.PreviewView.StreamState.STREAMING ->
+                        Log.d(TAG, "[CAMERAX] Preview stream is STREAMING ✓")
+                    else ->
+                        Log.d(TAG, "[CAMERAX] Preview stream state: $state")
+                }
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "[CAMERAX] Use case binding failed", e)
