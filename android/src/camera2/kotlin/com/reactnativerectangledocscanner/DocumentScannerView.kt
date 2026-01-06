@@ -94,20 +94,20 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         Log.d(TAG, "[INIT] PreviewView visibility: ${previewView.visibility}")
 
         Log.d(TAG, "[INIT] Adding PreviewView to parent...")
-        addView(previewView)
+        addView(previewView, 0)  // Add at index 0 (back)
         Log.d(TAG, "[INIT] PreviewView added, childCount: $childCount")
 
         // Create overlay view for drawing rectangle
         Log.d(TAG, "[INIT] Creating OverlayView...")
         overlayView = OverlayView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
-            // Ensure overlay is drawn on top
-            bringToFront()
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            setWillNotDraw(false)
         }
         Log.d(TAG, "[INIT] OverlayView created: $overlayView")
 
         Log.d(TAG, "[INIT] Adding OverlayView to parent...")
-        addView(overlayView)
+        addView(overlayView, 1)  // Add at index 1 (front)
         Log.d(TAG, "[INIT] OverlayView added, childCount: $childCount")
 
         Log.d(TAG, "╔════════════════════════════════════════╗")
