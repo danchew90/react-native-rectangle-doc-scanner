@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
+import type { ViewStyle } from 'react-native';
 import type { Rectangle } from '../types';
 
 let SvgModule: typeof import('react-native-svg') | null = null;
@@ -109,10 +110,16 @@ export const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
     return null;
   }
 
-  const containerStyle = clipRect
+  const containerStyle: ViewStyle | ViewStyle[] = clipRect
     ? [
         StyleSheet.absoluteFill,
-        { left: clipRect.left, top: clipRect.top, width: clipRect.width, height: clipRect.height, overflow: 'hidden' },
+        {
+          left: clipRect.left,
+          top: clipRect.top,
+          width: clipRect.width,
+          height: clipRect.height,
+          overflow: 'hidden',
+        },
       ]
     : StyleSheet.absoluteFill;
 
