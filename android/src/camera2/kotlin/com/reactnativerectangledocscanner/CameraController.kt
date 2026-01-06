@@ -584,14 +584,20 @@ class CameraController(
             val swappedWidth = preview.height.toFloat()
             val swappedHeight = preview.width.toFloat()
 
-            // Calculate scale to fill the view while maintaining aspect ratio
+            // Android: Use 85% of view height to add 15% padding (7.5% top + 7.5% bottom)
+            val effectiveViewHeight = viewHeight * 0.85f
+            val verticalPadding = (viewHeight - effectiveViewHeight) / 2f
+
+            // Calculate scale to fit within the effective area while maintaining aspect ratio
             val scaleX = viewWidth / swappedWidth
-            val scaleY = viewHeight / swappedHeight
-            val scale = max(scaleX, scaleY)
+            val scaleY = effectiveViewHeight / swappedHeight
+            val scale = min(scaleX, scaleY)
 
             // Apply transformations: first rotate, then scale
             matrix.postRotate(90f * (rotation - 2), centerX, centerY)
             matrix.postScale(scale, scale, centerX, centerY)
+
+            Log.d(TAG, "[TRANSFORM] Android tablet mode: effectiveHeight=$effectiveViewHeight, padding=$verticalPadding, scale=$scale")
         } else if (rotation == Surface.ROTATION_180) {
             matrix.postRotate(180f, centerX, centerY)
         } else {
