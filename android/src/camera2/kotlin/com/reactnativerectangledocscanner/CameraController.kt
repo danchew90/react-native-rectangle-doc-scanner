@@ -80,6 +80,12 @@ class CameraController(
             return
         }
 
+        // Check lifecycle state
+        Log.d(TAG, "[CAMERAX] Current lifecycle state: ${lifecycleOwner.lifecycle.currentState}")
+        if (lifecycleOwner.lifecycle.currentState != androidx.lifecycle.Lifecycle.State.RESUMED) {
+            Log.w(TAG, "[CAMERAX] Lifecycle is not RESUMED, camera stream may not start")
+        }
+
         // Select camera
         val cameraSelector = if (useFrontCamera) {
             CameraSelector.DEFAULT_FRONT_CAMERA
