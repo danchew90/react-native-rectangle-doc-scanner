@@ -9,9 +9,9 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import org.opencv.core.Point
 import android.util.Log
-import android.view.TextureView
 import android.view.View
 import android.widget.FrameLayout
+import androidx.camera.view.PreviewView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -28,7 +28,7 @@ import kotlin.math.max
 
 class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), LifecycleOwner {
     private val themedContext = context
-    private val previewView: TextureView
+    private val previewView: PreviewView
     private val overlayView: OverlayView
     private val useNativeOverlay = false
     private var cameraController: CameraController? = null
@@ -81,12 +81,14 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         lifecycleRegistry.currentState = Lifecycle.State.INITIALIZED
         Log.d(TAG, "[INIT] Lifecycle state: ${lifecycleRegistry.currentState}")
 
-        // Create preview view
+        // Create preview view (CameraX PreviewView)
         Log.d(TAG, "[INIT] Creating PreviewView...")
-        previewView = TextureView(context).apply {
+        previewView = PreviewView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             visibility = View.VISIBLE
             keepScreenOn = true
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE  // Use TextureView internally
+            scaleType = PreviewView.ScaleType.FILL_CENTER  // Fill and center the preview
         }
         Log.d(TAG, "[INIT] PreviewView created: $previewView")
         Log.d(TAG, "[INIT] PreviewView visibility: ${previewView.visibility}")

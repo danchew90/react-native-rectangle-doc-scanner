@@ -1,90 +1,53 @@
 package com.reactnativerectangledocscanner
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
-import android.graphics.SurfaceTexture
-import android.graphics.Rect
-import android.graphics.RectF
-import android.graphics.ImageFormat
-import android.hardware.camera2.CameraCaptureSession
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraDevice
-import android.hardware.camera2.CameraManager
-import android.hardware.camera2.CaptureRequest
-import android.media.Image
-import android.media.ImageReader
-import android.os.Handler
-import android.os.HandlerThread
 import android.util.Log
-import android.util.Size
-import android.view.Surface
-import android.view.TextureView
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
-import androidx.exifinterface.media.ExifInterface
+import androidx.lifecycle.LifecycleOwner
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.objects.ObjectDetection
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
-import org.opencv.core.Point
 import java.io.File
-import java.io.FileOutputStream
-import java.io.ByteArrayInputStream
-import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
+/**
+ * CameraX-based camera controller for document scanning
+ * Handles Preview, ImageAnalysis (ML Kit + OpenCV), and ImageCapture
+ */
 class CameraController(
     private val context: Context,
-    private val lifecycleOwner: androidx.lifecycle.LifecycleOwner,
-    private val previewView: TextureView
+    private val lifecycleOwner: LifecycleOwner,
+    private val previewView: PreviewView
 ) {
-    private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-    private var cameraDevice: CameraDevice? = null
-    private var captureSession: CameraCaptureSession? = null
-    private var previewRequestBuilder: CaptureRequest.Builder? = null
+    private var camera: Camera? = null
+    private var cameraProvider: ProcessCameraProvider? = null
+    private var preview: Preview? = null
+    private var imageAnalyzer: ImageAnalysis? = null
+    private var imageCapture: ImageCapture? = null
 
-    private var previewSize: Size? = null
-    private var analysisSize: Size? = null
-    private var captureSize: Size? = null
-    private var sensorOrientation: Int = 0
-
-    private var yuvReader: ImageReader? = null
-    private var jpegReader: ImageReader? = null
-
-    private val cameraThread = HandlerThread("Camera2Thread").apply { start() }
-    private val cameraHandler = Handler(cameraThread.looper)
-    private val analysisThread = HandlerThread("Camera2Analysis").apply { start() }
-    private val analysisHandler = Handler(analysisThread.looper)
+    private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     private var useFrontCamera = false
     private var detectionEnabled = true
-    private var torchEnabled = false
 
-    private val pendingCapture = AtomicReference<PendingCapture?>()
-    private val analysisInFlight = AtomicBoolean(false)
-    private var latestTransform: Matrix? = null
-    private var latestBufferWidth = 0
-    private var latestBufferHeight = 0
-    private var latestTransformRotation = 0
     private val objectDetector = ObjectDetection.getClient(
         ObjectDetectorOptions.Builder()
             .setDetectorMode(ObjectDetectorOptions.STREAM_MODE)
             .enableMultipleObjects()
             .build()
     )
-    private var lastRectangle: Rectangle? = null
-    private var lastRectangleTimestamp = 0L
 
     var onFrameAnalyzed: ((Rectangle?, Int, Int) -> Unit)? = null
 
+    private var pendingCapture: PendingCapture? = null
+
     companion object {
         private const val TAG = "CameraController"
-        private const val ANALYSIS_ASPECT_TOLERANCE = 0.15
+        private const val ANALYSIS_TARGET_RESOLUTION = 1280 // Max dimension for analysis
     }
 
     private data class PendingCapture(
@@ -93,52 +56,199 @@ class CameraController(
         val onError: (Exception) -> Unit
     )
 
-    private val textureListener = object : TextureView.SurfaceTextureListener {
-        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-            openCamera()
-        }
+    fun startCamera(useFront: Boolean = false, enableDetection: Boolean = true) {
+        Log.d(TAG, "[CAMERAX] startCamera called: useFront=$useFront, enableDetection=$enableDetection")
 
-        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-            configureTransform()
-        }
+        useFrontCamera = useFront
+        detectionEnabled = enableDetection
 
-        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-            return true
-        }
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
-        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
-            // no-op
-        }
+        cameraProviderFuture.addListener({
+            try {
+                cameraProvider = cameraProviderFuture.get()
+                bindCameraUseCases()
+            } catch (e: Exception) {
+                Log.e(TAG, "[CAMERAX] Failed to start camera", e)
+            }
+        }, ContextCompat.getMainExecutor(context))
     }
 
-    fun startCamera(
-        useFrontCam: Boolean = false,
-        enableDetection: Boolean = true
-    ) {
-        Log.d(TAG, "[CAMERA2] startCamera called")
-        this.useFrontCamera = useFrontCam
-        this.detectionEnabled = enableDetection
-
-        if (!hasCameraPermission()) {
-            Log.e(TAG, "[CAMERA2] Camera permission not granted")
+    private fun bindCameraUseCases() {
+        val cameraProvider = cameraProvider ?: run {
+            Log.e(TAG, "[CAMERAX] CameraProvider is null")
             return
         }
 
-        // Always set the listener so we get size-change callbacks for transform updates.
-        previewView.surfaceTextureListener = textureListener
-        if (previewView.isAvailable) {
-            openCamera()
+        // Select camera
+        val cameraSelector = if (useFrontCamera) {
+            CameraSelector.DEFAULT_FRONT_CAMERA
+        } else {
+            CameraSelector.DEFAULT_BACK_CAMERA
+        }
+
+        // Preview UseCase
+        preview = Preview.Builder()
+            .build()
+            .also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+
+        // ImageAnalysis UseCase for document detection
+        imageAnalyzer = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .build()
+            .also {
+                it.setAnalyzer(cameraExecutor) { imageProxy ->
+                    if (detectionEnabled) {
+                        analyzeImage(imageProxy)
+                    } else {
+                        imageProxy.close()
+                    }
+                }
+            }
+
+        // ImageCapture UseCase
+        imageCapture = ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .build()
+
+        try {
+            // Unbind all use cases before rebinding
+            cameraProvider.unbindAll()
+
+            // Bind use cases to camera
+            camera = cameraProvider.bindToLifecycle(
+                lifecycleOwner,
+                cameraSelector,
+                preview,
+                imageAnalyzer,
+                imageCapture
+            )
+
+            Log.d(TAG, "[CAMERAX] Camera bound successfully")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERAX] Use case binding failed", e)
         }
     }
 
-    fun stopCamera() {
-        Log.d(TAG, "[CAMERA2] stopCamera called")
-        previewView.surfaceTextureListener = null
-        closeSession()
+    @androidx.annotation.OptIn(ExperimentalGetImage::class)
+    private fun analyzeImage(imageProxy: ImageProxy) {
+        val mediaImage = imageProxy.image
+        if (mediaImage == null) {
+            imageProxy.close()
+            return
+        }
+
+        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+        val imageWidth = imageProxy.width
+        val imageHeight = imageProxy.height
+
+        // Try ML Kit first
+        val inputImage = InputImage.fromMediaImage(mediaImage, rotationDegrees)
+
+        objectDetector.process(inputImage)
+            .addOnSuccessListener { objects ->
+                if (objects.isEmpty()) {
+                    // No objects detected, fallback to OpenCV
+                    fallbackToOpenCV(imageProxy, rotationDegrees)
+                    return@addOnSuccessListener
+                }
+
+                // Find largest object
+                val best = objects.maxByOrNull { obj ->
+                    val box = obj.boundingBox
+                    box.width() * box.height()
+                }
+                val mlBox = best?.boundingBox
+
+                // Refine with OpenCV
+                val nv21 = imageProxyToNV21(imageProxy)
+                val rectangle = if (nv21 != null) {
+                    try {
+                        refineWithOpenCv(nv21, imageWidth, imageHeight, rotationDegrees, mlBox)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "[CAMERAX] OpenCV refinement failed", e)
+                        null
+                    }
+                } else {
+                    null
+                }
+
+                val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
+                val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
+
+                onFrameAnalyzed?.invoke(rectangle, frameWidth, frameHeight)
+                imageProxy.close()
+            }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "[CAMERAX] ML Kit detection failed, using OpenCV", e)
+                fallbackToOpenCV(imageProxy, rotationDegrees)
+            }
     }
 
-    fun refreshTransform() {
-        configureTransform()
+    private fun fallbackToOpenCV(imageProxy: ImageProxy, rotationDegrees: Int) {
+        val nv21 = imageProxyToNV21(imageProxy)
+        val rectangle = if (nv21 != null) {
+            try {
+                DocumentDetector.detectRectangleInYUV(
+                    nv21,
+                    imageProxy.width,
+                    imageProxy.height,
+                    rotationDegrees
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "[CAMERAX] OpenCV fallback failed", e)
+                null
+            }
+        } else {
+            null
+        }
+
+        val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageProxy.height else imageProxy.width
+        val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageProxy.width else imageProxy.height
+
+        onFrameAnalyzed?.invoke(rectangle, frameWidth, frameHeight)
+        imageProxy.close()
+    }
+
+    private fun imageProxyToNV21(imageProxy: ImageProxy): ByteArray? {
+        return try {
+            val yBuffer = imageProxy.planes[0].buffer
+            val uBuffer = imageProxy.planes[1].buffer
+            val vBuffer = imageProxy.planes[2].buffer
+
+            val ySize = yBuffer.remaining()
+            val uSize = uBuffer.remaining()
+            val vSize = vBuffer.remaining()
+
+            val nv21 = ByteArray(ySize + uSize + vSize)
+
+            yBuffer.get(nv21, 0, ySize)
+            vBuffer.get(nv21, ySize, vSize)
+            uBuffer.get(nv21, ySize + vSize, uSize)
+
+            nv21
+        } catch (e: Exception) {
+            Log.e(TAG, "[CAMERAX] Failed to convert ImageProxy to NV21", e)
+            null
+        }
+    }
+
+    private fun refineWithOpenCv(
+        nv21: ByteArray,
+        width: Int,
+        height: Int,
+        rotation: Int,
+        mlBox: android.graphics.Rect?
+    ): Rectangle? {
+        return try {
+            DocumentDetector.detectRectangleInYUV(nv21, width, height, rotation)
+        } catch (e: Exception) {
+            Log.w(TAG, "[CAMERAX] OpenCV detection failed", e)
+            null
+        }
     }
 
     fun capturePhoto(
@@ -146,806 +256,94 @@ class CameraController(
         onImageCaptured: (File) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        val device = cameraDevice
-        val session = captureSession
-        val reader = jpegReader
-        if (device == null || session == null || reader == null) {
-            onError(IllegalStateException("Camera not ready for capture"))
+        val imageCapture = imageCapture ?: run {
+            onError(IllegalStateException("ImageCapture not initialized"))
             return
         }
 
-        if (!pendingCapture.compareAndSet(null, PendingCapture(outputDirectory, onImageCaptured, onError))) {
-            onError(IllegalStateException("Capture already in progress"))
-            return
-        }
+        pendingCapture = PendingCapture(outputDirectory, onImageCaptured, onError)
 
-        try {
-            // Match JPEG orientation to current device rotation and sensor orientation.
-            val jpegOrientation = computeRotationDegrees()
-            Log.d(TAG, "[CAPTURE] Setting JPEG_ORIENTATION to $jpegOrientation")
+        val photoFile = File(outputDirectory, "doc_scan_${System.currentTimeMillis()}.jpg")
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
-            val requestBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
-                addTarget(reader.surface)
-                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                if (torchEnabled) {
-                    set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
+        imageCapture.takePicture(
+            outputOptions,
+            ContextCompat.getMainExecutor(context),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    Log.d(TAG, "[CAMERAX] Image saved: ${photoFile.absolutePath}")
+                    onImageCaptured(photoFile)
+                    pendingCapture = null
                 }
-                set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation)
-            }
 
-            session.capture(requestBuilder.build(), object : CameraCaptureSession.CaptureCallback() {}, cameraHandler)
-        } catch (e: Exception) {
-            pendingCapture.getAndSet(null)?.onError?.invoke(e)
-        }
+                override fun onError(exception: ImageCaptureException) {
+                    Log.e(TAG, "[CAMERAX] Image capture failed", exception)
+                    onError(exception)
+                    pendingCapture = null
+                }
+            }
+        )
     }
 
     fun setTorchEnabled(enabled: Boolean) {
-        torchEnabled = enabled
-        updateRepeatingRequest()
+        camera?.cameraControl?.enableTorch(enabled)
     }
 
-    fun switchCamera() {
-        useFrontCamera = !useFrontCamera
-        closeSession()
-        openCamera()
-    }
-
-    fun isTorchAvailable(): Boolean {
-        return try {
-            val cameraId = selectCameraId() ?: return false
-            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-            characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    fun focusAt(x: Float, y: Float) {
-        // Optional: implement touch-to-focus if needed.
+    fun stopCamera() {
+        Log.d(TAG, "[CAMERAX] stopCamera called")
+        cameraProvider?.unbindAll()
+        camera = null
     }
 
     fun shutdown() {
         stopCamera()
         objectDetector.close()
-        cameraThread.quitSafely()
-        analysisThread.quitSafely()
+        cameraExecutor.shutdown()
     }
 
+    fun refreshTransform() {
+        // CameraX handles transform automatically via PreviewView
+        // No manual matrix calculation needed!
+        Log.d(TAG, "[CAMERAX] Transform refresh requested - handled automatically by PreviewView")
+    }
+
+    // Simplified coordinate mapping - PreviewView handles most of the work
     fun mapRectangleToView(rectangle: Rectangle?, imageWidth: Int, imageHeight: Int): Rectangle? {
-        val transform = latestTransform ?: return null
         if (rectangle == null || imageWidth <= 0 || imageHeight <= 0) return null
-        if (latestBufferWidth <= 0 || latestBufferHeight <= 0) return null
 
-        val rotationDegrees = latestTransformRotation
-        val inverseRotation = (360 - rotationDegrees) % 360
-
-        fun rotatePoint(point: Point): Point {
-            return when (inverseRotation) {
-                90 -> Point(imageHeight - point.y, point.x)
-                180 -> Point(imageWidth - point.x, imageHeight - point.y)
-                270 -> Point(point.y, imageWidth - point.x)
-                else -> point
-            }
-        }
-
-        val rotated = Rectangle(
-            rotatePoint(rectangle.topLeft),
-            rotatePoint(rectangle.topRight),
-            rotatePoint(rectangle.bottomLeft),
-            rotatePoint(rectangle.bottomRight)
-        )
-
-        val bufferWidth = if (inverseRotation == 90 || inverseRotation == 270) {
-            imageHeight.toDouble()
-        } else {
-            imageWidth.toDouble()
-        }
-        val bufferHeight = if (inverseRotation == 90 || inverseRotation == 270) {
-            imageWidth.toDouble()
-        } else {
-            imageHeight.toDouble()
-        }
-
-        val scaleX = latestBufferWidth.toDouble() / bufferWidth
-        val scaleY = latestBufferHeight.toDouble() / bufferHeight
-
-        fun scalePoint(point: Point): Point {
-            return Point(point.x * scaleX, point.y * scaleY)
-        }
-
-        val scaled = Rectangle(
-            scalePoint(rotated.topLeft),
-            scalePoint(rotated.topRight),
-            scalePoint(rotated.bottomLeft),
-            scalePoint(rotated.bottomRight)
-        )
-
-        val pts = floatArrayOf(
-            scaled.topLeft.x.toFloat(), scaled.topLeft.y.toFloat(),
-            scaled.topRight.x.toFloat(), scaled.topRight.y.toFloat(),
-            scaled.bottomLeft.x.toFloat(), scaled.bottomLeft.y.toFloat(),
-            scaled.bottomRight.x.toFloat(), scaled.bottomRight.y.toFloat()
-        )
-        transform.mapPoints(pts)
-
-        return Rectangle(
-            Point(pts[0].toDouble(), pts[1].toDouble()),
-            Point(pts[2].toDouble(), pts[3].toDouble()),
-            Point(pts[4].toDouble(), pts[5].toDouble()),
-            Point(pts[6].toDouble(), pts[7].toDouble())
-        )
-    }
-
-    fun getPreviewViewport(): RectF? {
-        val transform = latestTransform ?: return null
-        if (latestBufferWidth <= 0 || latestBufferHeight <= 0) return null
-        val rotation = latestTransformRotation
-        val isSwapped = rotation == 90 || rotation == 270
-        val bufferWidth = if (isSwapped) latestBufferHeight.toFloat() else latestBufferWidth.toFloat()
-        val bufferHeight = if (isSwapped) latestBufferWidth.toFloat() else latestBufferHeight.toFloat()
-
-        val pts = floatArrayOf(
-            0f, 0f,
-            bufferWidth, 0f,
-            0f, bufferHeight,
-            bufferWidth, bufferHeight
-        )
-        transform.mapPoints(pts)
-
-        val minX = min(min(pts[0], pts[2]), min(pts[4], pts[6]))
-        val maxX = max(max(pts[0], pts[2]), max(pts[4], pts[6]))
-        val minY = min(min(pts[1], pts[3]), min(pts[5], pts[7]))
-        val maxY = max(max(pts[1], pts[3]), max(pts[5], pts[7]))
-
-        return RectF(minX, minY, maxX, maxY)
-    }
-
-    private fun openCamera() {
-        if (cameraDevice != null) {
-            return
-        }
-        val cameraId = selectCameraId() ?: return
-        try {
-            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-            val streamConfigMap = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-                ?: return
-            sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
-
-            // Calculate view aspect ratio considering sensor orientation
-            // For portrait mode with 90/270 degree sensor, we need to swap width/height
-            val displayRotation = displayRotationDegrees()
-            val totalRotation = if (useFrontCamera) {
-                (sensorOrientation + displayRotation) % 360
-            } else {
-                (sensorOrientation - displayRotation + 360) % 360
-            }
-
-            val viewWidth = previewView.width.takeIf { it > 0 } ?: 1200
-            val viewHeight = previewView.height.takeIf { it > 0 } ?: 1928
-
-            // If total rotation is 90 or 270, the sensor output is rotated, so we need to match against swapped aspect
-            val viewAspect = if (totalRotation == 90 || totalRotation == 270) {
-                // Sensor outputs landscape (e.g., 1920x1080), but we display portrait
-                // So we want to find sensor size with aspect ~= viewHeight/viewWidth
-                viewHeight.toDouble() / viewWidth.toDouble()
-            } else {
-                viewWidth.toDouble() / viewHeight.toDouble()
-            }
-
-            Log.d(TAG, "[CAMERA2] sensorOrientation=$sensorOrientation displayRotation=$displayRotation totalRotation=$totalRotation")
-            Log.d(TAG, "[CAMERA2] viewAspect=$viewAspect (view: ${viewWidth}x${viewHeight})")
-
-            val previewSizes = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)
-            Log.d(TAG, "[CAMERA2] Available preview sizes: ${previewSizes?.take(10)?.joinToString { "${it.width}x${it.height}" }}")
-
-            // Prefer 4:3 so height-based scaling fills the screen without stretching.
-            val targetPreviewAspect = 4.0 / 3.0
-            val minPreviewArea = 960 * 720
-            previewSize = chooseBestSize(previewSizes, targetPreviewAspect, null, minPreviewArea, preferClosestAspect = true)
-                ?: chooseBestSize(previewSizes, viewAspect, null, preferClosestAspect = true)
-                ?: previewSizes?.maxByOrNull { it.width * it.height }
-            Log.d(TAG, "[CAMERA2] Selected preview size: ${previewSize?.width}x${previewSize?.height}")
-
-            val previewAspect = previewSize?.let { it.width.toDouble() / it.height.toDouble() } ?: viewAspect
-            val analysisSizes = streamConfigMap.getOutputSizes(ImageFormat.YUV_420_888)
-            analysisSize = chooseBestSize(analysisSizes, previewAspect, null, preferClosestAspect = true)
-
-            val captureSizes = streamConfigMap.getOutputSizes(ImageFormat.JPEG)
-            captureSize = chooseBestSize(captureSizes, previewAspect, null, preferClosestAspect = true)
-                ?: captureSizes?.maxByOrNull { it.width * it.height }
-
-            val viewAspectNormalized = max(viewAspect, 1.0 / viewAspect)
-            val previewAspectNormalized = max(previewAspect, 1.0 / previewAspect)
-            val previewDiff = abs(previewAspectNormalized - viewAspectNormalized)
-            Log.d(
-                TAG,
-                "[SIZE_SELECTION] targetAspect=$viewAspectNormalized viewAspect=$viewAspectNormalized " +
-                    "previewAspect=$previewAspectNormalized diff=$previewDiff selected=${previewSize?.width}x${previewSize?.height}"
-            )
-
-            setupImageReaders()
-            Log.d(
-                TAG,
-                "[CAMERA2] view=${previewView.width}x${previewView.height} " +
-                    "preview=${previewSize?.width}x${previewSize?.height} " +
-                    "analysis=${analysisSize?.width}x${analysisSize?.height} " +
-                    "capture=${captureSize?.width}x${captureSize?.height}"
-            )
-
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "[CAMERA2] Camera permission not granted")
-                return
-            }
-
-            cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
-                override fun onOpened(camera: CameraDevice) {
-                    cameraDevice = camera
-                    createCaptureSession()
-                }
-
-                override fun onDisconnected(camera: CameraDevice) {
-                    camera.close()
-                    cameraDevice = null
-                }
-
-                override fun onError(camera: CameraDevice, error: Int) {
-                    Log.e(TAG, "[CAMERA2] CameraDevice error: $error")
-                    camera.close()
-                    cameraDevice = null
-                }
-            }, cameraHandler)
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERA2] Failed to open camera", e)
-        }
-    }
-
-    private fun setupImageReaders() {
-        val analysis = analysisSize
-        val capture = captureSize
-
-        yuvReader?.close()
-        jpegReader?.close()
-
-        if (analysis != null) {
-            yuvReader = ImageReader.newInstance(analysis.width, analysis.height, ImageFormat.YUV_420_888, 2).apply {
-                setOnImageAvailableListener({ reader ->
-                    if (!detectionEnabled || onFrameAnalyzed == null) {
-                        try {
-                            reader.acquireLatestImage()?.close()
-                        } catch (e: Exception) {
-                            Log.w(TAG, "[CAMERA2] Failed to drain analysis image", e)
-                        }
-                        return@setOnImageAvailableListener
-                    }
-                    if (!analysisInFlight.compareAndSet(false, true)) {
-                        try {
-                            reader.acquireLatestImage()?.close()
-                        } catch (e: Exception) {
-                            Log.w(TAG, "[CAMERA2] Failed to drop analysis image", e)
-                        }
-                        return@setOnImageAvailableListener
-                    }
-                    val image = try {
-                        reader.acquireLatestImage()
-                    } catch (e: Exception) {
-                        analysisInFlight.set(false)
-                        Log.w(TAG, "[CAMERA2] acquireLatestImage failed", e)
-                        null
-                    }
-                    if (image == null) {
-                        analysisInFlight.set(false)
-                        return@setOnImageAvailableListener
-                    }
-                    analysisHandler.post { analyzeImage(image) }
-                }, cameraHandler)
-            }
-        }
-
-        if (capture != null) {
-            jpegReader = ImageReader.newInstance(capture.width, capture.height, ImageFormat.JPEG, 2).apply {
-                setOnImageAvailableListener({ reader ->
-                    val image = reader.acquireNextImage() ?: return@setOnImageAvailableListener
-                    val pending = pendingCapture.getAndSet(null)
-                    if (pending == null) {
-                        image.close()
-                        return@setOnImageAvailableListener
-                    }
-                    analysisHandler.post { processCapture(image, pending) }
-                }, cameraHandler)
-            }
-        }
-    }
-
-    private fun createCaptureSession() {
-        val device = cameraDevice ?: return
-        val surfaceTexture = previewView.surfaceTexture ?: return
-        val preview = previewSize ?: return
-
-        surfaceTexture.setDefaultBufferSize(preview.width, preview.height)
-        Log.d(TAG, "[CAMERA2] SurfaceTexture defaultBufferSize=${preview.width}x${preview.height}")
-        val previewSurface = Surface(surfaceTexture)
-
-        val targets = mutableListOf(previewSurface)
-        yuvReader?.surface?.let { targets.add(it) }
-        jpegReader?.surface?.let { targets.add(it) }
-
-        try {
-            device.createCaptureSession(targets, object : CameraCaptureSession.StateCallback() {
-                override fun onConfigured(session: CameraCaptureSession) {
-                    captureSession = session
-                    configureTransform()
-                    startRepeating(previewSurface)
-                }
-
-                override fun onConfigureFailed(session: CameraCaptureSession) {
-                    Log.e(TAG, "[CAMERA2] Failed to configure capture session")
-                }
-            }, cameraHandler)
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERA2] Failed to create capture session", e)
-        }
-    }
-
-    private fun startRepeating(previewSurface: Surface) {
-        val device = cameraDevice ?: return
-        try {
-            previewRequestBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                addTarget(previewSurface)
-                yuvReader?.surface?.let { addTarget(it) }
-                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                if (torchEnabled) {
-                    set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
-                }
-            }
-            captureSession?.setRepeatingRequest(previewRequestBuilder?.build() ?: return, null, cameraHandler)
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERA2] Failed to start repeating request", e)
-        }
-    }
-
-    private fun updateRepeatingRequest() {
-        val builder = previewRequestBuilder ?: return
-        builder.set(CaptureRequest.FLASH_MODE, if (torchEnabled) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
-        try {
-            captureSession?.setRepeatingRequest(builder.build(), null, cameraHandler)
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERA2] Failed to update torch state", e)
-        }
-    }
-
-    private fun analyzeImage(image: Image) {
-        val rotationDegrees = computeRotationDegrees()
-        val imageWidth = image.width
-        val imageHeight = image.height
-        val nv21 = try {
-            imageToNv21(image)
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERA2] Failed to read image buffer", e)
-            try {
-                image.close()
-            } catch (closeError: Exception) {
-                Log.w(TAG, "[CAMERA2] Failed to close image", closeError)
-            }
-            analysisInFlight.set(false)
-            return
-        } finally {
-            try {
-                image.close()
-            } catch (e: Exception) {
-                Log.w(TAG, "[CAMERA2] Failed to close image", e)
-            }
-        }
-
-        val inputImage = try {
-            InputImage.fromByteArray(
-                nv21,
-                imageWidth,
-                imageHeight,
-                rotationDegrees,
-                InputImage.IMAGE_FORMAT_NV21
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERA2] Failed to create InputImage", e)
-            analysisInFlight.set(false)
-            return
-        }
-
-        objectDetector.process(inputImage)
-            .addOnSuccessListener { objects ->
-                val best = objects.maxByOrNull { obj ->
-                    val box = obj.boundingBox
-                    box.width() * box.height()
-                }
-                val mlBox = best?.boundingBox
-                val rectangle = refineWithOpenCv(nv21, imageWidth, imageHeight, rotationDegrees, mlBox)
-
-                val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
-                val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
-                onFrameAnalyzed?.invoke(smoothRectangle(rectangle), frameWidth, frameHeight)
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "[CAMERA2] ML Kit detection failed", e)
-                val rectangle = try {
-                    DocumentDetector.detectRectangleInYUV(nv21, imageWidth, imageHeight, rotationDegrees)
-                } catch (detectError: Exception) {
-                    Log.w(TAG, "[CAMERA2] OpenCV fallback failed", detectError)
-                    null
-                }
-                val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
-                val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
-                onFrameAnalyzed?.invoke(smoothRectangle(rectangle), frameWidth, frameHeight)
-            }
-            .addOnCompleteListener {
-                analysisInFlight.set(false)
-            }
-    }
-
-    private fun processCapture(image: Image, pending: PendingCapture) {
-        try {
-            val buffer = image.planes[0].buffer
-            val bytes = ByteArray(buffer.remaining())
-            buffer.get(bytes)
-            val exifRotation = readExifRotation(bytes)
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                ?: throw IllegalStateException("Failed to decode JPEG")
-
-            val rotation = if (exifRotation != 0) exifRotation else computeRotationDegrees()
-            val shouldRotate = if (rotation == 90 || rotation == 270) {
-                bitmap.width > bitmap.height
-            } else {
-                bitmap.height > bitmap.width
-            }
-            val appliedRotation = if (shouldRotate) rotation else 0
-            val rotated = rotateAndMirror(bitmap, appliedRotation, useFrontCamera)
-            val photoFile = File(pending.outputDirectory, "doc_scan_${System.currentTimeMillis()}.jpg")
-            FileOutputStream(photoFile).use { out ->
-                rotated.compress(Bitmap.CompressFormat.JPEG, 95, out)
-            }
-
-            if (rotated != bitmap) {
-                rotated.recycle()
-            }
-            bitmap.recycle()
-
-            pending.onImageCaptured(photoFile)
-        } catch (e: Exception) {
-            pending.onError(e)
-        } finally {
-            image.close()
-        }
-    }
-
-    private fun closeSession() {
-        try {
-            captureSession?.close()
-            captureSession = null
-            cameraDevice?.close()
-            cameraDevice = null
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERA2] Error closing camera", e)
-        } finally {
-            yuvReader?.close()
-            jpegReader?.close()
-            yuvReader = null
-            jpegReader = null
-            previewRequestBuilder = null
-        }
-    }
-
-    private fun computeRotationDegrees(): Int {
-        val displayRotation = displayRotationDegrees()
-        val rotation = if (useFrontCamera) {
-            (sensorOrientation + displayRotation) % 360
-        } else {
-            (sensorOrientation - displayRotation + 360) % 360
-        }
-        Log.d(TAG, "[ROTATION] sensor=$sensorOrientation display=$displayRotation front=$useFrontCamera -> rotation=$rotation")
-        return rotation
-    }
-
-    private fun displayRotationDegrees(): Int {
-        val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
-        return when (rotation) {
-            Surface.ROTATION_0 -> 0
-            Surface.ROTATION_90 -> 90
-            Surface.ROTATION_180 -> 180
-            Surface.ROTATION_270 -> 270
-            else -> 0
-        }
-    }
-
-    private fun configureTransform() {
+        // CameraX PreviewView with FILL_CENTER handles scaling and centering
+        // We just need to scale the coordinates proportionally
         val viewWidth = previewView.width.toFloat()
         val viewHeight = previewView.height.toFloat()
-        val preview = previewSize ?: return
-        if (viewWidth == 0f || viewHeight == 0f) return
 
-        val rotationDegrees = computeRotationDegrees()
-        val displayRotation = displayRotationDegrees()
+        if (viewWidth <= 0 || viewHeight <= 0) return null
 
-        val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
-        val centerX = viewRect.centerX()
-        val centerY = viewRect.centerY()
+        // Simple proportional scaling
+        val scaleX = viewWidth / imageWidth.toFloat()
+        val scaleY = viewHeight / imageHeight.toFloat()
 
-        // Portrait-only mode: swap buffer dimensions based on sensor orientation
-        // sensorOrientation=90 means camera is rotated 90° from device natural orientation
-        val swap = sensorOrientation == 90 || sensorOrientation == 270
-        val bufferWidth = if (swap) preview.height.toFloat() else preview.width.toFloat()
-        val bufferHeight = if (swap) preview.width.toFloat() else preview.height.toFloat()
-        val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
-        bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-
-        val matrix = Matrix()
-        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
-        val scale = max(viewWidth / bufferRect.width(), viewHeight / bufferRect.height())
-        matrix.postScale(scale, scale, centerX, centerY)
-        // Portrait-only: no additional rotation needed, sensor orientation is already handled by buffer swap
-
-        val pts = floatArrayOf(
-            0f, 0f,
-            bufferWidth, 0f,
-            0f, bufferHeight,
-            bufferWidth, bufferHeight
-        )
-        matrix.mapPoints(pts)
-
-        Log.d(
-            TAG,
-            "[TRANSFORM] sensor=$sensorOrientation display=$displayRotation swap=$swap " +
-                "view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height} buffer=${bufferWidth}x${bufferHeight}"
-        )
-
-        previewView.setTransform(matrix)
-        latestTransform = Matrix(matrix)
-        latestBufferWidth = preview.width
-        latestBufferHeight = preview.height
-        latestTransformRotation = 0  // Portrait-only mode, no rotation applied
-
-        Log.d(
-            TAG,
-            "[TRANSFORM] scale=$scale matrix=$matrix"
-        )
-        Log.d(TAG, "[TRANSFORM] Matrix applied successfully")
-    }
-
-    private fun chooseBestSize(
-        sizes: Array<Size>?,
-        targetAspect: Double,
-        maxArea: Int?,
-        minArea: Int? = null,
-        preferClosestAspect: Boolean = false
-    ): Size? {
-        if (sizes == null || sizes.isEmpty()) return null
-        val sorted = sizes.sortedByDescending { it.width * it.height }
-
-        val capped = if (maxArea != null) {
-            sorted.filter { it.width * it.height <= maxArea }
-        } else {
-            sorted
+        fun scalePoint(point: org.opencv.core.Point): org.opencv.core.Point {
+            return org.opencv.core.Point(
+                point.x * scaleX,
+                point.y * scaleY
+            )
         }
 
-        if (capped.isEmpty()) {
-            return sorted.first()
-        }
-
-        val minCapped = if (minArea != null) {
-            capped.filter { it.width * it.height >= minArea }
-        } else {
-            capped
-        }
-
-        val poolForSelection = if (minCapped.isNotEmpty()) minCapped else capped
-
-        fun aspectDiff(size: Size): Double {
-            val w = size.width.toDouble()
-            val h = size.height.toDouble()
-            val aspect = max(w, h) / min(w, h)
-            val target = max(targetAspect, 1.0 / targetAspect)
-            return abs(aspect - target)
-        }
-
-        if (preferClosestAspect) {
-            // Prefer aspect ratio match first, then pick the highest resolution among matches.
-            poolForSelection.forEach { size ->
-                val diff = aspectDiff(size)
-                Log.d(TAG, "[SIZE_SELECTION] ${size.width}x${size.height} aspect=${size.width.toDouble()/size.height} diff=$diff")
-            }
-
-            val bestDiff = poolForSelection.minOf { aspectDiff(it) }
-            val close = poolForSelection.filter { aspectDiff(it) <= bestDiff + 0.001 }
-            val selected = close.maxByOrNull { it.width * it.height } ?: poolForSelection.maxByOrNull { it.width * it.height }
-            Log.d(TAG, "[SIZE_SELECTION] Best aspect diff: $bestDiff, candidates: ${close.size}, selected: ${selected?.width}x${selected?.height}")
-            return selected
-        }
-
-        val matching = poolForSelection.filter { aspectDiff(it) <= ANALYSIS_ASPECT_TOLERANCE }
-
-        return matching.firstOrNull() ?: poolForSelection.first()
-    }
-
-    private fun rotateAndMirror(bitmap: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
-        Log.d(TAG, "[ROTATE_MIRROR] rotationDegrees=$rotationDegrees mirror=$mirror bitmap=${bitmap.width}x${bitmap.height}")
-
-        if (rotationDegrees == 0 && !mirror) {
-            Log.d(TAG, "[ROTATE_MIRROR] No rotation/mirror needed, returning bitmap as-is")
-            return bitmap
-        }
-
-        val matrix = Matrix()
-        if (rotationDegrees != 0) {
-            matrix.postRotate(rotationDegrees.toFloat(), bitmap.width / 2f, bitmap.height / 2f)
-        }
-        if (mirror) {
-            matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
-        }
-
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-    }
-
-    private fun readExifRotation(bytes: ByteArray): Int {
-        return try {
-            val exif = ExifInterface(ByteArrayInputStream(bytes))
-            when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270
-                else -> 0
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "[CAMERA2] Failed to read EXIF rotation", e)
-            0
-        }
-    }
-
-    private fun refineWithOpenCv(
-        nv21: ByteArray,
-        imageWidth: Int,
-        imageHeight: Int,
-        rotationDegrees: Int,
-        mlBox: Rect?
-    ): Rectangle? {
-        return try {
-            val uprightWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
-            val uprightHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
-            val openCvRect = if (mlBox != null) {
-                val expanded = expandRect(mlBox, uprightWidth, uprightHeight, 0.25f)
-                DocumentDetector.detectRectangleInYUVWithRoi(
-                    nv21,
-                    imageWidth,
-                    imageHeight,
-                    rotationDegrees,
-                    expanded
-                )
-            } else {
-                DocumentDetector.detectRectangleInYUV(nv21, imageWidth, imageHeight, rotationDegrees)
-            }
-            if (openCvRect == null) {
-                mlBox?.let { boxToRectangle(insetBox(it, 0.9f)) }
-            } else {
-                openCvRect
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "[CAMERA2] OpenCV refine failed", e)
-            null
-        }
-    }
-
-    private fun boxToRectangle(box: Rect): Rectangle {
         return Rectangle(
-            Point(box.left.toDouble(), box.top.toDouble()),
-            Point(box.right.toDouble(), box.top.toDouble()),
-            Point(box.left.toDouble(), box.bottom.toDouble()),
-            Point(box.right.toDouble(), box.bottom.toDouble())
+            scalePoint(rectangle.topLeft),
+            scalePoint(rectangle.topRight),
+            scalePoint(rectangle.bottomLeft),
+            scalePoint(rectangle.bottomRight)
         )
     }
 
-    private fun expandRect(box: Rect, maxWidth: Int, maxHeight: Int, ratio: Float): Rect {
-        val padX = (box.width() * ratio).toInt()
-        val padY = (box.height() * ratio).toInt()
-        val left = (box.left - padX).coerceAtLeast(0)
-        val top = (box.top - padY).coerceAtLeast(0)
-        val right = (box.right + padX).coerceAtMost(maxWidth)
-        val bottom = (box.bottom + padY).coerceAtMost(maxHeight)
-        return Rect(left, top, right, bottom)
-    }
+    fun getPreviewViewport(): android.graphics.RectF? {
+        // With CameraX PreviewView, the viewport is simply the view bounds
+        val width = previewView.width.toFloat()
+        val height = previewView.height.toFloat()
 
-    private fun insetBox(box: Rect, ratio: Float): Rect {
-        if (ratio >= 1f) return box
-        val insetX = ((1f - ratio) * box.width() / 2f).toInt()
-        val insetY = ((1f - ratio) * box.height() / 2f).toInt()
-        return Rect(
-            box.left + insetX,
-            box.top + insetY,
-            box.right - insetX,
-            box.bottom - insetY
-        )
-    }
+        if (width <= 0 || height <= 0) return null
 
-    private fun smoothRectangle(current: Rectangle?): Rectangle? {
-        val now = System.currentTimeMillis()
-        val last = lastRectangle
-        if (current == null) {
-            if (last != null && now - lastRectangleTimestamp < 150) {
-                return last
-            }
-            lastRectangle = null
-            return null
-        }
-
-        lastRectangle = current
-        lastRectangleTimestamp = now
-        return current
-    }
-
-    private fun rectangleBounds(rectangle: Rectangle): Rect {
-        val left = listOf(rectangle.topLeft.x, rectangle.bottomLeft.x, rectangle.topRight.x, rectangle.bottomRight.x).minOrNull() ?: 0.0
-        val right = listOf(rectangle.topLeft.x, rectangle.bottomLeft.x, rectangle.topRight.x, rectangle.bottomRight.x).maxOrNull() ?: 0.0
-        val top = listOf(rectangle.topLeft.y, rectangle.bottomLeft.y, rectangle.topRight.y, rectangle.bottomRight.y).minOrNull() ?: 0.0
-        val bottom = listOf(rectangle.topLeft.y, rectangle.bottomLeft.y, rectangle.topRight.y, rectangle.bottomRight.y).maxOrNull() ?: 0.0
-        return Rect(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
-    }
-
-    private fun imageToNv21(image: Image): ByteArray {
-        val width = image.width
-        val height = image.height
-        val ySize = width * height
-        val uvSize = width * height / 2
-        val nv21 = ByteArray(ySize + uvSize)
-
-        val yBuffer = image.planes[0].buffer
-        val uBuffer = image.planes[1].buffer
-        val vBuffer = image.planes[2].buffer
-
-        val yRowStride = image.planes[0].rowStride
-        val yPixelStride = image.planes[0].pixelStride
-        var outputOffset = 0
-        for (row in 0 until height) {
-            var inputOffset = row * yRowStride
-            for (col in 0 until width) {
-                nv21[outputOffset++] = yBuffer.get(inputOffset)
-                inputOffset += yPixelStride
-            }
-        }
-
-        val uvRowStride = image.planes[1].rowStride
-        val uvPixelStride = image.planes[1].pixelStride
-        val vRowStride = image.planes[2].rowStride
-        val vPixelStride = image.planes[2].pixelStride
-        val uvHeight = height / 2
-        val uvWidth = width / 2
-        for (row in 0 until uvHeight) {
-            var uInputOffset = row * uvRowStride
-            var vInputOffset = row * vRowStride
-            for (col in 0 until uvWidth) {
-                nv21[outputOffset++] = vBuffer.get(vInputOffset)
-                nv21[outputOffset++] = uBuffer.get(uInputOffset)
-                uInputOffset += uvPixelStride
-                vInputOffset += vPixelStride
-            }
-        }
-
-        return nv21
-    }
-    private fun hasCameraPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun selectCameraId(): String? {
-        return try {
-            val desiredFacing = if (useFrontCamera) {
-                CameraCharacteristics.LENS_FACING_FRONT
-            } else {
-                CameraCharacteristics.LENS_FACING_BACK
-            }
-            cameraManager.cameraIdList.firstOrNull { id ->
-                val characteristics = cameraManager.getCameraCharacteristics(id)
-                characteristics.get(CameraCharacteristics.LENS_FACING) == desiredFacing
-            } ?: cameraManager.cameraIdList.firstOrNull()
-        } catch (e: Exception) {
-            Log.e(TAG, "[CAMERA2] Failed to select camera", e)
-            null
-        }
+        return android.graphics.RectF(0f, 0f, width, height)
     }
 }
