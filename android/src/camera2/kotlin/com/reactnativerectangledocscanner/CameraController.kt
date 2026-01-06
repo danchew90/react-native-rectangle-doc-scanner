@@ -581,33 +581,37 @@ class CameraController(
 
         if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
             // When rotated 90/270, preview dimensions are swapped
-            val swappedWidth = preview.height.toFloat()
-            val swappedHeight = preview.width.toFloat()
+            val bufferWidth = preview.height.toFloat()  // 1088
+            val bufferHeight = preview.width.toFloat()   // 1920
 
-            // Android: Use 90% of view height to add 10% padding (5% top + 5% bottom)
-            val effectiveViewHeight = viewHeight * 0.90f
+            // Android: Use 90% of view height for 10% vertical padding
+            val effectiveHeight = viewHeight * 0.90f
 
-            // Calculate scale to fit within the effective area while maintaining aspect ratio
-            val scaleX = viewWidth / swappedWidth
-            val scaleY = effectiveViewHeight / swappedHeight
-            val scale = min(scaleX, scaleY)
+            // Calculate scale to fit the preview proportionally
+            // Use min to ensure entire preview fits (no cropping, no stretching)
+            val scaleX = viewWidth / bufferWidth
+            val scaleY = effectiveHeight / bufferHeight
+            val scale = min(scaleX, scaleY)  // This maintains aspect ratio
 
-            // Calculate the final dimensions after scaling
-            val scaledWidth = swappedWidth * scale
-            val scaledHeight = swappedHeight * scale
+            // Create swap buffer rect (before rotation: height x width)
+            val bufferRect = RectF(0f, 0f, bufferHeight, bufferWidth)
 
-            // Create buffer rectangle at origin
-            val bufferRectRotated = RectF(0f, 0f, swappedHeight, swappedWidth)
+            // Apply the transformation
+            // 1. Scale uniformly to fit in view
+            matrix.postScale(scale, scale)
 
-            // Set up the matrix: scale and center the rotated preview
-            matrix.setScale(scale, scale)
-            matrix.postRotate(90f * (rotation - 2), scaledWidth / 2f, scaledHeight / 2f)
+            // 2. Rotate 90 degrees
+            val scaledWidth = bufferWidth * scale
+            val scaledHeight = bufferHeight * scale
+            matrix.postRotate(90f * (rotation - 2), scaledHeight / 2f, scaledWidth / 2f)
+
+            // 3. Center in view
             matrix.postTranslate(
-                centerX - scaledWidth / 2f,
-                centerY - scaledHeight / 2f
+                centerX - scaledHeight / 2f,
+                centerY - scaledWidth / 2f
             )
 
-            Log.d(TAG, "[TRANSFORM] Android: effectiveHeight=$effectiveViewHeight, scale=$scale, scaledSize=${scaledWidth}x${scaledHeight}")
+            Log.d(TAG, "[TRANSFORM] Android: buffer=${bufferWidth}x${bufferHeight}, scale=$scale, final=${scaledWidth}x${scaledHeight}")
         } else if (rotation == Surface.ROTATION_180) {
             matrix.postRotate(180f, centerX, centerY)
         } else {
