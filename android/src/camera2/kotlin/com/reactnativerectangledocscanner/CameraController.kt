@@ -355,11 +355,13 @@ class CameraController(
             captureSize = chooseBestSize(captureSizes, previewAspect, null, preferClosestAspect = true)
                 ?: captureSizes?.maxByOrNull { it.width * it.height }
 
-            val previewDiff = previewSize?.let { abs(it.width.toDouble() / it.height.toDouble() - targetPreviewAspect) }
+            val viewAspectNormalized = max(viewAspect, 1.0 / viewAspect)
+            val previewAspectNormalized = max(previewAspect, 1.0 / previewAspect)
+            val previewDiff = abs(previewAspectNormalized - viewAspectNormalized)
             Log.d(
                 TAG,
-                "[SIZE_SELECTION] targetAspect=$targetPreviewAspect viewAspect=$viewAspect " +
-                    "previewAspect=$previewAspect diff=$previewDiff selected=${previewSize?.width}x${previewSize?.height}"
+                "[SIZE_SELECTION] targetAspect=$viewAspectNormalized viewAspect=$viewAspectNormalized " +
+                    "previewAspect=$previewAspectNormalized diff=$previewDiff selected=${previewSize?.width}x${previewSize?.height}"
             )
 
             setupImageReaders()
@@ -662,47 +664,79 @@ class CameraController(
 
         val rotationDegrees = computeRotationDegrees()
         val displayRotation = displayRotationDegrees()
-        Log.d(
-            TAG,
-            "[TRANSFORM] rotations sensor=$sensorOrientation display=$displayRotation computed=$rotationDegrees view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
-        )
 
-        val matrix = Matrix()
         val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
         val centerX = viewRect.centerX()
         val centerY = viewRect.centerY()
 
-        val isSwapped = rotationDegrees == 90 || rotationDegrees == 270
-        val bufferWidth = if (isSwapped) preview.height.toFloat() else preview.width.toFloat()
-        val bufferHeight = if (isSwapped) preview.width.toFloat() else preview.height.toFloat()
-        val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
-        bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+        fun buildTransform(appliedRotation: Int): Pair<Matrix, FloatArray> {
+            val candidate = Matrix()
+            val swap = appliedRotation == 90 || appliedRotation == 270
+            val bufferWidth = if (swap) preview.height.toFloat() else preview.width.toFloat()
+            val bufferHeight = if (swap) preview.width.toFloat() else preview.height.toFloat()
+            val bufferRect = RectF(0f, 0f, bufferWidth, bufferHeight)
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
 
-        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
-        val scale = max(viewWidth / bufferRect.width(), viewHeight / bufferRect.height())
-        matrix.postScale(scale, scale, centerX, centerY)
-        if (rotationDegrees != 0) {
-            matrix.postRotate(rotationDegrees.toFloat(), centerX, centerY)
+            candidate.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+            val scale = max(viewWidth / bufferRect.width(), viewHeight / bufferRect.height())
+            candidate.postScale(scale, scale, centerX, centerY)
+            if (appliedRotation != 0) {
+                candidate.postRotate(appliedRotation.toFloat(), centerX, centerY)
+            }
+
+            val pts = floatArrayOf(
+                0f, 0f,
+                bufferWidth, 0f,
+                0f, bufferHeight,
+                bufferWidth, bufferHeight
+            )
+            candidate.mapPoints(pts)
+            return Pair(candidate, pts)
         }
 
-        previewView.setTransform(matrix)
-        latestTransform = Matrix(matrix)
-        latestBufferWidth = preview.width
-        latestBufferHeight = preview.height
-        latestTransformRotation = rotationDegrees
+        fun scoreCoverage(pts: FloatArray): Float {
+            val minX = min(min(pts[0], pts[2]), min(pts[4], pts[6]))
+            val maxX = max(max(pts[0], pts[2]), max(pts[4], pts[6]))
+            val minY = min(min(pts[1], pts[3]), min(pts[5], pts[7]))
+            val maxY = max(max(pts[1], pts[3]), max(pts[5], pts[7]))
 
-        val pts = floatArrayOf(
-            0f, 0f,
-            bufferWidth, 0f,
-            0f, bufferHeight,
-            bufferWidth, bufferHeight
-        )
-        matrix.mapPoints(pts)
+            val left = max(viewRect.left, minX)
+            val top = max(viewRect.top, minY)
+            val right = min(viewRect.right, maxX)
+            val bottom = min(viewRect.bottom, maxY)
+            val intersection = if (right > left && bottom > top) (right - left) * (bottom - top) else 0f
+            val viewArea = viewRect.width() * viewRect.height()
+            return if (viewArea > 0f) intersection / viewArea else 0f
+        }
+
+        val positive = rotationDegrees
+        val negative = if (rotationDegrees == 0) 0 else (360 - rotationDegrees) % 360
+        val (matrixPos, ptsPos) = buildTransform(positive)
+        val (matrixNeg, ptsNeg) = buildTransform(negative)
+        val scorePos = scoreCoverage(ptsPos)
+        val scoreNeg = scoreCoverage(ptsNeg)
+
+        val appliedRotation = if (scoreNeg > scorePos) negative else positive
+        val appliedMatrix = if (appliedRotation == positive) matrixPos else matrixNeg
+        val appliedPts = if (appliedRotation == positive) ptsPos else ptsNeg
+
         Log.d(
             TAG,
-            "[TRANSFORM] viewClass=${previewView.javaClass.name} isTextureView=${previewView is TextureView} " +
-                "buffer=${bufferWidth}x${bufferHeight} scale=$scale center=${centerX}x${centerY} matrix=$matrix " +
-                "pts=[${pts[0]},${pts[1]} ${pts[2]},${pts[3]} ${pts[4]},${pts[5]} ${pts[6]},${pts[7]}]"
+            "[TRANSFORM] rotations sensor=$sensorOrientation display=$displayRotation computed=$rotationDegrees applied=$appliedRotation " +
+                "view=${viewWidth}x${viewHeight} preview=${preview.width}x${preview.height}"
+        )
+
+        previewView.setTransform(appliedMatrix)
+        latestTransform = Matrix(appliedMatrix)
+        latestBufferWidth = preview.width
+        latestBufferHeight = preview.height
+        latestTransformRotation = appliedRotation
+
+        Log.d(
+            TAG,
+            "[TRANSFORM] appliedRotation=$appliedRotation scores pos=$scorePos neg=$scoreNeg viewClass=${previewView.javaClass.name} " +
+                "isTextureView=${previewView is TextureView} matrix=$appliedMatrix " +
+                "pts=[${appliedPts[0]},${appliedPts[1]} ${appliedPts[2]},${appliedPts[3]} ${appliedPts[4]},${appliedPts[5]} ${appliedPts[6]},${appliedPts[7]}]"
         )
         val recomputed = computeRotationDegrees()
         if (rotationDegrees != recomputed) {
@@ -742,7 +776,9 @@ class CameraController(
         fun aspectDiff(size: Size): Double {
             val w = size.width.toDouble()
             val h = size.height.toDouble()
-            return abs(w / h - targetAspect)
+            val aspect = max(w, h) / min(w, h)
+            val target = max(targetAspect, 1.0 / targetAspect)
+            return abs(aspect - target)
         }
 
         if (preferClosestAspect) {
