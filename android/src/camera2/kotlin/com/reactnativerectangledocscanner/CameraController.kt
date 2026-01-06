@@ -93,15 +93,18 @@ class CameraController(
         Log.d(TAG, "[CAMERAX] PreviewView scaleType: ${previewView.scaleType}")
         Log.d(TAG, "[CAMERAX] PreviewView implementationMode: ${previewView.implementationMode}")
         preview = Preview.Builder()
+            .setTargetResolution(android.util.Size(1920, 1080))  // 16:9 resolution
             .build()
-            .also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
+            .also { previewUseCase ->
+                Log.d(TAG, "[CAMERAX] Setting SurfaceProvider...")
+                previewUseCase.setSurfaceProvider(previewView.surfaceProvider)
                 Log.d(TAG, "[CAMERAX] SurfaceProvider set successfully")
             }
 
         // ImageAnalysis UseCase for document detection
         imageAnalyzer = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setTargetResolution(android.util.Size(1280, 960))  // Limit resolution for analysis
             .build()
             .also {
                 it.setAnalyzer(cameraExecutor) { imageProxy ->
