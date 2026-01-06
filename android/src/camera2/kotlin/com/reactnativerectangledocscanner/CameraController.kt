@@ -661,10 +661,10 @@ class CameraController(
         if (viewWidth == 0f || viewHeight == 0f) return
 
         val rotationDegrees = computeRotationDegrees()
-        val transformRotation = if (useFrontCamera) {
-            (360 - rotationDegrees) % 360
-        } else {
-            rotationDegrees
+        val transformRotation = when (rotationDegrees) {
+            90 -> 270
+            270 -> 90
+            else -> rotationDegrees
         }
         Log.d(
             TAG,
