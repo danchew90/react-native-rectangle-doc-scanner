@@ -125,14 +125,35 @@ class CameraController(
             // Unbind all use cases before rebinding
             cameraProvider.unbindAll()
 
-            // Bind use cases to camera
+            // Bind use cases to camera - start with Preview and ImageCapture only
+            Log.d(TAG, "[CAMERAX] Binding Preview and ImageCapture first...")
             camera = cameraProvider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 preview,
-                imageAnalyzer,
                 imageCapture
             )
+
+            Log.d(TAG, "[CAMERAX] Preview and ImageCapture bound successfully")
+
+            // Add ImageAnalysis after a short delay to avoid timeout
+            if (detectionEnabled) {
+                previewView.post {
+                    try {
+                        Log.d(TAG, "[CAMERAX] Adding ImageAnalysis...")
+                        camera = cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            cameraSelector,
+                            preview,
+                            imageCapture,
+                            imageAnalyzer
+                        )
+                        Log.d(TAG, "[CAMERAX] ImageAnalysis added successfully")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[CAMERAX] Failed to add ImageAnalysis", e)
+                    }
+                }
+            }
 
             Log.d(TAG, "[CAMERAX] Camera bound successfully")
 
