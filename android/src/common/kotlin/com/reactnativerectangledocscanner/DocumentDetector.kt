@@ -36,6 +36,7 @@ enum class RectangleQuality {
 class DocumentDetector {
     companion object {
         private const val TAG = "DocumentDetector"
+        private var debugFrameCounter = 0
 
         init {
             try {
@@ -161,6 +162,7 @@ class DocumentDetector {
             val cannyMat = Mat()
             val morphMat = Mat()
             val threshMat = Mat()
+            val debugStats = DebugStats()
 
             try {
                 // Convert to grayscale
@@ -258,6 +260,8 @@ class DocumentDetector {
                     var bestScore = 0.0
                     val minArea = max(450.0, (srcMat.rows() * srcMat.cols()) * 0.0007)
 
+                    debugStats.contours = contours.size
+
                     for (contour in contours) {
                         val contourArea = Imgproc.contourArea(contour)
                         if (contourArea < minArea) continue
@@ -284,6 +288,7 @@ class DocumentDetector {
                             val rectArea = rect.size.area()
                             val rectangularity = if (rectArea > 1.0) contourArea / rectArea else 0.0
                             if (rectangularity >= 0.6) {
+                                debugStats.candidates += 1
                                 val score = contourArea * rectangularity
                                 if (score > bestScore) {
                                     bestScore = score
@@ -299,6 +304,7 @@ class DocumentDetector {
                             if (rectArea > 1.0) {
                                 val rectangularity = contourArea / rectArea
                                 if (rectangularity >= 0.6) {
+                                    debugStats.candidates += 1
                                     val boxPoints = Array(4) { Point() }
                                     rotated.points(boxPoints)
                                     val score = contourArea * rectangularity
@@ -317,6 +323,7 @@ class DocumentDetector {
 
                     hierarchy.release()
                     contours.forEach { it.release() }
+                    debugStats.bestScore = bestScore
                     return largestRectangle
                 }
 
@@ -340,6 +347,19 @@ class DocumentDetector {
                     rectangle = findLargestRectangle(morphMat)
                 }
 
+                if (BuildConfig.DEBUG) {
+                    debugFrameCounter = (debugFrameCounter + 1) % 15
+                    if (debugFrameCounter == 0) {
+                        Log.d(
+                            TAG,
+                            "[DEBUG] cannyLow=$cannyLow cannyHigh=$cannyHigh " +
+                                "contours=${debugStats.contours} candidates=${debugStats.candidates} " +
+                                "bestScore=${String.format(\"%.1f\", debugStats.bestScore)} " +
+                                "hasRect=${rectangle != null}"
+                        )
+                    }
+                }
+
                 return rectangle
             } finally {
                 grayMat.release()
@@ -349,6 +369,12 @@ class DocumentDetector {
                 threshMat.release()
             }
         }
+
+        private data class DebugStats(
+            var contours: Int = 0,
+            var candidates: Int = 0,
+            var bestScore: Double = 0.0
+        )
 
         /**
          * Order points in consistent order: topLeft, topRight, bottomLeft, bottomRight
@@ -410,7 +436,7 @@ class DocumentDetector {
             }
 
             val minDim = kotlin.math.min(viewWidth.toDouble(), viewHeight.toDouble())
-            val angleThreshold = max(60.0, minDim * 0.08)
+            val angleThreshold = max(90.0, minDim * 0.12)
 
             val topYDiff = abs(rectangle.topRight.y - rectangle.topLeft.y)
             val bottomYDiff = abs(rectangle.bottomLeft.y - rectangle.bottomRight.y)
@@ -421,7 +447,7 @@ class DocumentDetector {
                 return RectangleQuality.BAD_ANGLE
             }
 
-            val margin = max(120.0, minDim * 0.12)
+            val margin = max(80.0, minDim * 0.08)
             if (rectangle.topLeft.y > margin ||
                 rectangle.topRight.y > margin ||
                 rectangle.bottomLeft.y < (viewHeight - margin) ||
