@@ -52,7 +52,7 @@ class CameraController(
 
     companion object {
         private const val TAG = "CameraController"
-        private const val ANALYSIS_TARGET_RESOLUTION = 1280 // Max dimension for analysis
+        private const val ANALYSIS_TARGET_RESOLUTION = 1920 // Max dimension for analysis
     }
 
     private fun getCameraSensorOrientation(): Int {
@@ -184,7 +184,7 @@ class CameraController(
         // ImageAnalysis UseCase for document detection
         imageAnalyzer = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetResolution(android.util.Size(1280, 960))  // Limit resolution for analysis
+            .setTargetResolution(android.util.Size(1920, 1440))  // Higher resolution for better small-edge detection
             .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
             .also {

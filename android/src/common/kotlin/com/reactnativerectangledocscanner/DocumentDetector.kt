@@ -170,6 +170,12 @@ class DocumentDetector {
                     srcMat.copyTo(grayMat)
                 }
 
+                // Boost local contrast to improve low-contrast edges (e.g., business cards).
+                val clahe = Imgproc.createCLAHE()
+                clahe.clipLimit = 2.5
+                clahe.apply(grayMat, grayMat)
+                clahe.release()
+
                 // Apply a light blur to reduce noise without killing small edges.
                 Imgproc.GaussianBlur(grayMat, blurredMat, Size(5.0, 5.0), 0.0)
 
@@ -202,8 +208,8 @@ class DocumentDetector {
 
                 val median = computeMedian(blurredMat)
                 val sigma = 0.33
-                val cannyLow = max(20.0, (1.0 - sigma) * median)
-                val cannyHigh = max(60.0, (1.0 + sigma) * median)
+                val cannyLow = max(40.0, (1.0 - sigma) * median)
+                val cannyHigh = max(120.0, (1.0 + sigma) * median)
 
                 // Apply Canny edge detection with adaptive thresholds for better corner detection.
                 Imgproc.Canny(blurredMat, cannyMat, cannyLow, cannyHigh)
