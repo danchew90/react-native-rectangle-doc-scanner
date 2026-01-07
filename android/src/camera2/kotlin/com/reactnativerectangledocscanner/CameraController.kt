@@ -33,6 +33,7 @@ class CameraController(
     private var preview: Preview? = null
     private var imageAnalyzer: ImageAnalysis? = null
     private var imageCapture: ImageCapture? = null
+    private var previewViewport: android.graphics.RectF? = null
 
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
@@ -358,8 +359,8 @@ class CameraController(
             if (mlBox != null) {
                 val frameWidth = if (rotation == 90 || rotation == 270) height else width
                 val frameHeight = if (rotation == 90 || rotation == 270) width else height
-                val padX = (mlBox.width() * 0.15f).toInt().coerceAtLeast(24)
-                val padY = (mlBox.height() * 0.15f).toInt().coerceAtLeast(24)
+                val padX = (mlBox.width() * 0.25f).toInt().coerceAtLeast(32)
+                val padY = (mlBox.height() * 0.25f).toInt().coerceAtLeast(32)
                 val roi = android.graphics.Rect(
                     (mlBox.left - padX).coerceAtLeast(0),
                     (mlBox.top - padY).coerceAtLeast(0),
@@ -466,13 +467,10 @@ class CameraController(
     }
 
     fun getPreviewViewport(): android.graphics.RectF? {
-        // With TextureView, the viewport is simply the view bounds
-        val width = textureView.width.toFloat()
-        val height = textureView.height.toFloat()
-
-        if (width <= 0 || height <= 0) return null
-
-        return android.graphics.RectF(0f, 0f, width, height)
+        val viewWidth = textureView.width.toFloat()
+        val viewHeight = textureView.height.toFloat()
+        if (viewWidth <= 0 || viewHeight <= 0) return null
+        return previewViewport ?: android.graphics.RectF(0f, 0f, viewWidth, viewHeight)
     }
 
     private fun updateTextureViewTransform(bufferWidth: Int, bufferHeight: Int) {
@@ -536,6 +534,18 @@ class CameraController(
         Log.d(TAG, "[TRANSFORM] Rotated buffer: ${rotatedBufferWidth}x${rotatedBufferHeight}, ScaleX: $scaleX, ScaleY: $scaleY, Using: $scale")
 
         matrix.postScale(scale, scale, centerX, centerY)
+
+        // Track the actual preview viewport within the view for clipping overlays.
+        val scaledWidth = rotatedBufferWidth * scale
+        val scaledHeight = rotatedBufferHeight * scale
+        val offsetX = (viewWidth - scaledWidth) / 2f
+        val offsetY = (viewHeight - scaledHeight) / 2f
+        previewViewport = android.graphics.RectF(
+            offsetX,
+            offsetY,
+            offsetX + scaledWidth,
+            offsetY + scaledHeight
+        )
 
         textureView.setTransform(matrix)
         Log.d(TAG, "[TRANSFORM] Transform applied successfully")

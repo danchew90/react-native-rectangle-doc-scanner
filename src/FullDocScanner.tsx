@@ -192,6 +192,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [rectangleDetected, setRectangleDetected] = useState(false);
   const [rectangleHint, setRectangleHint] = useState(false);
+  const [captureReady, setCaptureReady] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [rotationDegrees, setRotationDegrees] = useState(0);
   const [capturedPhotos, setCapturedPhotos] = useState<FullDocScannerResult[]>([]);
@@ -203,6 +204,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const captureInProgressRef = useRef(false);
   const rectangleCaptureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rectangleHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captureReadyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isBusinessMode = type === 'business';
 
@@ -213,6 +215,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       setRotationDegrees(0);
       setRectangleDetected(false);
       setRectangleHint(false);
+      setCaptureReady(false);
       captureModeRef.current = null;
       captureInProgressRef.current = false;
 
@@ -224,6 +227,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       if (rectangleHintTimeoutRef.current) {
         clearTimeout(rectangleHintTimeoutRef.current);
         rectangleHintTimeoutRef.current = null;
+      }
+      if (captureReadyTimeoutRef.current) {
+        clearTimeout(captureReadyTimeoutRef.current);
+        captureReadyTimeoutRef.current = null;
       }
 
       if (docScannerRef.current?.reset) {
@@ -505,9 +512,15 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       hasRef: hasScanner,
       rectangleDetected,
       rectangleHint,
+      captureReady,
       currentCaptureMode: captureModeRef.current,
       captureInProgress: captureInProgressRef.current,
     });
+
+    if (Platform.OS === 'android' && !captureReady) {
+      console.log('[FullDocScanner] Capture not ready yet, skipping');
+      return;
+    }
 
     if (processing) {
       console.log('[FullDocScanner] Already processing, skipping manual capture');
@@ -567,7 +580,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           );
         }
       });
-  }, [processing, rectangleDetected, rectangleHint, emitError]);
+  }, [processing, rectangleDetected, rectangleHint, captureReady, emitError]);
 
   const handleGalleryPick = useCallback(async () => {
     console.log('[FullDocScanner] handleGalleryPick called');
@@ -719,7 +732,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     const stableCounter = event.stableCounter ?? 0;
     const rectangleCoordinates = event.rectangleOnScreen ?? event.rectangleCoordinates;
     const hasRectangle = Boolean(rectangleCoordinates);
-    const captureReady = hasRectangle && (Platform.OS === 'android' || (event.lastDetectionType === 0 && stableCounter >= 1));
+    const isStableForCapture =
+      hasRectangle && (Platform.OS === 'android' || (event.lastDetectionType === 0 && stableCounter >= 1));
 
     const scheduleClear = (
       ref: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
@@ -737,15 +751,30 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     if (hasRectangle) {
       scheduleClear(rectangleHintTimeoutRef, () => setRectangleHint(false));
       setRectangleHint(true);
+      if (Platform.OS === 'android') {
+        if (!captureReadyTimeoutRef.current) {
+          captureReadyTimeoutRef.current = setTimeout(() => {
+            setCaptureReady(true);
+            captureReadyTimeoutRef.current = null;
+          }, 1000);
+        }
+      }
     } else {
       if (rectangleHintTimeoutRef.current) {
         clearTimeout(rectangleHintTimeoutRef.current);
         rectangleHintTimeoutRef.current = null;
       }
       setRectangleHint(false);
+      if (Platform.OS === 'android') {
+        if (captureReadyTimeoutRef.current) {
+          clearTimeout(captureReadyTimeoutRef.current);
+          captureReadyTimeoutRef.current = null;
+        }
+        setCaptureReady(false);
+      }
     }
 
-    if (captureReady) {
+    if (isStableForCapture) {
       scheduleClear(rectangleCaptureTimeoutRef, () => {
         setRectangleDetected(false);
       });
@@ -767,6 +796,9 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       }
       if (rectangleHintTimeoutRef.current) {
         clearTimeout(rectangleHintTimeoutRef.current);
+      }
+      if (captureReadyTimeoutRef.current) {
+        clearTimeout(captureReadyTimeoutRef.current);
       }
     },
     [],
@@ -1000,15 +1032,19 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               </TouchableOpacity>
             )}
             <TouchableOpacity
-              style={[styles.shutterButton, processing && styles.buttonDisabled]}
+              style={[
+                styles.shutterButton,
+                processing && styles.buttonDisabled,
+                Platform.OS === 'android' && !captureReady && styles.buttonDisabled,
+              ]}
               onPress={triggerManualCapture}
-              disabled={processing}
+              disabled={processing || (Platform.OS === 'android' && !captureReady)}
               accessibilityLabel={mergedStrings.manualHint}
               accessibilityRole="button"
             >
               <View style={[
                 styles.shutterInner,
-                rectangleHint && { backgroundColor: overlayColor }
+                (Platform.OS === 'android' ? captureReady : rectangleHint) && { backgroundColor: overlayColor }
               ]} />
             </TouchableOpacity>
             <View style={styles.rightButtonsPlaceholder} />

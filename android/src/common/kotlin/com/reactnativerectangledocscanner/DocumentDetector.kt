@@ -207,8 +207,8 @@ class DocumentDetector {
 
                 val median = computeMedian(blurredMat)
                 val sigma = 0.33
-                val cannyLow = max(40.0, (1.0 - sigma) * median)
-                val cannyHigh = max(120.0, (1.0 + sigma) * median)
+                val cannyLow = max(25.0, (1.0 - sigma) * median)
+                val cannyHigh = max(80.0, (1.0 + sigma) * median)
 
                 // Apply Canny edge detection with adaptive thresholds for better corner detection.
                 Imgproc.Canny(blurredMat, cannyMat, cannyLow, cannyHigh)
@@ -256,7 +256,7 @@ class DocumentDetector {
 
                     var largestRectangle: Rectangle? = null
                     var bestScore = 0.0
-                    val minArea = max(800.0, (srcMat.rows() * srcMat.cols()) * 0.001)
+                    val minArea = max(450.0, (srcMat.rows() * srcMat.cols()) * 0.0007)
 
                     for (contour in contours) {
                         val contourArea = Imgproc.contourArea(contour)
