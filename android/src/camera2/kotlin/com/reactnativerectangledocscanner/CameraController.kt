@@ -123,18 +123,16 @@ class CameraController(
                             request.resolution.height
                         )
                         val surface = Surface(surfaceTexture)
+
+                        // Apply transform BEFORE providing surface
+                        updateTextureViewTransform(
+                            request.resolution.width,
+                            request.resolution.height
+                        )
+
                         request.provideSurface(surface, ContextCompat.getMainExecutor(context)) { result ->
                             Log.d(TAG, "[CAMERAX] Surface provided - result: ${result.resultCode}")
-
-                            // Apply transform to correct orientation
-                            textureView.post {
-                                updateTextureViewTransform(
-                                    request.resolution.width,
-                                    request.resolution.height
-                                )
-                            }
-
-                            surface.release()
+                            // Don't release surface - let CameraX manage it
                         }
                     } else {
                         Log.e(TAG, "[CAMERAX] SurfaceTexture is null! Waiting for TextureView to be ready...")
@@ -144,18 +142,16 @@ class CameraController(
                                 Log.d(TAG, "[CAMERAX] SurfaceTexture now available ($width x $height)")
                                 st.setDefaultBufferSize(request.resolution.width, request.resolution.height)
                                 val surface = Surface(st)
+
+                                // Apply transform BEFORE providing surface
+                                updateTextureViewTransform(
+                                    request.resolution.width,
+                                    request.resolution.height
+                                )
+
                                 request.provideSurface(surface, ContextCompat.getMainExecutor(context)) { result ->
                                     Log.d(TAG, "[CAMERAX] Surface provided (delayed) - result: ${result.resultCode}")
-
-                                    // Apply transform to correct orientation
-                                    textureView.post {
-                                        updateTextureViewTransform(
-                                            request.resolution.width,
-                                            request.resolution.height
-                                        )
-                                    }
-
-                                    surface.release()
+                                    // Don't release surface - let CameraX manage it
                                 }
                             }
 
