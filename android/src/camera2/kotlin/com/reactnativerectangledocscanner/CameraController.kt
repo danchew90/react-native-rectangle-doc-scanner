@@ -486,7 +486,8 @@ class CameraController(
         val centerY = viewHeight / 2f
 
         // Calculate rotation from buffer to display coordinates.
-        val rotationDegrees = ((sensorOrientation + displayRotationDegrees) % 360).toFloat()
+        // CameraX already accounts for sensor orientation via targetRotation; only apply display rotation.
+        val rotationDegrees = displayRotationDegrees.toFloat()
 
         Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
 
