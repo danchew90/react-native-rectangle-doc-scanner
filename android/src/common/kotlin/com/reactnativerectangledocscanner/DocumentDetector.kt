@@ -173,8 +173,40 @@ class DocumentDetector {
                 // Apply a light blur to reduce noise without killing small edges.
                 Imgproc.GaussianBlur(grayMat, blurredMat, Size(5.0, 5.0), 0.0)
 
-                // Apply Canny edge detection with lower thresholds for better corner detection.
-                Imgproc.Canny(blurredMat, cannyMat, 30.0, 90.0)
+                fun computeMedian(mat: Mat): Double {
+                    val hist = Mat()
+                    return try {
+                        Imgproc.calcHist(
+                            listOf(mat),
+                            MatOfInt(0),
+                            Mat(),
+                            hist,
+                            MatOfInt(256),
+                            MatOfFloat(0f, 256f)
+                        )
+                        val total = mat.total().toDouble()
+                        var cumulative = 0.0
+                        var median = 0.0
+                        for (i in 0 until 256) {
+                            cumulative += hist.get(i, 0)[0]
+                            if (cumulative >= total * 0.5) {
+                                median = i.toDouble()
+                                break
+                            }
+                        }
+                        median
+                    } finally {
+                        hist.release()
+                    }
+                }
+
+                val median = computeMedian(blurredMat)
+                val sigma = 0.33
+                val cannyLow = max(20.0, (1.0 - sigma) * median)
+                val cannyHigh = max(60.0, (1.0 + sigma) * median)
+
+                // Apply Canny edge detection with adaptive thresholds for better corner detection.
+                Imgproc.Canny(blurredMat, cannyMat, cannyLow, cannyHigh)
                 val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
                 Imgproc.morphologyEx(cannyMat, morphMat, Imgproc.MORPH_CLOSE, kernel)
                 kernel.release()
@@ -218,8 +250,8 @@ class DocumentDetector {
                     )
 
                     var largestRectangle: Rectangle? = null
-                    var largestArea = 0.0
-                    val minArea = max(300.0, (srcMat.rows() * srcMat.cols()) * 0.0005)
+                    var bestScore = 0.0
+                    val minArea = max(800.0, (srcMat.rows() * srcMat.cols()) * 0.001)
 
                     for (contour in contours) {
                         val contourArea = Imgproc.contourArea(contour)
@@ -243,9 +275,15 @@ class DocumentDetector {
 
                         if (quad.total() == 4L && Imgproc.isContourConvex(MatOfPoint(*quad.toArray()))) {
                             val points = quad.toArray()
-                            if (contourArea > largestArea) {
-                                largestArea = contourArea
-                                largestRectangle = refineRectangle(grayMat, orderPoints(points))
+                            val rect = Imgproc.minAreaRect(MatOfPoint2f(*points))
+                            val rectArea = rect.size.area()
+                            val rectangularity = if (rectArea > 1.0) contourArea / rectArea else 0.0
+                            if (rectangularity >= 0.6) {
+                                val score = contourArea * rectangularity
+                                if (score > bestScore) {
+                                    bestScore = score
+                                    largestRectangle = refineRectangle(grayMat, orderPoints(points))
+                                }
                             }
                         } else {
                             // Fallback: use rotated bounding box when contour is near-rectangular.
@@ -255,11 +293,14 @@ class DocumentDetector {
                             val rectArea = rotated.size.area()
                             if (rectArea > 1.0) {
                                 val rectangularity = contourArea / rectArea
-                                if (rectangularity >= 0.6 && contourArea > largestArea) {
+                                if (rectangularity >= 0.6) {
                                     val boxPoints = Array(4) { Point() }
                                     rotated.points(boxPoints)
-                                    largestArea = contourArea
-                                    largestRectangle = refineRectangle(grayMat, orderPoints(boxPoints))
+                                    val score = contourArea * rectangularity
+                                    if (score > bestScore) {
+                                        bestScore = score
+                                        largestRectangle = refineRectangle(grayMat, orderPoints(boxPoints))
+                                    }
                                 }
                             }
                         }
