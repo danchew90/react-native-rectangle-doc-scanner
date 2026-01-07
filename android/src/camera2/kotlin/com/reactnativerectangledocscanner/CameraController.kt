@@ -486,8 +486,10 @@ class CameraController(
         val centerY = viewHeight / 2f
 
         // Calculate rotation from buffer to display coordinates.
-        // CameraX already accounts for sensor orientation via targetRotation; only apply display rotation.
-        val rotationDegrees = displayRotationDegrees.toFloat()
+        // CameraX accounts for sensor orientation via targetRotation. Some tablets with landscape
+        // sensors report Display 90 in portrait but render upside down; add a 180° fix for that case.
+        val tabletUpsideDownFix = if (sensorOrientation == 0 && displayRotationDegrees == 90) 180 else 0
+        val rotationDegrees = ((displayRotationDegrees + tabletUpsideDownFix) % 360).toFloat()
 
         Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
 
