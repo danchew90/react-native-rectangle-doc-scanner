@@ -10,8 +10,8 @@ import android.graphics.PorterDuffXfermode
 import org.opencv.core.Point
 import android.util.Log
 import android.view.View
+import android.view.TextureView
 import android.widget.FrameLayout
-import androidx.camera.view.PreviewView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -28,7 +28,7 @@ import kotlin.math.max
 
 class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), LifecycleOwner {
     private val themedContext = context
-    private val previewView: PreviewView
+    private val previewView: TextureView
     private val overlayView: OverlayView
     private val useNativeOverlay = false
     private var cameraController: CameraController? = null
@@ -81,21 +81,19 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         lifecycleRegistry.currentState = Lifecycle.State.INITIALIZED
         Log.d(TAG, "[INIT] Lifecycle state: ${lifecycleRegistry.currentState}")
 
-        // Create preview view (CameraX PreviewView)
-        Log.d(TAG, "[INIT] Creating PreviewView...")
-        previewView = PreviewView(context).apply {
+        // Create TextureView for camera preview (CameraX compatible)
+        Log.d(TAG, "[INIT] Creating TextureView...")
+        previewView = TextureView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             visibility = View.VISIBLE
             keepScreenOn = true
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE  // Use TextureView - more compatible with React Native
-            scaleType = PreviewView.ScaleType.FILL_CENTER  // Fill and center the preview
         }
-        Log.d(TAG, "[INIT] PreviewView created: $previewView")
-        Log.d(TAG, "[INIT] PreviewView visibility: ${previewView.visibility}")
+        Log.d(TAG, "[INIT] TextureView created: $previewView")
+        Log.d(TAG, "[INIT] TextureView visibility: ${previewView.visibility}")
 
-        Log.d(TAG, "[INIT] Adding PreviewView to parent...")
+        Log.d(TAG, "[INIT] Adding TextureView to parent...")
         addView(previewView, 0)  // Add at index 0 (back)
-        Log.d(TAG, "[INIT] PreviewView added, childCount: $childCount")
+        Log.d(TAG, "[INIT] TextureView added, childCount: $childCount")
 
         // Create overlay view for drawing rectangle
         Log.d(TAG, "[INIT] Creating OverlayView...")

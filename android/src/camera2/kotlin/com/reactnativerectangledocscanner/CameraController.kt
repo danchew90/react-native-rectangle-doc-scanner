@@ -1,10 +1,13 @@
 package com.reactnativerectangledocscanner
 
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.util.Log
+import android.util.Size
+import android.view.Surface
+import android.view.TextureView
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.google.mlkit.vision.common.InputImage
@@ -16,12 +19,12 @@ import java.util.concurrent.Executors
 
 /**
  * CameraX-based camera controller for document scanning
- * Handles Preview, ImageAnalysis (ML Kit + OpenCV), and ImageCapture
+ * Handles Preview (via TextureView), ImageAnalysis (ML Kit + OpenCV), and ImageCapture
  */
 class CameraController(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
-    private val previewView: PreviewView
+    private val textureView: TextureView
 ) {
     private var camera: Camera? = null
     private var cameraProvider: ProcessCameraProvider? = null
@@ -93,19 +96,53 @@ class CameraController(
             CameraSelector.DEFAULT_BACK_CAMERA
         }
 
-        // Preview UseCase
-        Log.d(TAG, "[CAMERAX] PreviewView size: ${previewView.width}x${previewView.height}")
-        Log.d(TAG, "[CAMERAX] PreviewView visibility: ${previewView.visibility}")
-        Log.d(TAG, "[CAMERAX] PreviewView scaleType: ${previewView.scaleType}")
-        Log.d(TAG, "[CAMERAX] PreviewView implementationMode: ${previewView.implementationMode}")
+        // Preview UseCase with TextureView
+        Log.d(TAG, "[CAMERAX] TextureView size: ${textureView.width}x${textureView.height}")
+        Log.d(TAG, "[CAMERAX] TextureView visibility: ${textureView.visibility}")
+        Log.d(TAG, "[CAMERAX] TextureView isAvailable: ${textureView.isAvailable}")
+
         preview = Preview.Builder()
             .setTargetResolution(android.util.Size(1920, 1080))  // 16:9 resolution
             .build()
             .also { previewUseCase ->
-                Log.d(TAG, "[CAMERAX] Setting SurfaceProvider...")
+                Log.d(TAG, "[CAMERAX] Setting SurfaceProvider for TextureView...")
 
-                // Use PreviewView's default SurfaceProvider
-                previewUseCase.setSurfaceProvider(ContextCompat.getMainExecutor(context), previewView.surfaceProvider)
+                // Set custom SurfaceProvider for TextureView
+                previewUseCase.setSurfaceProvider(ContextCompat.getMainExecutor(context)) { request ->
+                    Log.d(TAG, "[CAMERAX] Surface requested - resolution: ${request.resolution}")
+
+                    val surfaceTexture = textureView.surfaceTexture
+                    if (surfaceTexture != null) {
+                        Log.d(TAG, "[CAMERAX] SurfaceTexture available, providing surface")
+                        surfaceTexture.setDefaultBufferSize(
+                            request.resolution.width,
+                            request.resolution.height
+                        )
+                        val surface = Surface(surfaceTexture)
+                        request.provideSurface(surface, ContextCompat.getMainExecutor(context)) { result ->
+                            Log.d(TAG, "[CAMERAX] Surface provided - result: ${result.resultCode}")
+                            surface.release()
+                        }
+                    } else {
+                        Log.e(TAG, "[CAMERAX] SurfaceTexture is null! Waiting for TextureView to be ready...")
+                        // Set listener for when SurfaceTexture becomes available
+                        textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                            override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
+                                Log.d(TAG, "[CAMERAX] SurfaceTexture now available ($width x $height)")
+                                st.setDefaultBufferSize(request.resolution.width, request.resolution.height)
+                                val surface = Surface(st)
+                                request.provideSurface(surface, ContextCompat.getMainExecutor(context)) { result ->
+                                    Log.d(TAG, "[CAMERAX] Surface provided (delayed) - result: ${result.resultCode}")
+                                    surface.release()
+                                }
+                            }
+
+                            override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+                            override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean = true
+                            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                        }
+                    }
+                }
 
                 Log.d(TAG, "[CAMERAX] SurfaceProvider set successfully")
             }
@@ -147,7 +184,7 @@ class CameraController(
 
             // Add ImageAnalysis after a short delay to avoid timeout
             if (detectionEnabled) {
-                previewView.post {
+                textureView.post {
                     try {
                         Log.d(TAG, "[CAMERAX] Adding ImageAnalysis...")
                         camera = cameraProvider.bindToLifecycle(
@@ -165,19 +202,6 @@ class CameraController(
             }
 
             Log.d(TAG, "[CAMERAX] Camera bound successfully")
-
-            // Monitor preview stream state
-            previewView.previewStreamState.observe(lifecycleOwner) { state ->
-                Log.d(TAG, "[CAMERAX] PreviewStreamState changed: $state")
-                when (state) {
-                    androidx.camera.view.PreviewView.StreamState.IDLE ->
-                        Log.w(TAG, "[CAMERAX] Preview stream is IDLE")
-                    androidx.camera.view.PreviewView.StreamState.STREAMING ->
-                        Log.d(TAG, "[CAMERAX] Preview stream is STREAMING ✓")
-                    else ->
-                        Log.d(TAG, "[CAMERAX] Preview stream state: $state")
-                }
-            }
 
         } catch (e: Exception) {
             Log.e(TAG, "[CAMERAX] Use case binding failed", e)
@@ -353,19 +377,17 @@ class CameraController(
     }
 
     fun refreshTransform() {
-        // CameraX handles transform automatically via PreviewView
-        // No manual matrix calculation needed!
-        Log.d(TAG, "[CAMERAX] Transform refresh requested - handled automatically by PreviewView")
+        // CameraX with TextureView - no manual transform needed
+        Log.d(TAG, "[CAMERAX] Transform refresh requested - handled automatically")
     }
 
-    // Simplified coordinate mapping - PreviewView handles most of the work
+    // Simplified coordinate mapping for TextureView
     fun mapRectangleToView(rectangle: Rectangle?, imageWidth: Int, imageHeight: Int): Rectangle? {
         if (rectangle == null || imageWidth <= 0 || imageHeight <= 0) return null
 
-        // CameraX PreviewView with FILL_CENTER handles scaling and centering
-        // We just need to scale the coordinates proportionally
-        val viewWidth = previewView.width.toFloat()
-        val viewHeight = previewView.height.toFloat()
+        // Simple proportional scaling for TextureView
+        val viewWidth = textureView.width.toFloat()
+        val viewHeight = textureView.height.toFloat()
 
         if (viewWidth <= 0 || viewHeight <= 0) return null
 
@@ -389,9 +411,9 @@ class CameraController(
     }
 
     fun getPreviewViewport(): android.graphics.RectF? {
-        // With CameraX PreviewView, the viewport is simply the view bounds
-        val width = previewView.width.toFloat()
-        val height = previewView.height.toFloat()
+        // With TextureView, the viewport is simply the view bounds
+        val width = textureView.width.toFloat()
+        val height = textureView.height.toFloat()
 
         if (width <= 0 || height <= 0) return null
 
