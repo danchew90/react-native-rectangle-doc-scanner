@@ -475,16 +475,15 @@ class CameraController(
         val centerY = viewHeight / 2f
 
         // Calculate rotation needed for portrait display
-        // The rotation is inverse of sensor orientation
-        // Sensor 0° = device held naturally shows landscape, need 270° to portrait
-        // Sensor 90° = device held naturally shows portrait, need 90° correction
-        // Sensor 270° = need 270° correction
+        // For back camera in portrait mode, we need to rotate counter-clockwise
+        // Sensor 0° = landscape sensor, need 270° (-90°) rotation
+        // Sensor 90° = portrait sensor, need 270° (-90°) rotation to correct
         val rotationDegrees = when (sensorOrientation) {
-            0 -> 270f    // Tablet case - sensor is landscape, rotate to portrait
-            90 -> 90f    // Most phones - sensor already portrait-ish, small correction
-            180 -> 180f
-            270 -> 270f
-            else -> 90f
+            0 -> 270f    // Tablet - landscape sensor
+            90 -> 270f   // Phone - portrait sensor but still needs 270° rotation
+            180 -> 90f   // Inverted
+            270 -> 90f   // Some rare devices
+            else -> 270f
         }
 
         Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
