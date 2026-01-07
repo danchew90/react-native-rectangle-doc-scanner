@@ -456,8 +456,8 @@ class CameraController(
         val centerY = viewHeight / 2f
 
         // Camera sensor is landscape (1440x1088), but we want portrait display
-        // Rotate 90 degrees clockwise to make it portrait
-        matrix.postRotate(90f, centerX, centerY)
+        // Rotate 270 degrees (or -90 degrees) to make it portrait with correct orientation
+        matrix.postRotate(270f, centerX, centerY)
 
         // After rotation, the buffer dimensions are swapped
         val rotatedBufferWidth = bufferHeight  // 1088
@@ -468,7 +468,7 @@ class CameraController(
         val scaleY = viewHeight.toFloat() / rotatedBufferHeight.toFloat()
         val scale = scaleX.coerceAtLeast(scaleY)  // Use max to fill
 
-        Log.d(TAG, "[TRANSFORM] ScaleX: $scaleX, ScaleY: $scaleY, Using: $scale")
+        Log.d(TAG, "[TRANSFORM] Rotation: 270°, ScaleX: $scaleX, ScaleY: $scaleY, Using: $scale")
 
         matrix.postScale(scale, scale, centerX, centerY)
 
