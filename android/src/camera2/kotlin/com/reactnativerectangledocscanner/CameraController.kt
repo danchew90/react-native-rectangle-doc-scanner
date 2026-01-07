@@ -491,8 +491,7 @@ class CameraController(
         Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
 
         if (rotationDegrees != 0f) {
-            // TextureView matrix rotation direction can be opposite of expectation on some devices.
-            matrix.postRotate(-rotationDegrees, centerX, centerY)
+            matrix.postRotate(rotationDegrees, centerX, centerY)
         }
 
         // After rotation, determine effective buffer size
