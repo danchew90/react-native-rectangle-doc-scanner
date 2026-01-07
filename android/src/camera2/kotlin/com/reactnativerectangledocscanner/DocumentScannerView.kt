@@ -25,6 +25,7 @@ import kotlinx.coroutines.delay
 import java.io.File
 import kotlin.math.min
 import kotlin.math.max
+import kotlin.math.hypot
 
 class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), LifecycleOwner {
     private val themedContext = context
@@ -58,6 +59,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     private var lastDetectedImageWidth = 0
     private var lastDetectedImageHeight = 0
     private var lastRectangleOnScreen: Rectangle? = null
+    private var lastSmoothedRectangleOnScreen: Rectangle? = null
 
     // Coroutine scope for async operations
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -215,17 +217,80 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         } else {
             null
         }
-        lastRectangleOnScreen = rectangleOnScreen
+        val smoothedRectangleOnScreen = smoothRectangle(rectangleOnScreen, width, height)
+        lastRectangleOnScreen = smoothedRectangleOnScreen
         val quality = when {
-            rectangleOnScreen != null && width > 0 && height > 0 ->
-                DocumentDetector.evaluateRectangleQualityInView(rectangleOnScreen, width, height)
+            smoothedRectangleOnScreen != null && width > 0 && height > 0 ->
+                DocumentDetector.evaluateRectangleQualityInView(smoothedRectangleOnScreen, width, height)
             rectangle != null -> DocumentDetector.evaluateRectangleQuality(rectangle, imageWidth, imageHeight)
             else -> RectangleQuality.TOO_FAR
         }
 
         post {
-            onRectangleDetected(rectangleOnScreen, rectangle, quality, imageWidth, imageHeight)
+            onRectangleDetected(smoothedRectangleOnScreen, rectangle, quality, imageWidth, imageHeight)
         }
+    }
+
+    private fun smoothRectangle(rectangle: Rectangle?, viewWidth: Int, viewHeight: Int): Rectangle? {
+        if (rectangle == null || viewWidth <= 0 || viewHeight <= 0) {
+            lastSmoothedRectangleOnScreen = null
+            return null
+        }
+
+        val prev = lastSmoothedRectangleOnScreen
+        if (prev == null) {
+            lastSmoothedRectangleOnScreen = rectangle
+            return rectangle
+        }
+
+        val minDim = min(viewWidth, viewHeight).toDouble()
+        val snapThreshold = max(12.0, minDim * 0.015)
+        val smoothThreshold = max(24.0, minDim * 0.06)
+        val maxCornerDistance = max(
+            maxCornerDistance(prev, rectangle),
+            maxCornerDistance(rectangle, prev)
+        )
+
+        val result = when {
+            maxCornerDistance <= snapThreshold -> prev
+            maxCornerDistance <= smoothThreshold -> blendRectangle(prev, rectangle, 0.35)
+            else -> rectangle
+        }
+
+        lastSmoothedRectangleOnScreen = result
+        return result
+    }
+
+    private fun maxCornerDistance(a: Rectangle, b: Rectangle): Double {
+        return max(
+            max(
+                distance(a.topLeft, b.topLeft),
+                distance(a.topRight, b.topRight)
+            ),
+            max(
+                distance(a.bottomLeft, b.bottomLeft),
+                distance(a.bottomRight, b.bottomRight)
+            )
+        )
+    }
+
+    private fun distance(p1: Point, p2: Point): Double {
+        return hypot(p1.x - p2.x, p1.y - p2.y)
+    }
+
+    private fun blendRectangle(a: Rectangle, b: Rectangle, t: Double): Rectangle {
+        fun lerp(p1: Point, p2: Point): Point {
+            val x = p1.x + (p2.x - p1.x) * t
+            val y = p1.y + (p2.y - p1.y) * t
+            return Point(x, y)
+        }
+
+        return Rectangle(
+            lerp(a.topLeft, b.topLeft),
+            lerp(a.topRight, b.topRight),
+            lerp(a.bottomLeft, b.bottomLeft),
+            lerp(a.bottomRight, b.bottomRight)
+        )
     }
 
     private fun onRectangleDetected(
