@@ -486,11 +486,7 @@ class CameraController(
         val centerY = viewHeight / 2f
 
         // Calculate rotation from buffer to display coordinates.
-        val rotationDegrees = if (useFrontCamera) {
-            ((displayRotationDegrees + sensorOrientation) % 360).toFloat()
-        } else {
-            ((displayRotationDegrees - sensorOrientation + 360) % 360).toFloat()
-        }
+        val rotationDegrees = ((sensorOrientation + displayRotationDegrees) % 360).toFloat()
 
         Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
 
