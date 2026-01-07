@@ -355,7 +355,22 @@ class CameraController(
         mlBox: android.graphics.Rect?
     ): Rectangle? {
         return try {
-            DocumentDetector.detectRectangleInYUV(nv21, width, height, rotation)
+            if (mlBox != null) {
+                val frameWidth = if (rotation == 90 || rotation == 270) height else width
+                val frameHeight = if (rotation == 90 || rotation == 270) width else height
+                val padX = (mlBox.width() * 0.15f).toInt().coerceAtLeast(24)
+                val padY = (mlBox.height() * 0.15f).toInt().coerceAtLeast(24)
+                val roi = android.graphics.Rect(
+                    (mlBox.left - padX).coerceAtLeast(0),
+                    (mlBox.top - padY).coerceAtLeast(0),
+                    (mlBox.right + padX).coerceAtMost(frameWidth),
+                    (mlBox.bottom + padY).coerceAtMost(frameHeight)
+                )
+                DocumentDetector.detectRectangleInYUVWithRoi(nv21, width, height, rotation, roi)
+                    ?: DocumentDetector.detectRectangleInYUV(nv21, width, height, rotation)
+            } else {
+                DocumentDetector.detectRectangleInYUV(nv21, width, height, rotation)
+            }
         } catch (e: Exception) {
             Log.w(TAG, "[CAMERAX] OpenCV detection failed", e)
             null
@@ -421,20 +436,24 @@ class CameraController(
     fun mapRectangleToView(rectangle: Rectangle?, imageWidth: Int, imageHeight: Int): Rectangle? {
         if (rectangle == null || imageWidth <= 0 || imageHeight <= 0) return null
 
-        // Simple proportional scaling for TextureView
+        // Fit-center scaling to avoid zoom/crop and keep mapping aligned with preview.
         val viewWidth = textureView.width.toFloat()
         val viewHeight = textureView.height.toFloat()
 
         if (viewWidth <= 0 || viewHeight <= 0) return null
 
-        // Simple proportional scaling
         val scaleX = viewWidth / imageWidth.toFloat()
         val scaleY = viewHeight / imageHeight.toFloat()
+        val scale = scaleX.coerceAtMost(scaleY)
+        val scaledWidth = imageWidth * scale
+        val scaledHeight = imageHeight * scale
+        val offsetX = (viewWidth - scaledWidth) / 2f
+        val offsetY = (viewHeight - scaledHeight) / 2f
 
         fun scalePoint(point: org.opencv.core.Point): org.opencv.core.Point {
             return org.opencv.core.Point(
-                point.x * scaleX,
-                point.y * scaleY
+                point.x * scale + offsetX,
+                point.y * scale + offsetY
             )
         }
 
@@ -509,10 +528,10 @@ class CameraController(
             bufferHeight
         }
 
-        // Scale to fill the view while maintaining aspect ratio
+        // Scale to fit within the view while maintaining aspect ratio (no zoom/crop)
         val scaleX = viewWidth.toFloat() / rotatedBufferWidth.toFloat()
         val scaleY = viewHeight.toFloat() / rotatedBufferHeight.toFloat()
-        val scale = scaleX.coerceAtLeast(scaleY)  // Use max to fill
+        val scale = scaleX.coerceAtMost(scaleY)  // Use min to fit
 
         Log.d(TAG, "[TRANSFORM] Rotated buffer: ${rotatedBufferWidth}x${rotatedBufferHeight}, ScaleX: $scaleX, ScaleY: $scaleY, Using: $scale")
 

@@ -421,19 +421,19 @@ class DocumentDetector {
                 return rectangle
             }
 
-            val scale = max(
+            val scale = min(
                 viewWidth.toDouble() / imageWidth.toDouble(),
                 viewHeight.toDouble() / imageHeight.toDouble()
             )
 
             val scaledImageWidth = imageWidth * scale
             val scaledImageHeight = imageHeight * scale
-            val offsetX = (scaledImageWidth - viewWidth) / 2.0
-            val offsetY = (scaledImageHeight - viewHeight) / 2.0
+            val offsetX = (viewWidth - scaledImageWidth) / 2.0
+            val offsetY = (viewHeight - scaledImageHeight) / 2.0
 
             fun mapPoint(point: Point): Point {
-                val x = (point.x * scale) - offsetX
-                val y = (point.y * scale) - offsetY
+                val x = (point.x * scale) + offsetX
+                val y = (point.y * scale) + offsetY
                 return Point(
                     x.coerceIn(0.0, viewWidth.toDouble()),
                     y.coerceIn(0.0, viewHeight.toDouble())

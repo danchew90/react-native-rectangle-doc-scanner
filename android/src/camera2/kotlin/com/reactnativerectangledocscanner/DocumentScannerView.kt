@@ -684,18 +684,18 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         if (viewWidth == 0 || viewHeight == 0 || imageWidth == 0 || imageHeight == 0) {
             return rectangle
         }
-        val scale = max(
+        val scale = min(
             viewWidth.toDouble() / imageWidth.toDouble(),
             viewHeight.toDouble() / imageHeight.toDouble()
         )
         val scaledImageWidth = imageWidth.toDouble() * scale
         val scaledImageHeight = imageHeight.toDouble() * scale
-        val offsetX = (scaledImageWidth - viewWidth) / 2.0
-        val offsetY = (scaledImageHeight - viewHeight) / 2.0
+        val offsetX = (viewWidth - scaledImageWidth) / 2.0
+        val offsetY = (viewHeight - scaledImageHeight) / 2.0
 
         fun mapPoint(point: Point): Point {
-            val x = (point.x + offsetX) / scale
-            val y = (point.y + offsetY) / scale
+            val x = (point.x - offsetX) / scale
+            val y = (point.y - offsetY) / scale
             return Point(
                 x.coerceIn(0.0, imageWidth.toDouble()),
                 y.coerceIn(0.0, imageHeight.toDouble())
