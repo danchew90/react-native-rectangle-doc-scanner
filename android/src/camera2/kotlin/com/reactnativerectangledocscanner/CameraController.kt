@@ -442,7 +442,12 @@ class CameraController(
 
         if (viewWidth <= 0 || viewHeight <= 0) return null
 
-        // Get sensor orientation to match transform rotation
+        // The image coordinates are in camera sensor space. We need to transform them
+        // to match how the TextureView displays the image (after rotation/scaling).
+
+        // CameraX provides images in sensor orientation. For a 90° sensor (most phones),
+        // the image is rotated 90° relative to natural portrait. We must rotate coordinates
+        // to match the final display orientation.
         val sensorOrientation = getCameraSensorOrientation()
         val displayRotationDegrees = when (textureView.display?.rotation ?: Surface.ROTATION_0) {
             Surface.ROTATION_0 -> 0
@@ -452,10 +457,21 @@ class CameraController(
             else -> 0
         }
 
-        val tabletUpsideDownFix = if (sensorOrientation == 0 && displayRotationDegrees == 90) 180 else 0
-        val rotationDegrees = ((displayRotationDegrees + tabletUpsideDownFix) % 360).toFloat()
+        // Calculate the rotation needed to display the image correctly in portrait mode.
+        // This must match the rotation applied in updateTextureViewTransform.
+        val rotationDegrees = when {
+            // Tablet with landscape sensor in portrait: add 180° fix for upside-down
+            sensorOrientation == 0 && displayRotationDegrees == 90 -> 270f
+            // Phone with 90° sensor in portrait: rotate 90° to match
+            sensorOrientation == 90 && displayRotationDegrees == 0 -> 90f
+            // Default: use display rotation
+            else -> displayRotationDegrees.toFloat()
+        }
 
-        // First, apply rotation to point coordinates
+        Log.d(TAG, "[MAPPING] Image: ${imageWidth}x${imageHeight}, Sensor: ${sensorOrientation}°, " +
+            "Display: ${displayRotationDegrees}°, Final rotation: ${rotationDegrees}°")
+
+        // Apply rotation to coordinates to match display orientation
         fun rotatePoint(point: org.opencv.core.Point): org.opencv.core.Point {
             return when (rotationDegrees.toInt()) {
                 90 -> org.opencv.core.Point(
@@ -474,7 +490,7 @@ class CameraController(
             }
         }
 
-        // Determine rotated dimensions (same as transform)
+        // Determine dimensions after rotation
         val rotatedImageWidth = if (rotationDegrees == 90f || rotationDegrees == 270f) {
             imageHeight
         } else {
@@ -486,17 +502,17 @@ class CameraController(
             imageHeight
         }
 
-        // Use same fit-scaling as transform
+        // Calculate scaling to fit the rotated image into the view (matching transform)
         val scaleX = viewWidth / rotatedImageWidth.toFloat()
         val scaleY = viewHeight / rotatedImageHeight.toFloat()
-        val scale = scaleX.coerceAtMost(scaleY)  // Fit (not fill)
+        val scale = scaleX.coerceAtMost(scaleY)  // Fit (preserve aspect ratio)
 
         val scaledWidth = rotatedImageWidth * scale
         val scaledHeight = rotatedImageHeight * scale
         val offsetX = (viewWidth - scaledWidth) / 2f
         val offsetY = (viewHeight - scaledHeight) / 2f
 
-        // Apply rotation first, then scale and offset
+        // Transform coordinates: rotate first, then scale and center
         fun transformPoint(point: org.opencv.core.Point): org.opencv.core.Point {
             val rotated = rotatePoint(point)
             return org.opencv.core.Point(
@@ -505,12 +521,17 @@ class CameraController(
             )
         }
 
-        return Rectangle(
+        val result = Rectangle(
             transformPoint(rectangle.topLeft),
             transformPoint(rectangle.topRight),
             transformPoint(rectangle.bottomLeft),
             transformPoint(rectangle.bottomRight)
         )
+
+        Log.d(TAG, "[MAPPING] Original TL: (${rectangle.topLeft.x}, ${rectangle.topLeft.y}) → " +
+            "Transformed: (${result.topLeft.x}, ${result.topLeft.y})")
+
+        return result
     }
 
     fun getPreviewViewport(): android.graphics.RectF? {
@@ -550,10 +571,17 @@ class CameraController(
         val centerY = viewHeight / 2f
 
         // Calculate rotation from buffer to display coordinates.
-        // CameraX accounts for sensor orientation via targetRotation. Some tablets with landscape
-        // sensors report Display 90 in portrait but render upside down; add a 180° fix for that case.
-        val tabletUpsideDownFix = if (sensorOrientation == 0 && displayRotationDegrees == 90) 180 else 0
-        val rotationDegrees = ((displayRotationDegrees + tabletUpsideDownFix) % 360).toFloat()
+        // For portrait apps:
+        // - 90° sensor (phones): buffer is landscape → need 90° rotation to portrait
+        // - 0° sensor (tablets): buffer is portrait → need displayRotation adjustment
+        val rotationDegrees = when {
+            // Tablet with landscape sensor in portrait: add 180° fix for upside-down
+            sensorOrientation == 0 && displayRotationDegrees == 90 -> 270f
+            // Phone with 90° sensor in portrait: rotate 90° to match
+            sensorOrientation == 90 && displayRotationDegrees == 0 -> 90f
+            // Default: use display rotation
+            else -> displayRotationDegrees.toFloat()
+        }
 
         Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
 
