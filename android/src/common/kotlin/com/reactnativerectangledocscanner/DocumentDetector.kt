@@ -355,7 +355,7 @@ class DocumentDetector {
                             TAG,
                             "[DEBUG] cannyLow=$cannyLow cannyHigh=$cannyHigh " +
                                 "contours=${debugStats.contours} candidates=${debugStats.candidates} " +
-                                "bestScore=${String.format(\"%.1f\", debugStats.bestScore)} " +
+                                "bestScore=${String.format("%.1f", debugStats.bestScore)} " +
                                 "hasRect=${rectangle != null}"
                         )
                     }
