@@ -467,23 +467,29 @@ class CameraController(
 
         // Get sensor orientation to determine correct rotation
         val sensorOrientation = getCameraSensorOrientation()
+        val displayRotationDegrees = when (textureView.display?.rotation ?: Surface.ROTATION_0) {
+            Surface.ROTATION_0 -> 0
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
 
-        Log.d(TAG, "[TRANSFORM] View: ${viewWidth}x${viewHeight}, Buffer: ${bufferWidth}x${bufferHeight}, Sensor: ${sensorOrientation}°")
+        Log.d(
+            TAG,
+            "[TRANSFORM] View: ${viewWidth}x${viewHeight}, Buffer: ${bufferWidth}x${bufferHeight}, " +
+                "Sensor: ${sensorOrientation}°, Display: ${displayRotationDegrees}°"
+        )
 
         val matrix = android.graphics.Matrix()
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
-        // Calculate rotation needed for portrait display
-        // For back camera in portrait mode, we need to rotate counter-clockwise
-        // Sensor 0° = landscape sensor, need 270° (-90°) rotation
-        // Sensor 90° = portrait sensor, need 270° (-90°) rotation to correct
-        val rotationDegrees = when (sensorOrientation) {
-            0 -> 270f    // Tablet - landscape sensor
-            90 -> 270f   // Phone - portrait sensor but still needs 270° rotation
-            180 -> 90f   // Inverted
-            270 -> 90f   // Some rare devices
-            else -> 270f
+        // Calculate rotation from buffer to display coordinates.
+        val rotationDegrees = if (useFrontCamera) {
+            ((sensorOrientation + displayRotationDegrees) % 360).toFloat()
+        } else {
+            ((sensorOrientation - displayRotationDegrees + 360) % 360).toFloat()
         }
 
         Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
