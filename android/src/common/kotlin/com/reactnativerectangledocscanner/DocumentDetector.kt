@@ -174,7 +174,6 @@ class DocumentDetector {
                 val clahe = Imgproc.createCLAHE()
                 clahe.clipLimit = 2.5
                 clahe.apply(grayMat, grayMat)
-                clahe.release()
 
                 // Apply a light blur to reduce noise without killing small edges.
                 Imgproc.GaussianBlur(grayMat, blurredMat, Size(5.0, 5.0), 0.0)
