@@ -2,6 +2,8 @@ package com.reactnativerectangledocscanner
 
 import android.content.Context
 import android.graphics.SurfaceTexture
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.util.Log
 import android.util.Size
 import android.view.Surface
@@ -51,6 +53,20 @@ class CameraController(
     companion object {
         private const val TAG = "CameraController"
         private const val ANALYSIS_TARGET_RESOLUTION = 1280 // Max dimension for analysis
+    }
+
+    private fun getCameraSensorOrientation(): Int {
+        return try {
+            val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val cameraId = if (useFrontCamera) "1" else "0"
+            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+            val sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+            Log.d(TAG, "[SENSOR] Camera $cameraId sensor orientation: $sensorOrientation")
+            sensorOrientation
+        } catch (e: Exception) {
+            Log.e(TAG, "[SENSOR] Failed to get sensor orientation", e)
+            90 // Default to 90 for most devices
+        }
     }
 
     private data class PendingCapture(
@@ -449,26 +465,50 @@ class CameraController(
             return
         }
 
-        Log.d(TAG, "[TRANSFORM] View: ${viewWidth}x${viewHeight}, Buffer: ${bufferWidth}x${bufferHeight}")
+        // Get sensor orientation to determine correct rotation
+        val sensorOrientation = getCameraSensorOrientation()
+
+        Log.d(TAG, "[TRANSFORM] View: ${viewWidth}x${viewHeight}, Buffer: ${bufferWidth}x${bufferHeight}, Sensor: ${sensorOrientation}°")
 
         val matrix = android.graphics.Matrix()
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
-        // Camera sensor is landscape (1440x1088), but we want portrait display
-        // Rotate 270 degrees (or -90 degrees) to make it portrait with correct orientation
-        matrix.postRotate(270f, centerX, centerY)
+        // Calculate rotation needed
+        // Sensor orientation 90° = needs 270° rotation (or -90°)
+        // Sensor orientation 270° = needs 90° rotation
+        val rotationDegrees = when (sensorOrientation) {
+            0 -> 0f
+            90 -> 270f   // Most common for back camera
+            180 -> 180f
+            270 -> 90f   // Some devices
+            else -> 270f
+        }
 
-        // After rotation, the buffer dimensions are swapped
-        val rotatedBufferWidth = bufferHeight  // 1088
-        val rotatedBufferHeight = bufferWidth  // 1440
+        Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
+
+        if (rotationDegrees != 0f) {
+            matrix.postRotate(rotationDegrees, centerX, centerY)
+        }
+
+        // After rotation, determine effective buffer size
+        val rotatedBufferWidth = if (rotationDegrees == 90f || rotationDegrees == 270f) {
+            bufferHeight
+        } else {
+            bufferWidth
+        }
+        val rotatedBufferHeight = if (rotationDegrees == 90f || rotationDegrees == 270f) {
+            bufferWidth
+        } else {
+            bufferHeight
+        }
 
         // Scale to fill the view while maintaining aspect ratio
         val scaleX = viewWidth.toFloat() / rotatedBufferWidth.toFloat()
         val scaleY = viewHeight.toFloat() / rotatedBufferHeight.toFloat()
         val scale = scaleX.coerceAtLeast(scaleY)  // Use max to fill
 
-        Log.d(TAG, "[TRANSFORM] Rotation: 270°, ScaleX: $scaleX, ScaleY: $scaleY, Using: $scale")
+        Log.d(TAG, "[TRANSFORM] Rotated buffer: ${rotatedBufferWidth}x${rotatedBufferHeight}, ScaleX: $scaleX, ScaleY: $scaleY, Using: $scale")
 
         matrix.postScale(scale, scale, centerX, centerY)
 
