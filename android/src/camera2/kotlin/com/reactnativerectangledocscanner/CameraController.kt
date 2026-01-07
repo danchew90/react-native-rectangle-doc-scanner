@@ -104,28 +104,8 @@ class CameraController(
             .also { previewUseCase ->
                 Log.d(TAG, "[CAMERAX] Setting SurfaceProvider...")
 
-                // Set surface provider with custom executor to see when surface is requested
-                previewUseCase.setSurfaceProvider(ContextCompat.getMainExecutor(context)) { request ->
-                    Log.d(TAG, "[CAMERAX] ===== SURFACE REQUESTED =====")
-                    Log.d(TAG, "[CAMERAX] Surface resolution: ${request.resolution}")
-                    Log.d(TAG, "[CAMERAX] Surface camera: ${request.camera}")
-
-                    // Get the surface from PreviewView and provide it to the request
-                    val surfaceTexture = (previewView.getChildAt(0) as? android.view.TextureView)?.surfaceTexture
-                    if (surfaceTexture != null) {
-                        Log.d(TAG, "[CAMERAX] Got SurfaceTexture from PreviewView")
-                        surfaceTexture.setDefaultBufferSize(request.resolution.width, request.resolution.height)
-                        val surface = android.view.Surface(surfaceTexture)
-                        request.provideSurface(surface, ContextCompat.getMainExecutor(context)) { result ->
-                            Log.d(TAG, "[CAMERAX] Surface result: ${result.resultCode}")
-                            surface.release()
-                        }
-                    } else {
-                        Log.e(TAG, "[CAMERAX] Failed to get SurfaceTexture - using default provider")
-                        // Fallback to default behavior
-                        previewView.surfaceProvider.onSurfaceRequested(request)
-                    }
-                }
+                // Use PreviewView's default SurfaceProvider
+                previewUseCase.setSurfaceProvider(ContextCompat.getMainExecutor(context), previewView.surfaceProvider)
 
                 Log.d(TAG, "[CAMERAX] SurfaceProvider set successfully")
             }
