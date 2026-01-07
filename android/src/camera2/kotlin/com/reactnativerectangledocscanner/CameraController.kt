@@ -125,6 +125,15 @@ class CameraController(
                         val surface = Surface(surfaceTexture)
                         request.provideSurface(surface, ContextCompat.getMainExecutor(context)) { result ->
                             Log.d(TAG, "[CAMERAX] Surface provided - result: ${result.resultCode}")
+
+                            // Apply transform to correct orientation
+                            textureView.post {
+                                updateTextureViewTransform(
+                                    request.resolution.width,
+                                    request.resolution.height
+                                )
+                            }
+
                             surface.release()
                         }
                     } else {
@@ -137,6 +146,15 @@ class CameraController(
                                 val surface = Surface(st)
                                 request.provideSurface(surface, ContextCompat.getMainExecutor(context)) { result ->
                                     Log.d(TAG, "[CAMERAX] Surface provided (delayed) - result: ${result.resultCode}")
+
+                                    // Apply transform to correct orientation
+                                    textureView.post {
+                                        updateTextureViewTransform(
+                                            request.resolution.width,
+                                            request.resolution.height
+                                        )
+                                    }
+
                                     surface.release()
                                 }
                             }
@@ -424,5 +442,41 @@ class CameraController(
         if (width <= 0 || height <= 0) return null
 
         return android.graphics.RectF(0f, 0f, width, height)
+    }
+
+    private fun updateTextureViewTransform(bufferWidth: Int, bufferHeight: Int) {
+        val viewWidth = textureView.width
+        val viewHeight = textureView.height
+
+        if (viewWidth == 0 || viewHeight == 0) {
+            Log.w(TAG, "[TRANSFORM] View size is 0, skipping transform")
+            return
+        }
+
+        Log.d(TAG, "[TRANSFORM] View: ${viewWidth}x${viewHeight}, Buffer: ${bufferWidth}x${bufferHeight}")
+
+        val matrix = android.graphics.Matrix()
+        val centerX = viewWidth / 2f
+        val centerY = viewHeight / 2f
+
+        // Camera sensor is landscape (1440x1088), but we want portrait display
+        // Rotate 90 degrees clockwise to make it portrait
+        matrix.postRotate(90f, centerX, centerY)
+
+        // After rotation, the buffer dimensions are swapped
+        val rotatedBufferWidth = bufferHeight  // 1088
+        val rotatedBufferHeight = bufferWidth  // 1440
+
+        // Scale to fill the view while maintaining aspect ratio
+        val scaleX = viewWidth.toFloat() / rotatedBufferWidth.toFloat()
+        val scaleY = viewHeight.toFloat() / rotatedBufferHeight.toFloat()
+        val scale = scaleX.coerceAtLeast(scaleY)  // Use max to fill
+
+        Log.d(TAG, "[TRANSFORM] ScaleX: $scaleX, ScaleY: $scaleY, Using: $scale")
+
+        matrix.postScale(scale, scale, centerX, centerY)
+
+        textureView.setTransform(matrix)
+        Log.d(TAG, "[TRANSFORM] Transform applied successfully")
     }
 }
