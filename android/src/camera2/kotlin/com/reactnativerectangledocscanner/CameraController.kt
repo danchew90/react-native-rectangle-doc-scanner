@@ -101,8 +101,12 @@ class CameraController(
         Log.d(TAG, "[CAMERAX] TextureView visibility: ${textureView.visibility}")
         Log.d(TAG, "[CAMERAX] TextureView isAvailable: ${textureView.isAvailable}")
 
+        // Force portrait orientation (app is portrait-only)
+        val targetRotation = android.view.Surface.ROTATION_0
+        Log.d(TAG, "[CAMERAX] Setting target rotation to ROTATION_0 (portrait-only app)")
+
         preview = Preview.Builder()
-            .setTargetResolution(android.util.Size(1920, 1080))  // 16:9 resolution
+            .setTargetRotation(targetRotation)  // Force portrait
             .build()
             .also { previewUseCase ->
                 Log.d(TAG, "[CAMERAX] Setting SurfaceProvider for TextureView...")
@@ -151,6 +155,7 @@ class CameraController(
         imageAnalyzer = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setTargetResolution(android.util.Size(1280, 960))  // Limit resolution for analysis
+            .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
             .also {
                 it.setAnalyzer(cameraExecutor) { imageProxy ->
@@ -165,6 +170,7 @@ class CameraController(
         // ImageCapture UseCase
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
 
         try {
