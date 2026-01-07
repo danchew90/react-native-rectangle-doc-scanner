@@ -285,15 +285,24 @@ class DocumentDetector {
 
                         if (quad.total() == 4L && Imgproc.isContourConvex(MatOfPoint(*quad.toArray()))) {
                             val points = quad.toArray()
+                            val ordered = orderPoints(points)
                             val rect = Imgproc.minAreaRect(MatOfPoint2f(*points))
                             val rectArea = rect.size.area()
                             val rectangularity = if (rectArea > 1.0) contourArea / rectArea else 0.0
-                            if (rectangularity >= 0.6) {
+                            if (rectangularity >= 0.6 && isCandidateValid(ordered, srcMat)) {
                                 debugStats.candidates += 1
                                 val score = contourArea * rectangularity
                                 if (score > bestScore) {
+                                    val width = distance(ordered.topLeft, ordered.topRight)
+                                    val height = distance(ordered.topLeft, ordered.bottomLeft)
+                                    val aspect = if (height > 0.0) width / height else 0.0
                                     bestScore = score
-                                    largestRectangle = refineRectangle(grayMat, orderPoints(points))
+                                    debugStats.bestArea = contourArea
+                                    debugStats.bestRectangularity = rectangularity
+                                    debugStats.bestWidth = width
+                                    debugStats.bestHeight = height
+                                    debugStats.bestAspect = aspect
+                                    largestRectangle = refineRectangle(grayMat, ordered)
                                 }
                             }
                         } else {
@@ -308,10 +317,22 @@ class DocumentDetector {
                                     debugStats.candidates += 1
                                     val boxPoints = Array(4) { Point() }
                                     rotated.points(boxPoints)
+                                    val ordered = orderPoints(boxPoints)
+                                    if (!isCandidateValid(ordered, srcMat)) {
+                                        continue
+                                    }
                                     val score = contourArea * rectangularity
                                     if (score > bestScore) {
+                                        val width = distance(ordered.topLeft, ordered.topRight)
+                                        val height = distance(ordered.topLeft, ordered.bottomLeft)
+                                        val aspect = if (height > 0.0) width / height else 0.0
                                         bestScore = score
-                                        largestRectangle = refineRectangle(grayMat, orderPoints(boxPoints))
+                                        debugStats.bestArea = contourArea
+                                        debugStats.bestRectangularity = rectangularity
+                                        debugStats.bestWidth = width
+                                        debugStats.bestHeight = height
+                                        debugStats.bestAspect = aspect
+                                        largestRectangle = refineRectangle(grayMat, ordered)
                                     }
                                 }
                             }
@@ -356,6 +377,11 @@ class DocumentDetector {
                             "[DEBUG] cannyLow=$cannyLow cannyHigh=$cannyHigh " +
                                 "contours=${debugStats.contours} candidates=${debugStats.candidates} " +
                                 "bestScore=${String.format("%.1f", debugStats.bestScore)} " +
+                                "bestArea=${String.format("%.1f", debugStats.bestArea)} " +
+                                "bestRect=${String.format("%.2f", debugStats.bestRectangularity)} " +
+                                "bestW=${String.format("%.1f", debugStats.bestWidth)} " +
+                                "bestH=${String.format("%.1f", debugStats.bestHeight)} " +
+                                "bestAspect=${String.format("%.2f", debugStats.bestAspect)} " +
                                 "hasRect=${rectangle != null}"
                         )
                     }
@@ -374,7 +400,12 @@ class DocumentDetector {
         private data class DebugStats(
             var contours: Int = 0,
             var candidates: Int = 0,
-            var bestScore: Double = 0.0
+            var bestScore: Double = 0.0,
+            var bestArea: Double = 0.0,
+            var bestRectangularity: Double = 0.0,
+            var bestWidth: Double = 0.0,
+            var bestHeight: Double = 0.0,
+            var bestAspect: Double = 0.0
         )
 
         /**
@@ -391,6 +422,21 @@ class DocumentDetector {
             val bottomLeft = sortedByDiff.last()
 
             return Rectangle(topLeft, topRight, bottomLeft, bottomRight)
+        }
+
+        private fun isCandidateValid(rectangle: Rectangle, srcMat: Mat): Boolean {
+            val width = distance(rectangle.topLeft, rectangle.topRight)
+            val height = distance(rectangle.topLeft, rectangle.bottomLeft)
+            val minDim = min(srcMat.cols(), srcMat.rows()).toDouble()
+            val minEdge = max(60.0, minDim * 0.08)
+            if (width < minEdge || height < minEdge) {
+                return false
+            }
+            val aspect = if (height > 0) width / height else 0.0
+            if (aspect < 0.45 || aspect > 2.8) {
+                return false
+            }
+            return true
         }
 
         /**
@@ -437,7 +483,7 @@ class DocumentDetector {
             }
 
             val minDim = kotlin.math.min(viewWidth.toDouble(), viewHeight.toDouble())
-            val angleThreshold = max(90.0, minDim * 0.12)
+            val angleThreshold = max(140.0, minDim * 0.18)
 
             val topYDiff = abs(rectangle.topRight.y - rectangle.topLeft.y)
             val bottomYDiff = abs(rectangle.bottomLeft.y - rectangle.bottomRight.y)
@@ -448,7 +494,7 @@ class DocumentDetector {
                 return RectangleQuality.BAD_ANGLE
             }
 
-            val margin = max(80.0, minDim * 0.08)
+            val margin = max(50.0, minDim * 0.05)
             if (rectangle.topLeft.y > margin ||
                 rectangle.topRight.y > margin ||
                 rectangle.bottomLeft.y < (viewHeight - margin) ||

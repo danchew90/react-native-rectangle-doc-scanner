@@ -433,36 +433,83 @@ class CameraController(
         Log.d(TAG, "[CAMERAX] Transform refresh requested - handled automatically")
     }
 
-    // Simplified coordinate mapping for TextureView
+    // Coordinate mapping aligned with TextureView transform
     fun mapRectangleToView(rectangle: Rectangle?, imageWidth: Int, imageHeight: Int): Rectangle? {
         if (rectangle == null || imageWidth <= 0 || imageHeight <= 0) return null
 
-        // Fit-center scaling to avoid zoom/crop and keep mapping aligned with preview.
         val viewWidth = textureView.width.toFloat()
         val viewHeight = textureView.height.toFloat()
 
         if (viewWidth <= 0 || viewHeight <= 0) return null
 
-        val scaleX = viewWidth / imageWidth.toFloat()
-        val scaleY = viewHeight / imageHeight.toFloat()
-        val scale = scaleX.coerceAtMost(scaleY)
-        val scaledWidth = imageWidth * scale
-        val scaledHeight = imageHeight * scale
+        // Get sensor orientation to match transform rotation
+        val sensorOrientation = getCameraSensorOrientation()
+        val displayRotationDegrees = when (textureView.display?.rotation ?: Surface.ROTATION_0) {
+            Surface.ROTATION_0 -> 0
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+
+        val tabletUpsideDownFix = if (sensorOrientation == 0 && displayRotationDegrees == 90) 180 else 0
+        val rotationDegrees = ((displayRotationDegrees + tabletUpsideDownFix) % 360).toFloat()
+
+        // First, apply rotation to point coordinates
+        fun rotatePoint(point: org.opencv.core.Point): org.opencv.core.Point {
+            return when (rotationDegrees.toInt()) {
+                90 -> org.opencv.core.Point(
+                    imageHeight - point.y,
+                    point.x
+                )
+                180 -> org.opencv.core.Point(
+                    imageWidth - point.x,
+                    imageHeight - point.y
+                )
+                270 -> org.opencv.core.Point(
+                    point.y,
+                    imageWidth - point.x
+                )
+                else -> point  // 0 degrees, no rotation
+            }
+        }
+
+        // Determine rotated dimensions (same as transform)
+        val rotatedImageWidth = if (rotationDegrees == 90f || rotationDegrees == 270f) {
+            imageHeight
+        } else {
+            imageWidth
+        }
+        val rotatedImageHeight = if (rotationDegrees == 90f || rotationDegrees == 270f) {
+            imageWidth
+        } else {
+            imageHeight
+        }
+
+        // Use same fit-scaling as transform
+        val scaleX = viewWidth / rotatedImageWidth.toFloat()
+        val scaleY = viewHeight / rotatedImageHeight.toFloat()
+        val scale = scaleX.coerceAtMost(scaleY)  // Fit (not fill)
+
+        val scaledWidth = rotatedImageWidth * scale
+        val scaledHeight = rotatedImageHeight * scale
         val offsetX = (viewWidth - scaledWidth) / 2f
         val offsetY = (viewHeight - scaledHeight) / 2f
 
-        fun scalePoint(point: org.opencv.core.Point): org.opencv.core.Point {
+        // Apply rotation first, then scale and offset
+        fun transformPoint(point: org.opencv.core.Point): org.opencv.core.Point {
+            val rotated = rotatePoint(point)
             return org.opencv.core.Point(
-                point.x * scale + offsetX,
-                point.y * scale + offsetY
+                rotated.x * scale + offsetX,
+                rotated.y * scale + offsetY
             )
         }
 
         return Rectangle(
-            scalePoint(rectangle.topLeft),
-            scalePoint(rectangle.topRight),
-            scalePoint(rectangle.bottomLeft),
-            scalePoint(rectangle.bottomRight)
+            transformPoint(rectangle.topLeft),
+            transformPoint(rectangle.topRight),
+            transformPoint(rectangle.bottomLeft),
+            transformPoint(rectangle.bottomRight)
         )
     }
 
