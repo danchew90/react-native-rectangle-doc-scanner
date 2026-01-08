@@ -616,7 +616,7 @@ const VisionCameraScanner = forwardRef<DocScannerHandle, Props>(
             color={gridColor ?? overlayColor}
             lineWidth={gridLineWidth}
             polygon={overlayPolygon}
-            clipRect={detectedRectangle?.previewViewport ?? null}
+            clipRect={Platform.OS === 'android' ? null : (detectedRectangle?.previewViewport ?? null)}
           />
         )}
         {showManualCaptureButton && (
@@ -896,6 +896,7 @@ const NativeScanner = forwardRef<DocScannerHandle, Props>(
 
         if (
           Platform.OS === 'android' &&
+          !rectangleOnScreen &&
           rectangleCoordinates &&
           event.imageSize &&
           event.previewSize &&
@@ -1017,7 +1018,7 @@ const NativeScanner = forwardRef<DocScannerHandle, Props>(
             color={gridColor ?? overlayColor}
             lineWidth={gridLineWidth}
             polygon={overlayPolygon}
-            clipRect={detectedRectangle?.previewViewport ?? null}
+            clipRect={Platform.OS === 'android' ? null : (detectedRectangle?.previewViewport ?? null)}
           />
         )}
         {showManualCaptureButton && (

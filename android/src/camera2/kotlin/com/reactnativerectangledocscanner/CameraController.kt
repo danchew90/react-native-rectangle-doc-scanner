@@ -387,18 +387,30 @@ class CameraController(
         mlBox: android.graphics.Rect?
     ): Rectangle? {
         return try {
-            if (mlBox != null) {
-                val frameWidth = if (rotation == 90 || rotation == 270) height else width
-                val frameHeight = if (rotation == 90 || rotation == 270) width else height
-                val padX = (mlBox.width() * 0.25f).toInt().coerceAtLeast(32)
-                val padY = (mlBox.height() * 0.25f).toInt().coerceAtLeast(32)
-                val roi = android.graphics.Rect(
-                    (mlBox.left - padX).coerceAtLeast(0),
-                    (mlBox.top - padY).coerceAtLeast(0),
-                    (mlBox.right + padX).coerceAtMost(frameWidth),
-                    (mlBox.bottom + padY).coerceAtMost(frameHeight)
-                )
-                DocumentDetector.detectRectangleInYUVWithRoi(nv21, width, height, rotation, roi)
+            val frameWidth = if (rotation == 90 || rotation == 270) height else width
+            val frameHeight = if (rotation == 90 || rotation == 270) width else height
+            val frameArea = frameWidth.toLong() * frameHeight.toLong()
+            val roiRect = mlBox?.let { box ->
+                val boxArea = box.width().toLong() * box.height().toLong()
+                val aspect = if (box.height() > 0) box.width().toDouble() / box.height().toDouble() else 0.0
+                val isValidSize = boxArea >= (frameArea * 0.08)
+                val isValidAspect = aspect in 0.4..2.5
+                if (!isValidSize || !isValidAspect) {
+                    null
+                } else {
+                    val padX = (box.width() * 0.25f).toInt().coerceAtLeast(32)
+                    val padY = (box.height() * 0.25f).toInt().coerceAtLeast(32)
+                    android.graphics.Rect(
+                        (box.left - padX).coerceAtLeast(0),
+                        (box.top - padY).coerceAtLeast(0),
+                        (box.right + padX).coerceAtMost(frameWidth),
+                        (box.bottom + padY).coerceAtMost(frameHeight)
+                    )
+                }
+            }
+
+            if (roiRect != null) {
+                DocumentDetector.detectRectangleInYUVWithRoi(nv21, width, height, rotation, roiRect)
                     ?: DocumentDetector.detectRectangleInYUV(nv21, width, height, rotation)
             } else {
                 DocumentDetector.detectRectangleInYUV(nv21, width, height, rotation)
