@@ -457,18 +457,22 @@ class CameraController(
             else -> 0
         }
 
-        // The TextureView transform handles display rotation, but the coordinates coming from
-        // ImageAnalysis are in the sensor's native orientation. We need to map those sensor-space
-        // coordinates to the final display orientation that the user sees.
+        // The coordinates coming from ImageAnalysis are in sensor's native orientation.
+        // For a 90° sensor (phones in portrait), the camera buffer is landscape but coordinates
+        // are in sensor space. We need to rotate coordinates to match the display orientation.
 
-        // For coordinate mapping, we need to account for how the image was rotated by the TextureView.
-        // The TextureView applies: displayRotation + tabletFix
+        // The TextureView rotation for display
         val tabletUpsideDownFix = if (sensorOrientation == 0 && displayRotationDegrees == 90) 180 else 0
         val textureViewRotation = ((displayRotationDegrees + tabletUpsideDownFix) % 360).toFloat()
 
-        // But the image analysis coordinates are in sensor orientation. So we need to apply
-        // the SAME rotation that the TextureView applies to align coordinates with display.
-        val rotationDegrees = textureViewRotation
+        // For coordinate mapping: we need to account for BOTH sensor orientation AND display rotation
+        // - Sensor 90° + Display 0°: Coordinates are in landscape sensor space, need 90° rotation to portrait
+        // - Sensor 0° + Display 90°: Coordinates are in portrait, need 270° rotation (display + fix)
+        val rotationDegrees = if (sensorOrientation == 90 && displayRotationDegrees == 0) {
+            90f  // Rotate coordinates 90° to match portrait display
+        } else {
+            textureViewRotation  // Use TextureView rotation
+        }
 
         Log.d(TAG, "[MAPPING] Image: ${imageWidth}x${imageHeight}, Sensor: ${sensorOrientation}°, " +
             "Display: ${displayRotationDegrees}°, TextureView rotation: ${textureViewRotation}°, " +
