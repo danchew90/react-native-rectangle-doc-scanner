@@ -533,26 +533,10 @@ class CameraController(
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
-        val rotationDegrees = if (sensorOrientation == 0) {
-            displayRotationDegrees.toFloat()
-        } else {
-            sensorOrientation.toFloat()
-        }
-
-        if (rotationDegrees != 0f) {
-            matrix.postRotate(rotationDegrees, centerX, centerY)
-        }
-
-        val rotatedBufferWidth = if (rotationDegrees == 90f || rotationDegrees == 270f) {
-            bufferHeight
-        } else {
-            bufferWidth
-        }
-        val rotatedBufferHeight = if (rotationDegrees == 90f || rotationDegrees == 270f) {
-            bufferWidth
-        } else {
-            bufferHeight
-        }
+        // CameraX already handles rotation via targetRotation
+        // The buffer is already in the correct orientation
+        val rotatedBufferWidth = bufferWidth
+        val rotatedBufferHeight = bufferHeight
 
         // Scale to fill the view while maintaining aspect ratio (center-crop).
         val scaleX = viewWidth.toFloat() / rotatedBufferWidth.toFloat()
