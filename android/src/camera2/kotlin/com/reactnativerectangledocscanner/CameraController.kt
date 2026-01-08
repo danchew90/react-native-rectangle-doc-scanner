@@ -118,11 +118,11 @@ class CameraController(
         Log.d(TAG, "[CAMERAX] TextureView visibility: ${textureView.visibility}")
         Log.d(TAG, "[CAMERAX] TextureView isAvailable: ${textureView.isAvailable}")
 
-        val targetRotation = textureView.display?.rotation ?: android.view.Surface.ROTATION_0
-        Log.d(TAG, "[CAMERAX] Setting target rotation to $targetRotation")
+        // Force portrait orientation (app is portrait-only)
+        val targetRotation = android.view.Surface.ROTATION_0
+        Log.d(TAG, "[CAMERAX] Setting target rotation to ROTATION_0 (portrait-only app)")
 
         preview = Preview.Builder()
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(targetRotation)  // Force portrait
             .build()
             .also { previewUseCase ->
@@ -185,7 +185,7 @@ class CameraController(
         // ImageAnalysis UseCase for document detection
         imageAnalyzer = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            .setTargetResolution(android.util.Size(1920, 1440))  // Higher resolution for better small-edge detection
             .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
             .also {
@@ -201,7 +201,6 @@ class CameraController(
         // ImageCapture UseCase
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
 
@@ -474,14 +473,35 @@ class CameraController(
 
         if (viewWidth <= 0 || viewHeight <= 0) return null
 
-        // Image coordinates are already in display orientation (rotation applied before detection).
-        val finalWidth = imageWidth
-        val finalHeight = imageHeight
+        // The image coordinates are in camera sensor space. We need to transform them
+        // to match how the TextureView displays the image (after rotation/scaling).
+        val sensorOrientation = getCameraSensorOrientation()
+        val displayRotationDegrees = when (textureView.display?.rotation ?: Surface.ROTATION_0) {
+            Surface.ROTATION_0 -> 0
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
 
-        // Apply the same center-crop scaling as the TextureView transform.
+        fun rotatePoint(point: org.opencv.core.Point): org.opencv.core.Point {
+            return if (sensorOrientation == 90) {
+                org.opencv.core.Point(
+                    point.y,
+                    imageWidth - point.x
+                )
+            } else {
+                point
+            }
+        }
+
+        val finalWidth = if (sensorOrientation == 90) imageHeight else imageWidth
+        val finalHeight = if (sensorOrientation == 90) imageWidth else imageHeight
+
+        // Then apply fit-center scaling
         val scaleX = viewWidth / finalWidth.toFloat()
         val scaleY = viewHeight / finalHeight.toFloat()
-        val scale = scaleX.coerceAtLeast(scaleY)
+        val scale = scaleX.coerceAtMost(scaleY)
 
         val scaledWidth = finalWidth * scale
         val scaledHeight = finalHeight * scale
@@ -489,9 +509,10 @@ class CameraController(
         val offsetY = (viewHeight - scaledHeight) / 2f
 
         fun transformPoint(point: org.opencv.core.Point): org.opencv.core.Point {
+            val rotated = rotatePoint(point)
             return org.opencv.core.Point(
-                point.x * scale + offsetX,
-                point.y * scale + offsetY
+                rotated.x * scale + offsetX,
+                rotated.y * scale + offsetY
             )
         }
 
@@ -502,9 +523,10 @@ class CameraController(
             transformPoint(rectangle.bottomRight)
         )
 
-        Log.d(TAG, "[MAPPING] Image: ${imageWidth}x${imageHeight} → View: ${viewWidth.toInt()}x${viewHeight.toInt()}")
-        Log.d(TAG, "[MAPPING] Scale: $scale, Offset: ($offsetX, $offsetY)")
+        Log.d(TAG, "[MAPPING] Sensor: ${sensorOrientation}°, Image: ${imageWidth}x${imageHeight} → Final: ${finalWidth}x${finalHeight}")
+        Log.d(TAG, "[MAPPING] View: ${viewWidth.toInt()}x${viewHeight.toInt()}, Scale: $scale, Offset: ($offsetX, $offsetY)")
         Log.d(TAG, "[MAPPING] TL: (${rectangle.topLeft.x}, ${rectangle.topLeft.y}) → " +
+            "Rotated: (${rotatePoint(rectangle.topLeft).x}, ${rotatePoint(rectangle.topLeft).y}) → " +
             "Final: (${result.topLeft.x}, ${result.topLeft.y})")
 
         return result
@@ -545,13 +567,17 @@ class CameraController(
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
-        val rotationDegrees = ((sensorOrientation + displayRotationDegrees) % 360).toFloat()
+        // Calculate rotation from buffer to display coordinates.
+        // CameraX accounts for sensor orientation via targetRotation. Some tablets with landscape
+        // sensors report Display 90 in portrait but render upside down; add a 180° fix for that case.
+        val tabletUpsideDownFix = if (sensorOrientation == 0 && displayRotationDegrees == 90) 180 else 0
+        val rotationDegrees = ((displayRotationDegrees + tabletUpsideDownFix) % 360).toFloat()
 
         if (rotationDegrees != 0f) {
-            Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
             matrix.postRotate(rotationDegrees, centerX, centerY)
         }
 
+        // After rotation, determine effective buffer size
         val rotatedBufferWidth = if (rotationDegrees == 90f || rotationDegrees == 270f) {
             bufferHeight
         } else {
@@ -563,17 +589,26 @@ class CameraController(
             bufferHeight
         }
 
-        // Scale to fill the view while maintaining aspect ratio (center-crop).
+        // Scale to fit within the view while maintaining aspect ratio (no zoom/crop)
         val scaleX = viewWidth.toFloat() / rotatedBufferWidth.toFloat()
         val scaleY = viewHeight.toFloat() / rotatedBufferHeight.toFloat()
-        val scale = scaleX.coerceAtLeast(scaleY)
+        val scale = scaleX.coerceAtMost(scaleY)  // Use min to fit
 
         Log.d(TAG, "[TRANSFORM] Rotated buffer: ${rotatedBufferWidth}x${rotatedBufferHeight}, ScaleX: $scaleX, ScaleY: $scaleY, Using: $scale")
 
         matrix.postScale(scale, scale, centerX, centerY)
 
-        // With center-crop, the preview fills the view bounds.
-        previewViewport = android.graphics.RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
+        // Track the actual preview viewport within the view for clipping overlays.
+        val scaledWidth = rotatedBufferWidth * scale
+        val scaledHeight = rotatedBufferHeight * scale
+        val offsetX = (viewWidth - scaledWidth) / 2f
+        val offsetY = (viewHeight - scaledHeight) / 2f
+        previewViewport = android.graphics.RectF(
+            offsetX,
+            offsetY,
+            offsetX + scaledWidth,
+            offsetY + scaledHeight
+        )
 
         textureView.setTransform(matrix)
         Log.d(TAG, "[TRANSFORM] Transform applied successfully")
