@@ -258,6 +258,25 @@ class CameraController(
         val imageWidth = imageProxy.width
         val imageHeight = imageProxy.height
 
+        // Calculate rotation using the same logic as TextureView transform
+        val sensorOrientation = getCameraSensorOrientation()
+        val displayRotationDegrees = when (textureView.display?.rotation ?: Surface.ROTATION_0) {
+            Surface.ROTATION_0 -> 0
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+
+        // Use the same rotation logic as updateTextureViewTransform
+        val effectiveRotation = if (sensorOrientation == 0) {
+            displayRotationDegrees  // Tablet: use display rotation (90°)
+        } else {
+            sensorOrientation       // Phone: use sensor orientation (90°)
+        }
+
+        Log.d(TAG, "[ANALYZE] Sensor: $sensorOrientation°, Display: $displayRotationDegrees°, Effective: $effectiveRotation°")
+
         // Try ML Kit first
         val inputImage = InputImage.fromMediaImage(mediaImage, rotationDegrees)
 
@@ -265,7 +284,7 @@ class CameraController(
             .addOnSuccessListener { objects ->
                 if (objects.isEmpty()) {
                     // No objects detected, fallback to OpenCV
-                    fallbackToOpenCV(imageProxy, rotationDegrees)
+                    fallbackToOpenCV(imageProxy, effectiveRotation)
                     return@addOnSuccessListener
                 }
 
@@ -280,7 +299,7 @@ class CameraController(
                 val nv21 = imageProxyToNV21(imageProxy)
                 val rectangle = if (nv21 != null) {
                     try {
-                        refineWithOpenCv(nv21, imageWidth, imageHeight, rotationDegrees, mlBox)
+                        refineWithOpenCv(nv21, imageWidth, imageHeight, effectiveRotation, mlBox)
                     } catch (e: Exception) {
                         Log.w(TAG, "[CAMERAX] OpenCV refinement failed", e)
                         null
@@ -289,15 +308,15 @@ class CameraController(
                     null
                 }
 
-                val frameWidth = if (rotationDegrees == 90 || rotationDegrees == 270) imageHeight else imageWidth
-                val frameHeight = if (rotationDegrees == 90 || rotationDegrees == 270) imageWidth else imageHeight
+                val frameWidth = if (effectiveRotation == 90 || effectiveRotation == 270) imageHeight else imageWidth
+                val frameHeight = if (effectiveRotation == 90 || effectiveRotation == 270) imageWidth else imageHeight
 
                 onFrameAnalyzed?.invoke(rectangle, frameWidth, frameHeight)
                 imageProxy.close()
             }
             .addOnFailureListener { e ->
                 Log.w(TAG, "[CAMERAX] ML Kit detection failed, using OpenCV", e)
-                fallbackToOpenCV(imageProxy, rotationDegrees)
+                fallbackToOpenCV(imageProxy, effectiveRotation)
             }
     }
 
