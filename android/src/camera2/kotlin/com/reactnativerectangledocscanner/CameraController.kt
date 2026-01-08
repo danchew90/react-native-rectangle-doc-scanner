@@ -442,45 +442,14 @@ class CameraController(
 
         if (viewWidth <= 0 || viewHeight <= 0) return null
 
-        // The image coordinates are in camera sensor space. We need to transform them
-        // to match how the TextureView displays the image (after rotation/scaling).
+        // Image coordinates are already in display orientation (rotation applied before detection).
+        val finalWidth = imageWidth
+        val finalHeight = imageHeight
 
-        // CameraX provides images in sensor orientation. For a 90° sensor (most phones),
-        // the image is rotated 90° relative to natural portrait. We must rotate coordinates
-        // to match the final display orientation.
-        val sensorOrientation = getCameraSensorOrientation()
-        val displayRotationDegrees = when (textureView.display?.rotation ?: Surface.ROTATION_0) {
-            Surface.ROTATION_0 -> 0
-            Surface.ROTATION_90 -> 90
-            Surface.ROTATION_180 -> 180
-            Surface.ROTATION_270 -> 270
-            else -> 0
-        }
-
-        // For sensor 90° (phones): coordinates are in sensor space, need 90° rotation
-        // For sensor 0° (tablets): coordinates are already correct orientation
-
-        // First rotate coordinates if needed (sensor 90° means image is rotated 90° CW in sensor space)
-        fun rotatePoint(point: org.opencv.core.Point): org.opencv.core.Point {
-            return if (sensorOrientation == 90) {
-                // Rotate 90° CCW to convert from sensor space to display space
-                org.opencv.core.Point(
-                    point.y,
-                    imageWidth - point.x
-                )
-            } else {
-                point
-            }
-        }
-
-        // After rotation, determine final dimensions
-        val finalWidth = if (sensorOrientation == 90) imageHeight else imageWidth
-        val finalHeight = if (sensorOrientation == 90) imageWidth else imageHeight
-
-        // Then apply fit-center scaling
+        // Apply the same center-crop scaling as the TextureView transform.
         val scaleX = viewWidth / finalWidth.toFloat()
         val scaleY = viewHeight / finalHeight.toFloat()
-        val scale = scaleX.coerceAtMost(scaleY)
+        val scale = scaleX.coerceAtLeast(scaleY)
 
         val scaledWidth = finalWidth * scale
         val scaledHeight = finalHeight * scale
@@ -488,10 +457,9 @@ class CameraController(
         val offsetY = (viewHeight - scaledHeight) / 2f
 
         fun transformPoint(point: org.opencv.core.Point): org.opencv.core.Point {
-            val rotated = rotatePoint(point)
             return org.opencv.core.Point(
-                rotated.x * scale + offsetX,
-                rotated.y * scale + offsetY
+                point.x * scale + offsetX,
+                point.y * scale + offsetY
             )
         }
 
@@ -502,10 +470,9 @@ class CameraController(
             transformPoint(rectangle.bottomRight)
         )
 
-        Log.d(TAG, "[MAPPING] Sensor: ${sensorOrientation}°, Image: ${imageWidth}x${imageHeight} → Final: ${finalWidth}x${finalHeight}")
-        Log.d(TAG, "[MAPPING] View: ${viewWidth.toInt()}x${viewHeight.toInt()}, Scale: $scale, Offset: ($offsetX, $offsetY)")
+        Log.d(TAG, "[MAPPING] Image: ${imageWidth}x${imageHeight} → View: ${viewWidth.toInt()}x${viewHeight.toInt()}")
+        Log.d(TAG, "[MAPPING] Scale: $scale, Offset: ($offsetX, $offsetY)")
         Log.d(TAG, "[MAPPING] TL: (${rectangle.topLeft.x}, ${rectangle.topLeft.y}) → " +
-            "Rotated: (${rotatePoint(rectangle.topLeft).x}, ${rotatePoint(rectangle.topLeft).y}) → " +
             "Final: (${result.topLeft.x}, ${result.topLeft.y})")
 
         return result
@@ -571,26 +538,17 @@ class CameraController(
             bufferHeight
         }
 
-        // Scale to fit within the view while maintaining aspect ratio (no zoom/crop)
+        // Scale to fill the view while maintaining aspect ratio (center-crop).
         val scaleX = viewWidth.toFloat() / rotatedBufferWidth.toFloat()
         val scaleY = viewHeight.toFloat() / rotatedBufferHeight.toFloat()
-        val scale = scaleX.coerceAtMost(scaleY)  // Use min to fit
+        val scale = scaleX.coerceAtLeast(scaleY)
 
         Log.d(TAG, "[TRANSFORM] Rotated buffer: ${rotatedBufferWidth}x${rotatedBufferHeight}, ScaleX: $scaleX, ScaleY: $scaleY, Using: $scale")
 
         matrix.postScale(scale, scale, centerX, centerY)
 
-        // Track the actual preview viewport within the view for clipping overlays.
-        val scaledWidth = rotatedBufferWidth * scale
-        val scaledHeight = rotatedBufferHeight * scale
-        val offsetX = (viewWidth - scaledWidth) / 2f
-        val offsetY = (viewHeight - scaledHeight) / 2f
-        previewViewport = android.graphics.RectF(
-            offsetX,
-            offsetY,
-            offsetX + scaledWidth,
-            offsetY + scaledHeight
-        )
+        // With center-crop, the preview fills the view bounds.
+        previewViewport = android.graphics.RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
 
         textureView.setTransform(matrix)
         Log.d(TAG, "[TRANSFORM] Transform applied successfully")
