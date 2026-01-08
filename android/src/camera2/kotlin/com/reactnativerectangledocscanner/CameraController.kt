@@ -123,6 +123,7 @@ class CameraController(
         Log.d(TAG, "[CAMERAX] Setting target rotation to ROTATION_0 (portrait-only app)")
 
         preview = Preview.Builder()
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(targetRotation)  // Force portrait
             .build()
             .also { previewUseCase ->
@@ -185,7 +186,7 @@ class CameraController(
         // ImageAnalysis UseCase for document detection
         imageAnalyzer = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetResolution(android.util.Size(1920, 1440))  // Higher resolution for better small-edge detection
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
             .also {
@@ -201,6 +202,7 @@ class CameraController(
         // ImageCapture UseCase
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
 
@@ -515,10 +517,8 @@ class CameraController(
         val centerY = viewHeight / 2f
 
         // Calculate rotation from buffer to display coordinates.
-        // CameraX accounts for sensor orientation via targetRotation. Some tablets with landscape
-        // sensors report Display 90 in portrait but render upside down; add a 180° fix for that case.
-        val tabletUpsideDownFix = if (sensorOrientation == 0 && displayRotationDegrees == 90) 180 else 0
-        val rotationDegrees = ((displayRotationDegrees + tabletUpsideDownFix) % 360).toFloat()
+        // CameraX provides buffers in sensor orientation; rotate to match display.
+        val rotationDegrees = ((sensorOrientation - displayRotationDegrees + 360) % 360).toFloat()
 
         Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
 
