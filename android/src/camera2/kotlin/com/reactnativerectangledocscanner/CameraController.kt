@@ -246,8 +246,20 @@ class CameraController(
         }
     }
 
+    // Frame rate throttling for better performance
+    private var lastAnalysisTimestamp: Long = 0
+    private val minAnalysisIntervalMs: Long = 150  // Process at most ~6-7 fps instead of 30 fps
+
     @androidx.annotation.OptIn(ExperimentalGetImage::class)
     private fun analyzeImage(imageProxy: ImageProxy) {
+        // Throttle frame processing to improve performance
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastAnalysisTimestamp < minAnalysisIntervalMs) {
+            imageProxy.close()
+            return
+        }
+        lastAnalysisTimestamp = currentTime
+
         val mediaImage = imageProxy.image
         if (mediaImage == null) {
             imageProxy.close()
@@ -533,10 +545,23 @@ class CameraController(
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
-        // CameraX already handles rotation via targetRotation
-        // The buffer is already in the correct orientation
-        val rotatedBufferWidth = bufferWidth
-        val rotatedBufferHeight = bufferHeight
+        // For sensor=0 (tablet landscape), we need to manually rotate the buffer
+        // CameraX only handles rotation automatically for sensor=90 (phone portrait)
+        if (sensorOrientation == 0 && displayRotationDegrees != 0) {
+            matrix.postRotate(displayRotationDegrees.toFloat(), centerX, centerY)
+        }
+
+        // Calculate rotated buffer dimensions
+        val rotatedBufferWidth = if (sensorOrientation == 0 && (displayRotationDegrees == 90 || displayRotationDegrees == 270)) {
+            bufferHeight
+        } else {
+            bufferWidth
+        }
+        val rotatedBufferHeight = if (sensorOrientation == 0 && (displayRotationDegrees == 90 || displayRotationDegrees == 270)) {
+            bufferWidth
+        } else {
+            bufferHeight
+        }
 
         // Scale to fill the view while maintaining aspect ratio (center-crop).
         val scaleX = viewWidth.toFloat() / rotatedBufferWidth.toFloat()

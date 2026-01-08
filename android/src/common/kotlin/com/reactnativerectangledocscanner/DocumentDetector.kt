@@ -472,6 +472,7 @@ class DocumentDetector {
 
         /**
          * Evaluate rectangle quality in view coordinates (closer to iOS behavior).
+         * Improved thresholds for better detection accuracy.
          */
         fun evaluateRectangleQualityInView(
             rectangle: Rectangle,
@@ -483,18 +484,39 @@ class DocumentDetector {
             }
 
             val minDim = kotlin.math.min(viewWidth.toDouble(), viewHeight.toDouble())
-            val angleThreshold = max(140.0, minDim * 0.18)
+
+            // Calculate actual edge lengths for better angle evaluation
+            val topEdgeLength = distance(rectangle.topLeft, rectangle.topRight)
+            val bottomEdgeLength = distance(rectangle.bottomLeft, rectangle.bottomRight)
+            val leftEdgeLength = distance(rectangle.topLeft, rectangle.bottomLeft)
+            val rightEdgeLength = distance(rectangle.topRight, rectangle.bottomRight)
+
+            // Use more lenient threshold: 12% of minimum dimension (reduced from 18%)
+            // This allows for more realistic perspective angles
+            val angleThreshold = max(80.0, minDim * 0.12)
 
             val topYDiff = abs(rectangle.topRight.y - rectangle.topLeft.y)
             val bottomYDiff = abs(rectangle.bottomLeft.y - rectangle.bottomRight.y)
             val leftXDiff = abs(rectangle.topLeft.x - rectangle.bottomLeft.x)
             val rightXDiff = abs(rectangle.topRight.x - rectangle.bottomRight.x)
 
-            if (topYDiff > angleThreshold || bottomYDiff > angleThreshold || leftXDiff > angleThreshold || rightXDiff > angleThreshold) {
+            // Check if edges are too skewed (perspective too extreme)
+            if (topYDiff > angleThreshold || bottomYDiff > angleThreshold ||
+                leftXDiff > angleThreshold || rightXDiff > angleThreshold) {
                 return RectangleQuality.BAD_ANGLE
             }
 
-            val margin = max(50.0, minDim * 0.05)
+            // Additional check: opposite edges should be somewhat similar in length
+            // Allow up to 60% difference (more lenient for perspective)
+            val topBottomRatio = if (bottomEdgeLength > 0) topEdgeLength / bottomEdgeLength else 0.0
+            val leftRightRatio = if (rightEdgeLength > 0) leftEdgeLength / rightEdgeLength else 0.0
+            if (topBottomRatio < 0.4 || topBottomRatio > 2.5 ||
+                leftRightRatio < 0.4 || leftRightRatio > 2.5) {
+                return RectangleQuality.BAD_ANGLE
+            }
+
+            // More lenient margin check: 8% of minimum dimension (increased from 5%)
+            val margin = max(80.0, minDim * 0.08)
             if (rectangle.topLeft.y > margin ||
                 rectangle.topRight.y > margin ||
                 rectangle.bottomLeft.y < (viewHeight - margin) ||

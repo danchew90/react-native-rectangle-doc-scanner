@@ -694,14 +694,16 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
 
     /**
      * Overlay view for drawing detected rectangle
+     * Performance optimized: draws only corner points instead of filled polygon
      */
     private class OverlayView(context: Context) : View(context) {
         private var rectangle: Rectangle? = null
         private var overlayColor: Int = Color.parseColor("#80FFFFFF")
-        private val paint = Paint().apply {
+        private val cornerPaint = Paint().apply {
             style = Paint.Style.FILL
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
+            isAntiAlias = true
         }
+        private val cornerRadius = 12f // Circle radius for corner points
 
         fun setRectangle(rect: Rectangle?, color: Int) {
             this.rectangle = rect
@@ -713,18 +715,13 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             super.onDraw(canvas)
 
             rectangle?.let { rect ->
-                paint.color = overlayColor
+                cornerPaint.color = overlayColor
 
-                // Draw the rectangle overlay (simplified - just a filled polygon)
-                val path = android.graphics.Path().apply {
-                    moveTo(rect.topLeft.x.toFloat(), rect.topLeft.y.toFloat())
-                    lineTo(rect.topRight.x.toFloat(), rect.topRight.y.toFloat())
-                    lineTo(rect.bottomRight.x.toFloat(), rect.bottomRight.y.toFloat())
-                    lineTo(rect.bottomLeft.x.toFloat(), rect.bottomLeft.y.toFloat())
-                    close()
-                }
-
-                canvas.drawPath(path, paint)
+                // Draw only corner points for better performance
+                canvas.drawCircle(rect.topLeft.x.toFloat(), rect.topLeft.y.toFloat(), cornerRadius, cornerPaint)
+                canvas.drawCircle(rect.topRight.x.toFloat(), rect.topRight.y.toFloat(), cornerRadius, cornerPaint)
+                canvas.drawCircle(rect.bottomLeft.x.toFloat(), rect.bottomLeft.y.toFloat(), cornerRadius, cornerPaint)
+                canvas.drawCircle(rect.bottomRight.x.toFloat(), rect.bottomRight.y.toFloat(), cornerRadius, cornerPaint)
             }
         }
     }
