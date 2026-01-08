@@ -457,74 +457,23 @@ class CameraController(
             else -> 0
         }
 
-        // The coordinates coming from ImageAnalysis are in sensor's native orientation.
-        // For a 90° sensor (phones in portrait), the camera buffer is landscape but coordinates
-        // are in sensor space. We need to rotate coordinates to match the display orientation.
+        // Simple fit-center scaling like Camera2 did
+        // The image analysis coordinates are in the image's coordinate space (imageWidth x imageHeight)
+        // We just need to scale and center them to the view, matching how Camera2 worked.
 
-        // The TextureView rotation for display
-        val tabletUpsideDownFix = if (sensorOrientation == 0 && displayRotationDegrees == 90) 180 else 0
-        val textureViewRotation = ((displayRotationDegrees + tabletUpsideDownFix) % 360).toFloat()
-
-        // For coordinate mapping: we need to account for BOTH sensor orientation AND display rotation
-        // - Sensor 90° + Display 0°: Coordinates are in landscape sensor space, need 90° rotation to portrait
-        // - Sensor 0° + Display 90°: Coordinates are in portrait, need 270° rotation (display + fix)
-        val rotationDegrees = if (sensorOrientation == 90 && displayRotationDegrees == 0) {
-            90f  // Rotate coordinates 90° to match portrait display
-        } else {
-            textureViewRotation  // Use TextureView rotation
-        }
-
-        Log.d(TAG, "[MAPPING] Image: ${imageWidth}x${imageHeight}, Sensor: ${sensorOrientation}°, " +
-            "Display: ${displayRotationDegrees}°, TextureView rotation: ${textureViewRotation}°, " +
-            "Coordinate rotation: ${rotationDegrees}°")
-
-        // Apply rotation to coordinates to match display orientation
-        fun rotatePoint(point: org.opencv.core.Point): org.opencv.core.Point {
-            return when (rotationDegrees.toInt()) {
-                90 -> org.opencv.core.Point(
-                    imageHeight - point.y,
-                    point.x
-                )
-                180 -> org.opencv.core.Point(
-                    imageWidth - point.x,
-                    imageHeight - point.y
-                )
-                270 -> org.opencv.core.Point(
-                    point.y,
-                    imageWidth - point.x
-                )
-                else -> point  // 0 degrees, no rotation
-            }
-        }
-
-        // Determine dimensions after rotation
-        val rotatedImageWidth = if (rotationDegrees == 90f || rotationDegrees == 270f) {
-            imageHeight
-        } else {
-            imageWidth
-        }
-        val rotatedImageHeight = if (rotationDegrees == 90f || rotationDegrees == 270f) {
-            imageWidth
-        } else {
-            imageHeight
-        }
-
-        // Calculate scaling to fit the rotated image into the view (matching transform)
-        val scaleX = viewWidth / rotatedImageWidth.toFloat()
-        val scaleY = viewHeight / rotatedImageHeight.toFloat()
+        val scaleX = viewWidth / imageWidth.toFloat()
+        val scaleY = viewHeight / imageHeight.toFloat()
         val scale = scaleX.coerceAtMost(scaleY)  // Fit (preserve aspect ratio)
 
-        val scaledWidth = rotatedImageWidth * scale
-        val scaledHeight = rotatedImageHeight * scale
+        val scaledWidth = imageWidth * scale
+        val scaledHeight = imageHeight * scale
         val offsetX = (viewWidth - scaledWidth) / 2f
         val offsetY = (viewHeight - scaledHeight) / 2f
 
-        // Transform coordinates: rotate first, then scale and center
         fun transformPoint(point: org.opencv.core.Point): org.opencv.core.Point {
-            val rotated = rotatePoint(point)
             return org.opencv.core.Point(
-                rotated.x * scale + offsetX,
-                rotated.y * scale + offsetY
+                point.x * scale + offsetX,
+                point.y * scale + offsetY
             )
         }
 
@@ -535,8 +484,11 @@ class CameraController(
             transformPoint(rectangle.bottomRight)
         )
 
-        Log.d(TAG, "[MAPPING] Original TL: (${rectangle.topLeft.x}, ${rectangle.topLeft.y}) → " +
-            "Transformed: (${result.topLeft.x}, ${result.topLeft.y})")
+        Log.d(TAG, "[MAPPING] Simple fit-center: Image ${imageWidth}x${imageHeight}, " +
+            "View ${viewWidth.toInt()}x${viewHeight.toInt()}, Scale: $scale, " +
+            "Offset: ($offsetX, $offsetY)")
+        Log.d(TAG, "[MAPPING] TL: (${rectangle.topLeft.x}, ${rectangle.topLeft.y}) → " +
+            "(${result.topLeft.x}, ${result.topLeft.y})")
 
         return result
     }
