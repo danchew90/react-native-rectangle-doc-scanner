@@ -506,28 +506,25 @@ class DocumentDetector {
                 return RectangleQuality.TOO_FAR
             }
 
-            // Check angle quality: edges should not be too skewed
-            // More lenient threshold: 20% of edge length
-            val topAngleThreshold = max(60.0, topEdgeLength * 0.20)
-            val bottomAngleThreshold = max(60.0, bottomEdgeLength * 0.20)
-            val leftAngleThreshold = max(60.0, leftEdgeLength * 0.20)
-            val rightAngleThreshold = max(60.0, rightEdgeLength * 0.20)
+            // Check angle quality using angle ratio instead of absolute difference
+            // Edges should be roughly horizontal/vertical (not too skewed)
+            val topAngleRatio = if (topEdgeLength > 0) abs(rectangle.topRight.y - rectangle.topLeft.y) / topEdgeLength else 0.0
+            val bottomAngleRatio = if (bottomEdgeLength > 0) abs(rectangle.bottomLeft.y - rectangle.bottomRight.y) / bottomEdgeLength else 0.0
+            val leftAngleRatio = if (leftEdgeLength > 0) abs(rectangle.topLeft.x - rectangle.bottomLeft.x) / leftEdgeLength else 0.0
+            val rightAngleRatio = if (rightEdgeLength > 0) abs(rectangle.topRight.x - rectangle.bottomRight.x) / rightEdgeLength else 0.0
 
-            val topYDiff = abs(rectangle.topRight.y - rectangle.topLeft.y)
-            val bottomYDiff = abs(rectangle.bottomLeft.y - rectangle.bottomRight.y)
-            val leftXDiff = abs(rectangle.topLeft.x - rectangle.bottomLeft.x)
-            val rightXDiff = abs(rectangle.topRight.x - rectangle.bottomRight.x)
+            // Allow up to 30% skew (sin(~17°) ≈ 0.3)
+            val maxSkewRatio = 0.3
 
-            // Check if edges are too skewed (perspective too extreme)
-            if (topYDiff > topAngleThreshold ||
-                bottomYDiff > bottomAngleThreshold ||
-                leftXDiff > leftAngleThreshold ||
-                rightXDiff > rightAngleThreshold) {
+            if (topAngleRatio > maxSkewRatio ||
+                bottomAngleRatio > maxSkewRatio ||
+                leftAngleRatio > maxSkewRatio ||
+                rightAngleRatio > maxSkewRatio) {
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "[QUALITY] BAD_ANGLE (skew): topY=$topYDiff>${String.format("%.1f", topAngleThreshold)}, " +
-                        "bottomY=$bottomYDiff>${String.format("%.1f", bottomAngleThreshold)}, " +
-                        "leftX=$leftXDiff>${String.format("%.1f", leftAngleThreshold)}, " +
-                        "rightX=$rightXDiff>${String.format("%.1f", rightAngleThreshold)}")
+                    Log.d(TAG, "[QUALITY] BAD_ANGLE (skew): top=${String.format("%.2f", topAngleRatio)}, " +
+                        "bottom=${String.format("%.2f", bottomAngleRatio)}, " +
+                        "left=${String.format("%.2f", leftAngleRatio)}, " +
+                        "right=${String.format("%.2f", rightAngleRatio)} > $maxSkewRatio")
                 }
                 return RectangleQuality.BAD_ANGLE
             }
