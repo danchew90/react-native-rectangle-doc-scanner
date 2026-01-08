@@ -498,10 +498,17 @@ class DocumentDetector {
             val rectArea = rectWidth * rectHeight
 
             // Check if rectangle is too small (less than 15% of view area)
+            // or too large (more than 85% - likely detecting screen instead of document)
             val areaRatio = rectArea / viewArea
             if (areaRatio < 0.15) {
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "[QUALITY] TOO_FAR: area=${String.format("%.1f", rectArea)}, ratio=${String.format("%.2f", areaRatio)}")
+                    Log.d(TAG, "[QUALITY] TOO_FAR (small): area=${String.format("%.1f", rectArea)}, ratio=${String.format("%.2f", areaRatio)}")
+                }
+                return RectangleQuality.TOO_FAR
+            }
+            if (areaRatio > 0.85) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "[QUALITY] TOO_FAR (large): area=${String.format("%.1f", rectArea)}, ratio=${String.format("%.2f", areaRatio)} - likely detecting screen")
                 }
                 return RectangleQuality.TOO_FAR
             }
