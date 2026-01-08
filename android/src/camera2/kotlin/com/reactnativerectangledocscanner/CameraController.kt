@@ -547,8 +547,16 @@ class CameraController(
 
         // For sensor=0 (tablet landscape), we need to manually rotate the buffer
         // CameraX only handles rotation automatically for sensor=90 (phone portrait)
+        // Important: For sensor=0, we need to rotate in the OPPOSITE direction
+        // When display is 90° (portrait), we need to rotate -90° (270°) to compensate
         if (sensorOrientation == 0 && displayRotationDegrees != 0) {
-            matrix.postRotate(displayRotationDegrees.toFloat(), centerX, centerY)
+            val rotationDegrees = when (displayRotationDegrees) {
+                90 -> -90f  // Display 90° → Rotate -90° (counter-clockwise)
+                180 -> -180f
+                270 -> -270f  // Or +90f
+                else -> 0f
+            }
+            matrix.postRotate(rotationDegrees, centerX, centerY)
         }
 
         // Calculate rotated buffer dimensions
