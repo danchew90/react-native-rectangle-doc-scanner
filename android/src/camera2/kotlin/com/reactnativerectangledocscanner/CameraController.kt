@@ -118,9 +118,8 @@ class CameraController(
         Log.d(TAG, "[CAMERAX] TextureView visibility: ${textureView.visibility}")
         Log.d(TAG, "[CAMERAX] TextureView isAvailable: ${textureView.isAvailable}")
 
-        // Force portrait orientation (app is portrait-only)
-        val targetRotation = android.view.Surface.ROTATION_0
-        Log.d(TAG, "[CAMERAX] Setting target rotation to ROTATION_0 (portrait-only app)")
+        val targetRotation = textureView.display?.rotation ?: android.view.Surface.ROTATION_0
+        Log.d(TAG, "[CAMERAX] Setting target rotation to $targetRotation")
 
         preview = Preview.Builder()
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
@@ -496,8 +495,6 @@ class CameraController(
             return
         }
 
-        // Get sensor orientation to determine correct rotation
-        val sensorOrientation = getCameraSensorOrientation()
         val displayRotationDegrees = when (textureView.display?.rotation ?: Surface.ROTATION_0) {
             Surface.ROTATION_0 -> 0
             Surface.ROTATION_90 -> 90
@@ -509,34 +506,16 @@ class CameraController(
         Log.d(
             TAG,
             "[TRANSFORM] View: ${viewWidth}x${viewHeight}, Buffer: ${bufferWidth}x${bufferHeight}, " +
-                "Sensor: ${sensorOrientation}°, Display: ${displayRotationDegrees}°"
+                "Display: ${displayRotationDegrees}°"
         )
 
         val matrix = android.graphics.Matrix()
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
-        // Calculate rotation from buffer to display coordinates.
-        // CameraX provides buffers in sensor orientation; rotate to match display.
-        val rotationDegrees = ((sensorOrientation - displayRotationDegrees + 360) % 360).toFloat()
-
-        Log.d(TAG, "[TRANSFORM] Applying rotation: ${rotationDegrees}°")
-
-        if (rotationDegrees != 0f) {
-            matrix.postRotate(rotationDegrees, centerX, centerY)
-        }
-
-        // After rotation, determine effective buffer size
-        val rotatedBufferWidth = if (rotationDegrees == 90f || rotationDegrees == 270f) {
-            bufferHeight
-        } else {
-            bufferWidth
-        }
-        val rotatedBufferHeight = if (rotationDegrees == 90f || rotationDegrees == 270f) {
-            bufferWidth
-        } else {
-            bufferHeight
-        }
+        // Preview buffers are already rotated to match targetRotation.
+        val rotatedBufferWidth = bufferWidth
+        val rotatedBufferHeight = bufferHeight
 
         // Scale to fill the view while maintaining aspect ratio (center-crop).
         val scaleX = viewWidth.toFloat() / rotatedBufferWidth.toFloat()

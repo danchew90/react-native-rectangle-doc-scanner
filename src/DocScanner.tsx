@@ -188,30 +188,15 @@ const mapRectangleToView = (
 ): Rectangle => {
   const viewWidthPx = viewWidth * density;
   const viewHeightPx = viewHeight * density;
-  const scale =
-    Platform.OS === 'ios'
-      ? Math.max(viewWidthPx / imageWidth, viewHeightPx / imageHeight)
-      : Math.min(viewWidthPx / imageWidth, viewHeightPx / imageHeight);
+  const scale = Math.max(viewWidthPx / imageWidth, viewHeightPx / imageHeight);
   const scaledImageWidth = imageWidth * scale;
   const scaledImageHeight = imageHeight * scale;
-  const offsetX =
-    Platform.OS === 'ios'
-      ? (scaledImageWidth - viewWidthPx) / 2
-      : (viewWidthPx - scaledImageWidth) / 2;
-  const offsetY =
-    Platform.OS === 'ios'
-      ? (scaledImageHeight - viewHeightPx) / 2
-      : (viewHeightPx - scaledImageHeight) / 2;
+  const offsetX = (scaledImageWidth - viewWidthPx) / 2;
+  const offsetY = (scaledImageHeight - viewHeightPx) / 2;
 
   const mapPoint = (point: Point): Point => ({
-    x:
-      Platform.OS === 'ios'
-        ? (point.x * scale - offsetX) / density
-        : (point.x * scale + offsetX) / density,
-    y:
-      Platform.OS === 'ios'
-        ? (point.y * scale - offsetY) / density
-        : (point.y * scale + offsetY) / density,
+    x: (point.x * scale - offsetX) / density,
+    y: (point.y * scale - offsetY) / density,
   });
 
   return {
