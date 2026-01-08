@@ -185,7 +185,6 @@ class CameraController(
         // ImageAnalysis UseCase for document detection
         imageAnalyzer = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetResolution(android.util.Size(1280, 960))
             .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
