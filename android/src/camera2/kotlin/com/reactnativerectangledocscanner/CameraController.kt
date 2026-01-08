@@ -186,6 +186,7 @@ class CameraController(
         imageAnalyzer = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            .setTargetResolution(android.util.Size(1280, 960))
             .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
             .also {
@@ -495,6 +496,7 @@ class CameraController(
             return
         }
 
+        val sensorOrientation = getCameraSensorOrientation()
         val displayRotationDegrees = when (textureView.display?.rotation ?: Surface.ROTATION_0) {
             Surface.ROTATION_0 -> 0
             Surface.ROTATION_90 -> 90
@@ -506,16 +508,33 @@ class CameraController(
         Log.d(
             TAG,
             "[TRANSFORM] View: ${viewWidth}x${viewHeight}, Buffer: ${bufferWidth}x${bufferHeight}, " +
-                "Display: ${displayRotationDegrees}°"
+                "Sensor: ${sensorOrientation}°, Display: ${displayRotationDegrees}°"
         )
 
         val matrix = android.graphics.Matrix()
         val centerX = viewWidth / 2f
         val centerY = viewHeight / 2f
 
-        // Preview buffers are already rotated to match targetRotation.
-        val rotatedBufferWidth = bufferWidth
-        val rotatedBufferHeight = bufferHeight
+        val rotationDegrees = if (sensorOrientation == 0) {
+            displayRotationDegrees.toFloat()
+        } else {
+            sensorOrientation.toFloat()
+        }
+
+        if (rotationDegrees != 0f) {
+            matrix.postRotate(rotationDegrees, centerX, centerY)
+        }
+
+        val rotatedBufferWidth = if (rotationDegrees == 90f || rotationDegrees == 270f) {
+            bufferHeight
+        } else {
+            bufferWidth
+        }
+        val rotatedBufferHeight = if (rotationDegrees == 90f || rotationDegrees == 270f) {
+            bufferWidth
+        } else {
+            bufferHeight
+        }
 
         // Scale to fill the view while maintaining aspect ratio (center-crop).
         val scaleX = viewWidth.toFloat() / rotatedBufferWidth.toFloat()
