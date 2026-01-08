@@ -457,23 +457,41 @@ class CameraController(
             else -> 0
         }
 
-        // Simple fit-center scaling like Camera2 did
-        // The image analysis coordinates are in the image's coordinate space (imageWidth x imageHeight)
-        // We just need to scale and center them to the view, matching how Camera2 worked.
+        // For sensor 90° (phones): coordinates are in sensor space, need 90° rotation
+        // For sensor 0° (tablets): coordinates are already correct orientation
 
-        val scaleX = viewWidth / imageWidth.toFloat()
-        val scaleY = viewHeight / imageHeight.toFloat()
-        val scale = scaleX.coerceAtMost(scaleY)  // Fit (preserve aspect ratio)
+        // First rotate coordinates if needed (sensor 90° means image is rotated 90° CW in sensor space)
+        fun rotatePoint(point: org.opencv.core.Point): org.opencv.core.Point {
+            return if (sensorOrientation == 90) {
+                // Rotate 90° CCW to convert from sensor space to display space
+                org.opencv.core.Point(
+                    point.y,
+                    imageWidth - point.x
+                )
+            } else {
+                point
+            }
+        }
 
-        val scaledWidth = imageWidth * scale
-        val scaledHeight = imageHeight * scale
+        // After rotation, determine final dimensions
+        val finalWidth = if (sensorOrientation == 90) imageHeight else imageWidth
+        val finalHeight = if (sensorOrientation == 90) imageWidth else imageHeight
+
+        // Then apply fit-center scaling
+        val scaleX = viewWidth / finalWidth.toFloat()
+        val scaleY = viewHeight / finalHeight.toFloat()
+        val scale = scaleX.coerceAtMost(scaleY)
+
+        val scaledWidth = finalWidth * scale
+        val scaledHeight = finalHeight * scale
         val offsetX = (viewWidth - scaledWidth) / 2f
         val offsetY = (viewHeight - scaledHeight) / 2f
 
         fun transformPoint(point: org.opencv.core.Point): org.opencv.core.Point {
+            val rotated = rotatePoint(point)
             return org.opencv.core.Point(
-                point.x * scale + offsetX,
-                point.y * scale + offsetY
+                rotated.x * scale + offsetX,
+                rotated.y * scale + offsetY
             )
         }
 
@@ -484,11 +502,11 @@ class CameraController(
             transformPoint(rectangle.bottomRight)
         )
 
-        Log.d(TAG, "[MAPPING] Simple fit-center: Image ${imageWidth}x${imageHeight}, " +
-            "View ${viewWidth.toInt()}x${viewHeight.toInt()}, Scale: $scale, " +
-            "Offset: ($offsetX, $offsetY)")
+        Log.d(TAG, "[MAPPING] Sensor: ${sensorOrientation}°, Image: ${imageWidth}x${imageHeight} → Final: ${finalWidth}x${finalHeight}")
+        Log.d(TAG, "[MAPPING] View: ${viewWidth.toInt()}x${viewHeight.toInt()}, Scale: $scale, Offset: ($offsetX, $offsetY)")
         Log.d(TAG, "[MAPPING] TL: (${rectangle.topLeft.x}, ${rectangle.topLeft.y}) → " +
-            "(${result.topLeft.x}, ${result.topLeft.y})")
+            "Rotated: (${rotatePoint(rectangle.topLeft).x}, ${rotatePoint(rectangle.topLeft).y}) → " +
+            "Final: (${result.topLeft.x}, ${result.topLeft.y})")
 
         return result
     }

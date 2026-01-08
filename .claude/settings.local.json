@@ -12,7 +12,8 @@
       "Bash(yarn install)",
       "Bash(./gradlew clean:*)",
       "Bash(npx patch-package react-native-perspective-image-cropper)",
-      "Bash(npx patch-package:*)"
+      "Bash(npx patch-package:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []
