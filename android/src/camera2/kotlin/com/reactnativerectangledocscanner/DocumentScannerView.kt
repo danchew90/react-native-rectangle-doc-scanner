@@ -260,11 +260,12 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         }
         val smoothedRectangleOnScreen = smoothRectangle(rectangleOnScreen, previewWidth, previewHeight)
         lastRectangleOnScreen = smoothedRectangleOnScreen
-        val quality = when {
-            smoothedRectangleOnScreen != null && previewWidth > 0 && previewHeight > 0 ->
-                DocumentDetector.evaluateRectangleQualityInView(smoothedRectangleOnScreen, previewWidth, previewHeight)
-            rectangle != null -> DocumentDetector.evaluateRectangleQuality(rectangle, imageWidth, imageHeight)
-            else -> RectangleQuality.TOO_FAR
+        // Quality evaluation disabled - relying on detection filters (area, rectangularity)
+        // The evaluateRectangleQualityInView function was too strict and rejecting valid documents
+        val quality = if (smoothedRectangleOnScreen != null) {
+            RectangleQuality.GOOD
+        } else {
+            RectangleQuality.TOO_FAR
         }
 
         post {
