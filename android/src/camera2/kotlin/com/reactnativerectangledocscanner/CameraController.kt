@@ -123,6 +123,7 @@ class CameraController(
         Log.d(TAG, "[CAMERAX] Setting target rotation to ROTATION_0 (portrait-only app)")
 
         preview = Preview.Builder()
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(targetRotation)  // Force portrait
             .build()
             .also { previewUseCase ->
@@ -185,7 +186,8 @@ class CameraController(
         // ImageAnalysis UseCase for document detection
         imageAnalyzer = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetResolution(android.util.Size(1920, 1440))  // Higher resolution for better small-edge detection
+            // Match preview aspect ratio to avoid square analysis frames on some devices.
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
             .also {
@@ -201,6 +203,7 @@ class CameraController(
         // ImageCapture UseCase
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
             .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
 
@@ -265,9 +268,10 @@ class CameraController(
             return
         }
 
-        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
         val imageWidth = imageProxy.width
         val imageHeight = imageProxy.height
+
+        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
 
         // Calculate rotation using the same logic as TextureView transform
         val sensorOrientation = getCameraSensorOrientation()
@@ -281,16 +285,16 @@ class CameraController(
 
         // Use the same rotation logic as updateTextureViewTransform
         val tabletUpsideDownFix = if (sensorOrientation == 0 && displayRotationDegrees == 90) 180 else 0
-        val effectiveRotation = if (sensorOrientation == 0) {
-            (displayRotationDegrees + tabletUpsideDownFix) % 360
-        } else {
-            sensorOrientation
-        }
+        val effectiveRotation = (displayRotationDegrees + tabletUpsideDownFix) % 360
 
-        Log.d(TAG, "[ANALYZE] Sensor: $sensorOrientation°, Display: $displayRotationDegrees°, Effective: $effectiveRotation°")
+        Log.d(
+            TAG,
+            "[ANALYZE] Sensor: $sensorOrientation°, Display: $displayRotationDegrees°, " +
+                "ImageProxy: $rotationDegrees°, Effective: $effectiveRotation°"
+        )
 
-        // Try ML Kit first
-        val inputImage = InputImage.fromMediaImage(mediaImage, rotationDegrees)
+        // Try ML Kit first (use the same rotation as preview/OpenCV)
+        val inputImage = InputImage.fromMediaImage(mediaImage, effectiveRotation)
 
         objectDetector.process(inputImage)
             .addOnSuccessListener { objects ->

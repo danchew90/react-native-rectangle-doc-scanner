@@ -67,6 +67,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
 
     companion object {
         private const val TAG = "DocumentScannerView"
+        private const val PREVIEW_ASPECT_RATIO = 3f / 4f // width:height (matches 3:4)
     }
 
     override val lifecycle: Lifecycle
@@ -111,6 +112,9 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         addView(overlayView, 1)  // Add at index 1 (front)
         Log.d(TAG, "[INIT] OverlayView added, childCount: $childCount")
 
+        // Match camera UI look with letterboxing when preview doesn't fill the view.
+        setBackgroundColor(android.graphics.Color.BLACK)
+
         Log.d(TAG, "╔════════════════════════════════════════╗")
         Log.d(TAG, "║  DocumentScannerView INIT COMPLETE     ║")
         Log.d(TAG, "╚════════════════════════════════════════╝")
@@ -137,9 +141,33 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
         if (changed) {
+            layoutPreviewAndOverlay(right - left, bottom - top)
             Log.d(TAG, "[LAYOUT] View size: ${right - left}x${bottom - top}, PreviewView: ${previewView.width}x${previewView.height}")
             cameraController?.refreshTransform()
         }
+    }
+
+    private fun layoutPreviewAndOverlay(viewWidth: Int, viewHeight: Int) {
+        if (viewWidth <= 0 || viewHeight <= 0) return
+
+        val targetWidth: Int
+        val targetHeight: Int
+        val aspectHeight = (viewWidth / PREVIEW_ASPECT_RATIO).toInt()
+        if (aspectHeight <= viewHeight) {
+            targetWidth = viewWidth
+            targetHeight = aspectHeight
+        } else {
+            targetWidth = (viewHeight * PREVIEW_ASPECT_RATIO).toInt()
+            targetHeight = viewHeight
+        }
+
+        val left = (viewWidth - targetWidth) / 2
+        val top = if (targetHeight < viewHeight) 0 else (viewHeight - targetHeight) / 2
+        val right = left + targetWidth
+        val bottom = top + targetHeight
+
+        previewView.layout(left, top, right, bottom)
+        overlayView.layout(left, top, right, bottom)
     }
 
     private fun initializeCameraWhenReady() {
@@ -213,17 +241,26 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             lastDetectedImageHeight = imageHeight
         }
 
-        val rectangleOnScreen = if (rectangle != null && width > 0 && height > 0) {
+        val previewWidth = previewView.width
+        val previewHeight = previewView.height
+
+        val rectangleOnScreen = if (rectangle != null && previewWidth > 0 && previewHeight > 0) {
             cameraController?.mapRectangleToView(rectangle, imageWidth, imageHeight)
-                ?: DocumentDetector.transformRectangleToViewCoordinates(rectangle, imageWidth, imageHeight, width, height)
+                ?: DocumentDetector.transformRectangleToViewCoordinates(
+                    rectangle,
+                    imageWidth,
+                    imageHeight,
+                    previewWidth,
+                    previewHeight
+                )
         } else {
             null
         }
-        val smoothedRectangleOnScreen = smoothRectangle(rectangleOnScreen, width, height)
+        val smoothedRectangleOnScreen = smoothRectangle(rectangleOnScreen, previewWidth, previewHeight)
         lastRectangleOnScreen = smoothedRectangleOnScreen
         val quality = when {
-            smoothedRectangleOnScreen != null && width > 0 && height > 0 ->
-                DocumentDetector.evaluateRectangleQualityInView(smoothedRectangleOnScreen, width, height)
+            smoothedRectangleOnScreen != null && previewWidth > 0 && previewHeight > 0 ->
+                DocumentDetector.evaluateRectangleQualityInView(smoothedRectangleOnScreen, previewWidth, previewHeight)
             rectangle != null -> DocumentDetector.evaluateRectangleQuality(rectangle, imageWidth, imageHeight)
             else -> RectangleQuality.TOO_FAR
         }
