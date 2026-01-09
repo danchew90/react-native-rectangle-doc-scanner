@@ -392,76 +392,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     setCropEditorRectangle(null);
   }, []);
 
-  const handleCropEditorConfirm = useCallback(async () => {
-    if (!cropEditorDocument) {
-      return;
-    }
-
-    const documentPath = cropEditorDocument.path;
-
-    const rectangle =
-      cropEditorRectangle ??
-      cropEditorDocument.rectangle ??
-      (cropEditorDocument.quad && cropEditorDocument.quad.length === 4
-        ? quadToRectangle(cropEditorDocument.quad)
-        : null);
-
-    if (!rectangle || !pdfScannerManager?.processImage) {
-      closeAndroidCropEditor();
-      await openCropper(documentPath, { waitForPickerDismissal: false });
-      return;
-    }
-
-    setProcessing(true);
-    try {
-      const payload = await pdfScannerManager.processImage({
-        imagePath: documentPath,
-        rectangleCoordinates: rectangle,
-        rectangleWidth: cropEditorDocument.width ?? 0,
-        rectangleHeight: cropEditorDocument.height ?? 0,
-        useBase64: false,
-        quality: 90,
-        brightness: 0,
-        contrast: 1,
-        saturation: 1,
-        saveInAppDocument: false,
-      });
-
-      const croppedPath =
-        typeof payload?.croppedImage === 'string' ? stripFileUri(payload.croppedImage) : null;
-
-      if (!croppedPath) {
-        throw new Error('missing_cropped_image');
-      }
-
-      const preview = await preparePreviewImage({ path: croppedPath });
-      setCroppedImageData(preview);
-    } catch (error) {
-      console.error('[FullDocScanner] Crop editor processing failed:', error);
-      resetScannerView({ remount: true });
-      emitError(
-        error instanceof Error ? error : new Error(String(error)),
-        'Failed to crop image. Please try again.',
-      );
-    } finally {
-      setProcessing(false);
-      closeAndroidCropEditor();
-    }
-  }, [
-    closeAndroidCropEditor,
-    cropEditorDocument,
-    cropEditorRectangle,
-    emitError,
-    openCropper,
-    pdfScannerManager,
-    preparePreviewImage,
-    resetScannerView,
-  ]);
-
-  const handleCropEditorCancel = useCallback(() => {
-    resetScannerView({ remount: true });
-  }, [resetScannerView]);
-
   const openCropper = useCallback(
     async (imagePath: string, options?: OpenCropperOptions) => {
       try {
@@ -554,6 +484,76 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     },
     [cropWidth, cropHeight, emitError, preparePreviewImage, resetScannerView],
   );
+
+  const handleCropEditorConfirm = useCallback(async () => {
+    if (!cropEditorDocument) {
+      return;
+    }
+
+    const documentPath = cropEditorDocument.path;
+
+    const rectangle =
+      cropEditorRectangle ??
+      cropEditorDocument.rectangle ??
+      (cropEditorDocument.quad && cropEditorDocument.quad.length === 4
+        ? quadToRectangle(cropEditorDocument.quad)
+        : null);
+
+    if (!rectangle || !pdfScannerManager?.processImage) {
+      closeAndroidCropEditor();
+      await openCropper(documentPath, { waitForPickerDismissal: false });
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const payload = await pdfScannerManager.processImage({
+        imagePath: documentPath,
+        rectangleCoordinates: rectangle,
+        rectangleWidth: cropEditorDocument.width ?? 0,
+        rectangleHeight: cropEditorDocument.height ?? 0,
+        useBase64: false,
+        quality: 90,
+        brightness: 0,
+        contrast: 1,
+        saturation: 1,
+        saveInAppDocument: false,
+      });
+
+      const croppedPath =
+        typeof payload?.croppedImage === 'string' ? stripFileUri(payload.croppedImage) : null;
+
+      if (!croppedPath) {
+        throw new Error('missing_cropped_image');
+      }
+
+      const preview = await preparePreviewImage({ path: croppedPath });
+      setCroppedImageData(preview);
+    } catch (error) {
+      console.error('[FullDocScanner] Crop editor processing failed:', error);
+      resetScannerView({ remount: true });
+      emitError(
+        error instanceof Error ? error : new Error(String(error)),
+        'Failed to crop image. Please try again.',
+      );
+    } finally {
+      setProcessing(false);
+      closeAndroidCropEditor();
+    }
+  }, [
+    closeAndroidCropEditor,
+    cropEditorDocument,
+    cropEditorRectangle,
+    emitError,
+    openCropper,
+    pdfScannerManager,
+    preparePreviewImage,
+    resetScannerView,
+  ]);
+
+  const handleCropEditorCancel = useCallback(() => {
+    resetScannerView({ remount: true });
+  }, [resetScannerView]);
 
   const handleCapture = useCallback(
     async (document: DocScannerCapture) => {

@@ -63,40 +63,6 @@ export const CropEditor: React.FC<CropEditorProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [croppedImageUri, setCroppedImageUri] = useState<string | null>(null);
 
-  useEffect(() => {
-    console.log('[CropEditor] Document path:', document.path);
-    console.log('[CropEditor] Document dimensions:', document.width, 'x', document.height);
-    console.log('[CropEditor] Document quad:', document.quad);
-    console.log('[CropEditor] Document rectangle:', document.rectangle);
-
-    const shouldAutoCrop = autoCrop && !enableEditor;
-
-    // Load image size using Image.getSize
-    const imageUri = document.path.startsWith('file://') ? document.path : `file://${document.path}`;
-    Image.getSize(
-      imageUri,
-      (width, height) => {
-        console.log('[CropEditor] Image.getSize success:', { width, height });
-        setImageSize({ width, height });
-
-        // If we have a rectangle (from auto-capture), crop the image
-        if (shouldAutoCrop && (document.rectangle || document.quad)) {
-          cropImageToRectangle(imageUri, width, height);
-        } else {
-          setIsImageLoading(false);
-          setLoadError(null);
-        }
-      },
-      (error) => {
-        console.error('[CropEditor] Image.getSize error:', error);
-        // Fallback to document dimensions
-        console.log('[CropEditor] Using fallback dimensions:', document.width, 'x', document.height);
-        setImageSize({ width: document.width, height: document.height });
-        setIsImageLoading(false);
-      }
-    );
-  }, [autoCrop, cropImageToRectangle, document, enableEditor]);
-
   const cropImageToRectangle = useCallback((imageUri: string, width: number, height: number) => {
     const cropManager = NativeModules.CustomCropManager as CustomCropManagerType | undefined;
 
@@ -150,6 +116,40 @@ export const CropEditor: React.FC<CropEditorProps> = ({
       }
     );
   }, [document]);
+
+  useEffect(() => {
+    console.log('[CropEditor] Document path:', document.path);
+    console.log('[CropEditor] Document dimensions:', document.width, 'x', document.height);
+    console.log('[CropEditor] Document quad:', document.quad);
+    console.log('[CropEditor] Document rectangle:', document.rectangle);
+
+    const shouldAutoCrop = autoCrop && !enableEditor;
+
+    // Load image size using Image.getSize
+    const imageUri = document.path.startsWith('file://') ? document.path : `file://${document.path}`;
+    Image.getSize(
+      imageUri,
+      (width, height) => {
+        console.log('[CropEditor] Image.getSize success:', { width, height });
+        setImageSize({ width, height });
+
+        // If we have a rectangle (from auto-capture), crop the image
+        if (shouldAutoCrop && (document.rectangle || document.quad)) {
+          cropImageToRectangle(imageUri, width, height);
+        } else {
+          setIsImageLoading(false);
+          setLoadError(null);
+        }
+      },
+      (error) => {
+        console.error('[CropEditor] Image.getSize error:', error);
+        // Fallback to document dimensions
+        console.log('[CropEditor] Using fallback dimensions:', document.width, 'x', document.height);
+        setImageSize({ width: document.width, height: document.height });
+        setIsImageLoading(false);
+      }
+    );
+  }, [autoCrop, cropImageToRectangle, document, enableEditor]);
 
   // Get initial rectangle from detected quad or use default
   const getInitialRectangle = useCallback((): CropperRectangle | undefined => {
