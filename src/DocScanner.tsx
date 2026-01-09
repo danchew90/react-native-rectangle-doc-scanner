@@ -1008,7 +1008,6 @@ const NativeScanner = forwardRef<DocScannerHandle, Props>(
           useBase64={useBase64}
           manualOnly={Platform.OS === 'android'}
           detectionConfig={detectionConfig}
-          useExternalScanner={Platform.OS === 'android'}
           onPictureTaken={handlePictureTaken}
           onError={handleError}
           onRectangleDetect={handleRectangleDetect}
@@ -1032,23 +1031,14 @@ const NativeScanner = forwardRef<DocScannerHandle, Props>(
 );
 
 export const DocScanner = forwardRef<DocScannerHandle, Props>((props, ref) => {
-  const useExternalScanner = Platform.OS === 'android';
-
   useEffect(() => {
-    if (Platform.OS !== 'android' || useExternalScanner) {
+    if (Platform.OS !== 'android') {
       return;
     }
-    if (hasVisionCamera) {
-      console.log('[DocScanner] Using VisionCamera pipeline');
-    } else {
-      console.warn('[DocScanner] VisionCamera pipeline unavailable, falling back to native view.', {
-        hasVisionCameraModule: Boolean(visionCameraModule),
-        hasReanimated: Boolean(reanimatedModule),
-      });
-    }
+    console.log('[DocScanner] Using native CameraX pipeline on Android');
   }, []);
 
-  if (useExternalScanner) {
+  if (Platform.OS === 'android') {
     return <NativeScanner ref={ref} {...props} />;
   }
 

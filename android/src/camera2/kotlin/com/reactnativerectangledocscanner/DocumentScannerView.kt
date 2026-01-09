@@ -49,7 +49,6 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     var brightness: Float = 0f
     var contrast: Float = 1f
     var saturation: Float = 1f
-    var useExternalScanner: Boolean = false
 
     // State
     private var stableCounter = 0
@@ -61,6 +60,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     private var lastDetectedImageHeight = 0
     private var lastRectangleOnScreen: Rectangle? = null
     private var lastSmoothedRectangleOnScreen: Rectangle? = null
+    private val iouHistory = ArrayDeque<Rectangle>()
 
     // Coroutine scope for async operations
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -143,10 +143,6 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     }
 
     private fun initializeCameraWhenReady() {
-        if (useExternalScanner) {
-            Log.d(TAG, "[INIT] External scanner enabled - skipping camera startup")
-            return
-        }
         // If view is already laid out, start camera immediately
         if (width > 0 && height > 0) {
             Log.d(TAG, "[INIT] View already laid out, starting camera immediately")
@@ -180,20 +176,6 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         }
     }
 
-    fun setUseExternalScanner(enabled: Boolean) {
-        if (useExternalScanner == enabled) {
-            return
-        }
-        useExternalScanner = enabled
-        Log.d(TAG, "[SET] useExternalScanner: $enabled")
-        if (enabled) {
-            stopCamera()
-            overlayView.setRectangle(null, overlayColor)
-        } else if (width > 0 && height > 0 && cameraController == null) {
-            setupCamera()
-            startCamera()
-        }
-    }
 
     private fun setupCamera() {
         try {
@@ -325,23 +307,33 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             overlayView.setRectangle(rectangleOnScreen, overlayColor)
         }
 
-        // Update stable counter based on quality
+        // Update stable counter based on quality + IOU stability
         if (rectangleCoordinates == null) {
             if (stableCounter != 0) {
                 Log.d(TAG, "Rectangle lost, resetting stableCounter")
             }
             stableCounter = 0
+            clearIouHistory()
         } else {
             when (quality) {
                 RectangleQuality.GOOD -> {
-                    stableCounter = min(stableCounter + 1, detectionCountBeforeCapture)
-                    Log.d(TAG, "Good rectangle detected, stableCounter: $stableCounter/$detectionCountBeforeCapture")
+                    val isStable = rectangleOnScreen?.let { updateIouHistory(it) } ?: false
+                    if (isStable) {
+                        stableCounter = min(stableCounter + 1, detectionCountBeforeCapture)
+                        Log.d(TAG, "Good rectangle detected, stableCounter: $stableCounter/$detectionCountBeforeCapture")
+                    } else {
+                        if (stableCounter > 0) {
+                            stableCounter--
+                        }
+                        Log.d(TAG, "Rectangle unstable (IOU), stableCounter: $stableCounter")
+                    }
                 }
                 RectangleQuality.BAD_ANGLE, RectangleQuality.TOO_FAR -> {
                     if (stableCounter > 0) {
                         stableCounter--
                     }
                     Log.d(TAG, "Bad rectangle detected (type: $quality), stableCounter: $stableCounter")
+                    clearIouHistory()
                 }
             }
         }
@@ -355,6 +347,52 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
             stableCounter = 0
             capture()
         }
+    }
+
+    private fun updateIouHistory(rectangle: Rectangle): Boolean {
+        if (iouHistory.size >= 3) {
+            iouHistory.removeFirst()
+        }
+        iouHistory.addLast(rectangle)
+        if (iouHistory.size < 3) {
+            return false
+        }
+        val r0 = iouHistory.elementAt(0)
+        val r1 = iouHistory.elementAt(1)
+        val r2 = iouHistory.elementAt(2)
+        val iou01 = rectangleIou(r0, r1)
+        val iou12 = rectangleIou(r1, r2)
+        val iou02 = rectangleIou(r0, r2)
+        return iou01 >= 0.85 && iou12 >= 0.85 && iou02 >= 0.85
+    }
+
+    private fun clearIouHistory() {
+        iouHistory.clear()
+    }
+
+    private fun rectangleIou(a: Rectangle, b: Rectangle): Double {
+        fun bounds(r: Rectangle): DoubleArray {
+            val minX = min(min(r.topLeft.x, r.topRight.x), min(r.bottomLeft.x, r.bottomRight.x))
+            val maxX = max(max(r.topLeft.x, r.topRight.x), max(r.bottomLeft.x, r.bottomRight.x))
+            val minY = min(min(r.topLeft.y, r.topRight.y), min(r.bottomLeft.y, r.bottomRight.y))
+            val maxY = max(max(r.topLeft.y, r.topRight.y), max(r.bottomLeft.y, r.bottomRight.y))
+            return doubleArrayOf(minX, minY, maxX, maxY)
+        }
+
+        val ab = bounds(a)
+        val bb = bounds(b)
+        val interLeft = max(ab[0], bb[0])
+        val interTop = max(ab[1], bb[1])
+        val interRight = min(ab[2], bb[2])
+        val interBottom = min(ab[3], bb[3])
+        val interW = max(0.0, interRight - interLeft)
+        val interH = max(0.0, interBottom - interTop)
+        val interArea = interW * interH
+        val areaA = max(0.0, (ab[2] - ab[0])) * max(0.0, (ab[3] - ab[1]))
+        val areaB = max(0.0, (bb[2] - bb[0])) * max(0.0, (bb[3] - bb[1]))
+        val union = areaA + areaB - interArea
+        if (union <= 0.0) return 0.0
+        return interArea / union
     }
 
     fun capture() {

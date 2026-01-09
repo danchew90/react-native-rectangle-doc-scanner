@@ -486,32 +486,11 @@ class CameraController(
 
         if (viewWidth <= 0 || viewHeight <= 0) return null
 
-        // The image coordinates are in camera sensor space. We need to transform them
-        // to match how the TextureView displays the image (after rotation/scaling).
-        val sensorOrientation = getCameraSensorOrientation()
-        val displayRotationDegrees = when (textureView.display?.rotation ?: Surface.ROTATION_0) {
-            Surface.ROTATION_0 -> 0
-            Surface.ROTATION_90 -> 90
-            Surface.ROTATION_180 -> 180
-            Surface.ROTATION_270 -> 270
-            else -> 0
-        }
+        // Rectangle coordinates are already in the rotated image space (effective rotation applied).
+        val finalWidth = imageWidth
+        val finalHeight = imageHeight
 
-        fun rotatePoint(point: org.opencv.core.Point): org.opencv.core.Point {
-            return if (sensorOrientation == 90) {
-                org.opencv.core.Point(
-                    point.y,
-                    imageWidth - point.x
-                )
-            } else {
-                point
-            }
-        }
-
-        val finalWidth = if (sensorOrientation == 90) imageHeight else imageWidth
-        val finalHeight = if (sensorOrientation == 90) imageWidth else imageHeight
-
-        // Then apply fit-center scaling
+        // Apply fit-center scaling to match TextureView display.
         val scaleX = viewWidth / finalWidth.toFloat()
         val scaleY = viewHeight / finalHeight.toFloat()
         val scale = scaleX.coerceAtMost(scaleY)
@@ -522,10 +501,9 @@ class CameraController(
         val offsetY = (viewHeight - scaledHeight) / 2f
 
         fun transformPoint(point: org.opencv.core.Point): org.opencv.core.Point {
-            val rotated = rotatePoint(point)
             return org.opencv.core.Point(
-                rotated.x * scale + offsetX,
-                rotated.y * scale + offsetY
+                point.x * scale + offsetX,
+                point.y * scale + offsetY
             )
         }
 
@@ -536,10 +514,9 @@ class CameraController(
             transformPoint(rectangle.bottomRight)
         )
 
-        Log.d(TAG, "[MAPPING] Sensor: ${sensorOrientation}°, Image: ${imageWidth}x${imageHeight} → Final: ${finalWidth}x${finalHeight}")
+        Log.d(TAG, "[MAPPING] Image: ${imageWidth}x${imageHeight} → Final: ${finalWidth}x${finalHeight}")
         Log.d(TAG, "[MAPPING] View: ${viewWidth.toInt()}x${viewHeight.toInt()}, Scale: $scale, Offset: ($offsetX, $offsetY)")
         Log.d(TAG, "[MAPPING] TL: (${rectangle.topLeft.x}, ${rectangle.topLeft.y}) → " +
-            "Rotated: (${rotatePoint(rectangle.topLeft).x}, ${rotatePoint(rectangle.topLeft).y}) → " +
             "Final: (${result.topLeft.x}, ${result.topLeft.y})")
 
         return result

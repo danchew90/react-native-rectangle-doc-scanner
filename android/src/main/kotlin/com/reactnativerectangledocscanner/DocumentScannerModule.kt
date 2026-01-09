@@ -1,48 +1,23 @@
 package com.reactnativerectangledocscanner
 
-import android.app.Activity
-import android.content.Intent
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.uimanager.UIManagerModule
-import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import kotlinx.coroutines.*
 import org.opencv.core.Point
-import java.io.File
-import java.io.FileOutputStream
 
 class DocumentScannerModule(reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext), ActivityEventListener {
+    ReactContextBaseJavaModule(reactContext) {
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     companion object {
         const val NAME = "RNPdfScannerManager"
         private const val TAG = "DocumentScannerModule"
-        private const val EXTERNAL_SCAN_REQUEST = 9401
     }
 
     override fun getName() = NAME
-
-    private data class PendingScanConfig(
-        val useBase64: Boolean,
-        val saveInAppDocument: Boolean,
-        val quality: Float,
-        val brightness: Float,
-        val contrast: Float,
-        val saturation: Float
-    )
-
-    private var pendingScanPromise: Promise? = null
-    private var pendingScanConfig: PendingScanConfig? = null
-
-    init {
-        reactContext.addActivityEventListener(this)
-    }
 
     /**
      * Capture image from the document scanner view
@@ -71,13 +46,9 @@ class DocumentScannerModule(reactContext: ReactApplicationContext) :
                     if (view is DocumentScannerView) {
                         Log.d(TAG, "Found DocumentScannerView, triggering capture with promise")
 
-                        if (view.useExternalScanner) {
-                            startExternalScan(view, promise)
-                        } else {
-                            // Pass promise to view so it can be resolved when capture completes
-                            // This matches iOS behavior where promise is resolved with actual image data
-                            view.captureWithPromise(promise)
-                        }
+                        // Pass promise to view so it can be resolved when capture completes
+                        // This matches iOS behavior where promise is resolved with actual image data
+                        view.captureWithPromise(promise)
                     } else {
                         Log.e(TAG, "View with tag $tag is not DocumentScannerView: ${view?.javaClass?.simpleName}")
                         promise.reject("INVALID_VIEW", "View is not a DocumentScannerView")
@@ -91,160 +62,6 @@ class DocumentScannerModule(reactContext: ReactApplicationContext) :
             Log.e(TAG, "Error in capture method", e)
             promise.reject("CAPTURE_ERROR", "Failed to capture: ${e.message}", e)
         }
-    }
-
-    private fun startExternalScan(view: DocumentScannerView, promise: Promise) {
-        if (pendingScanPromise != null) {
-            promise.reject("SCAN_IN_PROGRESS", "Another scan is already in progress")
-            return
-        }
-
-        val activity = currentActivity ?: run {
-            promise.reject("NO_ACTIVITY", "Activity not available")
-            return
-        }
-
-        val options = GmsDocumentScannerOptions.Builder()
-            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
-            .setGalleryImportAllowed(true)
-            .setPageLimit(1)
-            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-            .build()
-
-        val scanner = GmsDocumentScanning.getClient(options)
-
-        pendingScanPromise = promise
-        pendingScanConfig = PendingScanConfig(
-            useBase64 = view.useBase64,
-            saveInAppDocument = view.saveInAppDocument,
-            quality = view.quality,
-            brightness = view.brightness,
-            contrast = view.contrast,
-            saturation = view.saturation
-        )
-
-        scanner.getStartScanIntent(activity)
-            .addOnSuccessListener { intentSender ->
-                try {
-                    activity.startIntentSenderForResult(
-                        intentSender,
-                        EXTERNAL_SCAN_REQUEST,
-                        null,
-                        0,
-                        0,
-                        0
-                    )
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to launch ML Kit scanner", e)
-                    cleanupPendingScan()
-                    promise.reject("SCAN_LAUNCH_FAILED", "Failed to launch scanner: ${e.message}", e)
-                }
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to get ML Kit scan intent", e)
-                cleanupPendingScan()
-                promise.reject("SCAN_INTENT_FAILED", "Failed to start scanner: ${e.message}", e)
-            }
-    }
-
-    override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode != EXTERNAL_SCAN_REQUEST) {
-            return
-        }
-
-        val promise = pendingScanPromise ?: return
-        val config = pendingScanConfig
-        cleanupPendingScan()
-
-        if (resultCode != Activity.RESULT_OK || data == null) {
-            promise.reject("SCAN_CANCELLED", "Scan cancelled or failed")
-            return
-        }
-
-        val result = GmsDocumentScanningResult.fromActivityResultIntent(data)
-        val page = result?.pages?.firstOrNull()
-        val imageUri = page?.imageUri
-
-        if (imageUri == null || config == null) {
-            promise.reject("SCAN_NO_RESULT", "No scanned image returned")
-            return
-        }
-
-        scope.launch {
-            try {
-                val outputDir = if (config.saveInAppDocument) {
-                    reactApplicationContext.filesDir
-                } else {
-                    reactApplicationContext.cacheDir
-                }
-                val timestamp = System.currentTimeMillis()
-                val initialPath = copyUriToFile(imageUri, outputDir, "doc_scan_initial_$timestamp.jpg")
-
-                val processed = withContext(Dispatchers.IO) {
-                    ImageProcessor.processImage(
-                        imagePath = initialPath,
-                        rectangle = null,
-                        brightness = config.brightness,
-                        contrast = config.contrast,
-                        saturation = config.saturation,
-                        shouldCrop = false
-                    )
-                }
-
-                val resultMap = Arguments.createMap()
-                if (config.useBase64) {
-                    val croppedBase64 = ImageProcessor.bitmapToBase64(processed.croppedImage, config.quality)
-                    val initialBase64 = ImageProcessor.bitmapToBase64(processed.initialImage, config.quality)
-                    resultMap.putString("croppedImage", croppedBase64)
-                    resultMap.putString("initialImage", initialBase64)
-                } else {
-                    val croppedPath = ImageProcessor.saveBitmapToFile(
-                        processed.croppedImage,
-                        outputDir,
-                        "doc_scan_cropped_$timestamp.jpg",
-                        config.quality
-                    )
-                    resultMap.putString("croppedImage", croppedPath)
-                    resultMap.putString("initialImage", initialPath)
-                }
-
-                resultMap.putMap("rectangleCoordinates", null)
-                resultMap.putInt("width", processed.croppedImage.width)
-                resultMap.putInt("height", processed.croppedImage.height)
-
-                // Cleanup bitmaps to avoid leaks.
-                if (processed.croppedImage !== processed.initialImage) {
-                    processed.croppedImage.recycle()
-                    processed.initialImage.recycle()
-                } else {
-                    processed.croppedImage.recycle()
-                }
-
-                promise.resolve(resultMap)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to process scan result", e)
-                promise.reject("SCAN_PROCESS_FAILED", "Failed to process scan result: ${e.message}", e)
-            }
-        }
-    }
-
-    override fun onNewIntent(intent: Intent?) {
-        // No-op
-    }
-
-    private fun copyUriToFile(uri: Uri, outputDir: File, fileName: String): String {
-        val outputFile = File(outputDir, fileName)
-        reactApplicationContext.contentResolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(outputFile).use { output ->
-                input.copyTo(output)
-            }
-        } ?: throw IllegalStateException("Failed to open input stream for URI: $uri")
-        return outputFile.absolutePath
-    }
-
-    private fun cleanupPendingScan() {
-        pendingScanPromise = null
-        pendingScanConfig = null
     }
 
     /**
