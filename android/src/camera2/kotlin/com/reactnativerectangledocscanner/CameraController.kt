@@ -280,10 +280,11 @@ class CameraController(
         }
 
         // Use the same rotation logic as updateTextureViewTransform
+        val tabletUpsideDownFix = if (sensorOrientation == 0 && displayRotationDegrees == 90) 180 else 0
         val effectiveRotation = if (sensorOrientation == 0) {
-            displayRotationDegrees  // Tablet: use display rotation (90°)
+            (displayRotationDegrees + tabletUpsideDownFix) % 360
         } else {
-            sensorOrientation       // Phone: use sensor orientation (90°)
+            sensorOrientation
         }
 
         Log.d(TAG, "[ANALYZE] Sensor: $sensorOrientation°, Display: $displayRotationDegrees°, Effective: $effectiveRotation°")

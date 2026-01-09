@@ -259,7 +259,7 @@ class DocumentDetector {
 
                     var largestRectangle: Rectangle? = null
                     var bestScore = 0.0
-                    val minArea = max(450.0, (srcMat.rows() * srcMat.cols()) * 0.0007)
+                    val minArea = max(350.0, (srcMat.rows() * srcMat.cols()) * 0.0005)
 
                     debugStats.contours = contours.size
 
@@ -289,7 +289,7 @@ class DocumentDetector {
                             val rect = Imgproc.minAreaRect(MatOfPoint2f(*points))
                             val rectArea = rect.size.area()
                             val rectangularity = if (rectArea > 1.0) contourArea / rectArea else 0.0
-                            if (rectangularity >= 0.6 && isCandidateValid(ordered, srcMat)) {
+                            if (rectangularity >= 0.5 && isCandidateValid(ordered, srcMat)) {
                                 debugStats.candidates += 1
                                 val score = contourArea * rectangularity
                                 if (score > bestScore) {
@@ -313,7 +313,7 @@ class DocumentDetector {
                             val rectArea = rotated.size.area()
                             if (rectArea > 1.0) {
                                 val rectangularity = contourArea / rectArea
-                                if (rectangularity >= 0.6) {
+                                if (rectangularity >= 0.5) {
                                     debugStats.candidates += 1
                                     val boxPoints = Array(4) { Point() }
                                     rotated.points(boxPoints)
@@ -497,16 +497,16 @@ class DocumentDetector {
             val rectHeight = max(leftEdgeLength, rightEdgeLength)
             val rectArea = rectWidth * rectHeight
 
-            // Check if rectangle is too small (less than 15% of view area)
-            // or too large (more than 85% - likely detecting screen instead of document)
+            // Check if rectangle is too small (less than 6% of view area)
+            // or too large (more than 95% - likely detecting screen instead of document)
             val areaRatio = rectArea / viewArea
-            if (areaRatio < 0.15) {
+            if (areaRatio < 0.06) {
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "[QUALITY] TOO_FAR (small): area=${String.format("%.1f", rectArea)}, ratio=${String.format("%.2f", areaRatio)}")
                 }
                 return RectangleQuality.TOO_FAR
             }
-            if (areaRatio > 0.85) {
+            if (areaRatio > 0.95) {
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "[QUALITY] TOO_FAR (large): area=${String.format("%.1f", rectArea)}, ratio=${String.format("%.2f", areaRatio)} - likely detecting screen")
                 }
