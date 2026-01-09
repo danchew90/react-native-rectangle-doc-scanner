@@ -229,6 +229,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const captureReadyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isBusinessMode = type === 'business';
+  const pdfScannerManager = (NativeModules as any)?.RNPdfScannerManager;
+  const isAndroidCropEditorAvailable = Platform.OS === 'android' && Boolean(CropEditor);
+  const usesAndroidScannerActivity =
+    Platform.OS === 'android' && typeof pdfScannerManager?.startDocumentScanner === 'function';
 
   const resetScannerView = useCallback(
     (options?: { remount?: boolean }) => {
@@ -286,11 +290,6 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     }),
     [strings],
   );
-
-  const pdfScannerManager = (NativeModules as any)?.RNPdfScannerManager;
-  const isAndroidCropEditorAvailable = Platform.OS === 'android' && Boolean(CropEditor);
-  const usesAndroidScannerActivity =
-    Platform.OS === 'android' && typeof pdfScannerManager?.startDocumentScanner === 'function';
 
   const autoEnhancementEnabled = useMemo(
     () => typeof pdfScannerManager?.applyColorControls === 'function',
