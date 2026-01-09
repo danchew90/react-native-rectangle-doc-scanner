@@ -654,6 +654,40 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     ],
   );
 
+  const startAndroidScan = useCallback(async () => {
+    if (!usesAndroidScannerActivity || !pdfScannerManager?.startDocumentScanner) {
+      throw new Error('document_scanner_not_available');
+    }
+
+    if (captureInProgressRef.current) {
+      throw new Error('capture_in_progress');
+    }
+
+    captureInProgressRef.current = true;
+    captureModeRef.current = 'grid';
+
+    try {
+      const payload = await pdfScannerManager.startDocumentScanner({ pageLimit: 2 });
+      const normalizedPath = stripFileUri(payload?.initialImage ?? payload?.croppedImage ?? '');
+
+      const capturePayload: DocScannerCapture = {
+        path: normalizedPath,
+        initialPath: payload?.initialImage ? stripFileUri(payload.initialImage) : normalizedPath,
+        croppedPath: payload?.croppedImage ? stripFileUri(payload.croppedImage) : normalizedPath,
+        quad: null,
+        rectangle: null,
+        width: payload?.width ?? 0,
+        height: payload?.height ?? 0,
+        origin: 'manual',
+        pages: payload?.pages ?? null,
+      };
+
+      await handleCapture(capturePayload);
+    } finally {
+      captureInProgressRef.current = false;
+    }
+  }, [handleCapture, pdfScannerManager, usesAndroidScannerActivity]);
+
   const triggerManualCapture = useCallback(() => {
     const scannerInstance = docScannerRef.current;
     const hasScanner = !!scannerInstance;
@@ -683,6 +717,22 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     }
 
     if (!hasScanner) {
+      if (usesAndroidScannerActivity) {
+        startAndroidScan().catch((error: unknown) => {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error('[FullDocScanner] Android scan failed:', errorMessage, error);
+          if (errorMessage.includes('SCAN_CANCELLED')) {
+            resetScannerView({ remount: true });
+            onClose?.();
+            return;
+          }
+          emitError(
+            error instanceof Error ? error : new Error(String(error)),
+            'Failed to capture image. Please try again.',
+          );
+        });
+        return;
+      }
       console.error('[FullDocScanner] DocScanner ref not available');
       return;
     }
