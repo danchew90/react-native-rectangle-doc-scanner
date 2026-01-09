@@ -720,12 +720,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       if (usesAndroidScannerActivity) {
         startAndroidScan().catch((error: unknown) => {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          console.error('[FullDocScanner] Android scan failed:', errorMessage, error);
-          if (errorMessage.includes('SCAN_CANCELLED')) {
+          if (errorMessage.includes('SCAN_CANCELLED') || errorMessage.includes('Document scan cancelled')) {
             resetScannerView({ remount: true });
-            onClose?.();
+            requestAnimationFrame(() => {
+              startAndroidScan().catch(() => null);
+            });
             return;
           }
+          console.error('[FullDocScanner] Android scan failed:', errorMessage, error);
           emitError(
             error instanceof Error ? error : new Error(String(error)),
             'Failed to capture image. Please try again.',
@@ -769,16 +771,20 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       .catch((error: unknown) => {
         clearTimeout(captureTimeout);
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('[FullDocScanner] Manual capture failed:', errorMessage, error);
         captureModeRef.current = null;
         captureInProgressRef.current = false;
 
-        if (errorMessage.includes('SCAN_CANCELLED')) {
+        if (errorMessage.includes('SCAN_CANCELLED') || errorMessage.includes('Document scan cancelled')) {
           resetScannerView({ remount: true });
-          onClose?.();
+          if (usesAndroidScannerActivity) {
+            requestAnimationFrame(() => {
+              startAndroidScan().catch(() => null);
+            });
+          }
           return;
         }
 
+        console.error('[FullDocScanner] Manual capture failed:', errorMessage, error);
         if (error instanceof Error && error.message !== 'capture_in_progress') {
           emitError(
             error,
@@ -788,12 +794,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       });
   }, [
     emitError,
-    onClose,
     processing,
     rectangleDetected,
     rectangleHint,
     captureReady,
     resetScannerView,
+    startAndroidScan,
     usesAndroidScannerActivity,
   ]);
 
