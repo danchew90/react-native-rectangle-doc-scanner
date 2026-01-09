@@ -53,7 +53,9 @@ class CameraController(
 
     companion object {
         private const val TAG = "CameraController"
-        private const val ANALYSIS_TARGET_RESOLUTION = 1920 // Max dimension for analysis
+        // Increased resolution for better corner detection (was causing 640x480 downscale)
+        private const val ANALYSIS_TARGET_WIDTH = 1280
+        private const val ANALYSIS_TARGET_HEIGHT = 960
     }
 
     private fun getCameraSensorOrientation(): Int {
@@ -183,11 +185,11 @@ class CameraController(
                 Log.d(TAG, "[CAMERAX] SurfaceProvider set successfully")
             }
 
-        // ImageAnalysis UseCase for document detection
+        // ImageAnalysis UseCase for document detection with fixed high resolution
         imageAnalyzer = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            // Match preview aspect ratio to avoid square analysis frames on some devices.
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            // Use explicit resolution instead of aspect ratio to prevent 640x480 downscale
+            .setTargetResolution(Size(ANALYSIS_TARGET_WIDTH, ANALYSIS_TARGET_HEIGHT))
             .setTargetRotation(targetRotation)  // Match preview rotation
             .build()
             .also {

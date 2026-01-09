@@ -436,7 +436,99 @@ class DocumentDetector {
             if (aspect < 0.45 || aspect > 2.8) {
                 return false
             }
+
+            // Enhanced validation: Check corner angles (should be close to 90°)
+            if (!hasValidCornerAngles(rectangle)) {
+                return false
+            }
+
+            // Enhanced validation: Check edge straightness
+            if (!hasValidEdgeStraightness(rectangle, srcMat)) {
+                return false
+            }
+
+            // Enhanced validation: Check margin from view edges (avoid detecting screen borders)
+            val margin = minDim * 0.05 // 5% margin
+            if (rectangle.topLeft.x < margin || rectangle.topLeft.y < margin ||
+                rectangle.topRight.x > srcMat.cols() - margin || rectangle.topRight.y < margin ||
+                rectangle.bottomLeft.x < margin || rectangle.bottomLeft.y > srcMat.rows() - margin ||
+                rectangle.bottomRight.x > srcMat.cols() - margin || rectangle.bottomRight.y > srcMat.rows() - margin) {
+                return false
+            }
+
             return true
+        }
+
+        /**
+         * Check if all corners have angles close to 90° (within 60°-120° range)
+         */
+        private fun hasValidCornerAngles(rectangle: Rectangle): Boolean {
+            fun angleAt(p1: Point, vertex: Point, p2: Point): Double {
+                val v1x = p1.x - vertex.x
+                val v1y = p1.y - vertex.y
+                val v2x = p2.x - vertex.x
+                val v2y = p2.y - vertex.y
+
+                val dot = v1x * v2x + v1y * v2y
+                val len1 = sqrt(v1x * v1x + v1y * v1y)
+                val len2 = sqrt(v2x * v2x + v2y * v2y)
+
+                if (len1 < 1.0 || len2 < 1.0) return 90.0
+
+                val cosAngle = (dot / (len1 * len2)).coerceIn(-1.0, 1.0)
+                return Math.toDegrees(kotlin.math.acos(cosAngle))
+            }
+
+            val angleTL = angleAt(rectangle.topRight, rectangle.topLeft, rectangle.bottomLeft)
+            val angleTR = angleAt(rectangle.topLeft, rectangle.topRight, rectangle.bottomRight)
+            val angleBL = angleAt(rectangle.topLeft, rectangle.bottomLeft, rectangle.bottomRight)
+            val angleBR = angleAt(rectangle.topRight, rectangle.bottomRight, rectangle.bottomLeft)
+
+            // All angles should be within 60°-120° (allow ±30° from 90°)
+            return angleTL in 60.0..120.0 && angleTR in 60.0..120.0 &&
+                   angleBL in 60.0..120.0 && angleBR in 60.0..120.0
+        }
+
+        /**
+         * Check if edges are sufficiently straight (low deviation from fitted line)
+         */
+        private fun hasValidEdgeStraightness(rectangle: Rectangle, srcMat: Mat): Boolean {
+            val minDim = min(srcMat.cols(), srcMat.rows()).toDouble()
+            val maxDeviation = max(10.0, minDim * 0.02) // Allow 2% deviation
+
+            fun checkEdgeStraightness(p1: Point, p2: Point, p3: Point, p4: Point): Boolean {
+                // Check if points p1-p2 and p3-p4 form roughly parallel lines
+                val dx1 = p2.x - p1.x
+                val dy1 = p2.y - p1.y
+                val dx2 = p4.x - p3.x
+                val dy2 = p4.y - p3.y
+
+                val len1 = sqrt(dx1 * dx1 + dy1 * dy1)
+                val len2 = sqrt(dx2 * dx2 + dy2 * dy2)
+
+                if (len1 < 1.0 || len2 < 1.0) return true
+
+                // Normalize and compute angle difference
+                val dot = (dx1 * dx2 + dy1 * dy2) / (len1 * len2)
+                val angleDiff = Math.toDegrees(kotlin.math.acos(dot.coerceIn(-1.0, 1.0)))
+
+                // Parallel lines should have angle diff close to 0° or 180°
+                return angleDiff < 15.0 || angleDiff > 165.0
+            }
+
+            // Check top vs bottom edges
+            val topBottomOk = checkEdgeStraightness(
+                rectangle.topLeft, rectangle.topRight,
+                rectangle.bottomLeft, rectangle.bottomRight
+            )
+
+            // Check left vs right edges
+            val leftRightOk = checkEdgeStraightness(
+                rectangle.topLeft, rectangle.bottomLeft,
+                rectangle.topRight, rectangle.bottomRight
+            )
+
+            return topBottomOk && leftRightOk
         }
 
         /**

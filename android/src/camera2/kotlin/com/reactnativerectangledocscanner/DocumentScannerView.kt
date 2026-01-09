@@ -67,7 +67,8 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
 
     companion object {
         private const val TAG = "DocumentScannerView"
-        private const val PREVIEW_ASPECT_RATIO = 3f / 4f // width:height (matches 3:4)
+        // Removed fixed aspect ratio to prevent squished preview on tablets
+        // Preview will now properly fill the view using center-crop scaling
     }
 
     override val lifecycle: Lifecycle
@@ -150,18 +151,10 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     private fun layoutPreviewAndOverlay(viewWidth: Int, viewHeight: Int) {
         if (viewWidth <= 0 || viewHeight <= 0) return
 
-        // Always fill width to avoid left/right letterboxing.
-        val targetWidth = viewWidth
-        val targetHeight = (viewWidth / PREVIEW_ASPECT_RATIO).toInt()
-
-        val left = 0
-        // Center vertically; allows top/bottom crop when targetHeight > viewHeight.
-        val top = (viewHeight - targetHeight) / 2
-        val right = left + targetWidth
-        val bottom = top + targetHeight
-
-        previewView.layout(left, top, right, bottom)
-        overlayView.layout(left, top, right, bottom)
+        // Fill entire view to prevent squished appearance on tablets
+        // CameraX will handle aspect ratio via center-crop in updateTextureViewTransform
+        previewView.layout(0, 0, viewWidth, viewHeight)
+        overlayView.layout(0, 0, viewWidth, viewHeight)
     }
 
     private fun initializeCameraWhenReady() {
@@ -264,34 +257,70 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
         }
     }
 
+    // Enhanced snap: Track corner movement per frame
+    private var consecutiveStableFrames = 0
+    private val requiredStableFrames = 3 // Require 3 consecutive stable frames for snap
+
     private fun smoothRectangle(rectangle: Rectangle?, viewWidth: Int, viewHeight: Int): Rectangle? {
         if (rectangle == null || viewWidth <= 0 || viewHeight <= 0) {
             lastSmoothedRectangleOnScreen = null
+            consecutiveStableFrames = 0
             return null
         }
 
         val prev = lastSmoothedRectangleOnScreen
         if (prev == null) {
             lastSmoothedRectangleOnScreen = rectangle
+            consecutiveStableFrames = 0
             return rectangle
         }
 
         val minDim = min(viewWidth, viewHeight).toDouble()
-        val snapThreshold = max(12.0, minDim * 0.015)
-        val smoothThreshold = max(24.0, minDim * 0.06)
-        val maxCornerDistance = max(
+        // Tighter snap threshold for better stability
+        val snapThreshold = max(10.0, minDim * 0.012)
+        val smoothThreshold = max(20.0, minDim * 0.05)
+
+        // Calculate max corner movement
+        val maxCornerDist = max(
             maxCornerDistance(prev, rectangle),
             maxCornerDistance(rectangle, prev)
         )
 
+        // Enhanced snap logic: Check individual corner distances
+        val allCornersStable = areAllCornersStable(prev, rectangle, snapThreshold)
+
         val result = when {
-            maxCornerDistance <= snapThreshold -> prev
-            maxCornerDistance <= smoothThreshold -> blendRectangle(prev, rectangle, 0.35)
-            else -> rectangle
+            // Snap only if all corners are stable AND we have consecutive stable frames
+            allCornersStable && maxCornerDist <= snapThreshold -> {
+                consecutiveStableFrames++
+                if (consecutiveStableFrames >= requiredStableFrames) {
+                    prev // Lock to previous position
+                } else {
+                    blendRectangle(prev, rectangle, 0.25) // Small blend while building stability
+                }
+            }
+            maxCornerDist <= smoothThreshold -> {
+                consecutiveStableFrames = 0
+                blendRectangle(prev, rectangle, 0.35)
+            }
+            else -> {
+                consecutiveStableFrames = 0
+                rectangle
+            }
         }
 
         lastSmoothedRectangleOnScreen = result
         return result
+    }
+
+    /**
+     * Check if all 4 corners are within the snap threshold (not just max distance)
+     */
+    private fun areAllCornersStable(prev: Rectangle, current: Rectangle, threshold: Double): Boolean {
+        return distance(prev.topLeft, current.topLeft) <= threshold &&
+               distance(prev.topRight, current.topRight) <= threshold &&
+               distance(prev.bottomLeft, current.bottomLeft) <= threshold &&
+               distance(prev.bottomRight, current.bottomRight) <= threshold
     }
 
     private fun maxCornerDistance(a: Rectangle, b: Rectangle): Double {
