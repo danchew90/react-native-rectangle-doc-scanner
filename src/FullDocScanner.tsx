@@ -16,7 +16,8 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import ImageCropPicker from 'react-native-image-crop-picker';
 import RNFS from 'react-native-fs';
 import { DocScanner } from './DocScanner';
-import type { CapturedDocument } from './types';
+import type { CapturedDocument, Rectangle } from './types';
+import { quadToRectangle } from './utils/coordinate';
 import type {
   DetectionConfig,
   DocScannerHandle,
@@ -40,6 +41,25 @@ const ensureFileUri = (value?: string | null) => {
   }
   return value;
 };
+
+const safeRequire = (moduleName: string) => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require(moduleName);
+  } catch {
+    return null;
+  }
+};
+
+const CropEditorModule = safeRequire('./CropEditor');
+const CropEditor = CropEditorModule?.CropEditor as
+  | React.ComponentType<{
+      document: CapturedDocument;
+      enableEditor?: boolean;
+      autoCrop?: boolean;
+      onCropChange?: (rectangle: Rectangle) => void;
+    }>
+  | undefined;
 
 const CROPPER_TIMEOUT_MS = 8000;
 const CROPPER_TIMEOUT_CODE = 'cropper_timeout';
@@ -198,6 +218,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [capturedPhotos, setCapturedPhotos] = useState<FullDocScannerResult[]>([]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [scannerSession, setScannerSession] = useState(0);
+  const [cropEditorDocument, setCropEditorDocument] = useState<CapturedDocument | null>(null);
+  const [cropEditorRectangle, setCropEditorRectangle] = useState<Rectangle | null>(null);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
@@ -212,6 +234,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     (options?: { remount?: boolean }) => {
       setProcessing(false);
       setCroppedImageData(null);
+      setCropEditorDocument(null);
+      setCropEditorRectangle(null);
       setRotationDegrees(0);
       setRectangleDetected(false);
       setRectangleHint(false);
@@ -264,6 +288,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   );
 
   const pdfScannerManager = (NativeModules as any)?.RNPdfScannerManager;
+  const isAndroidCropEditorAvailable = Platform.OS === 'android' && Boolean(CropEditor);
 
   const autoEnhancementEnabled = useMemo(
     () => typeof pdfScannerManager?.applyColorControls === 'function',
@@ -352,6 +377,90 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     },
     [onError],
   );
+
+  const openAndroidCropEditor = useCallback((document: CapturedDocument) => {
+    const rectangle =
+      document.rectangle ??
+      (document.quad && document.quad.length === 4 ? quadToRectangle(document.quad) : null);
+    const documentForEditor = rectangle ? { ...document, rectangle } : document;
+    setCropEditorDocument(documentForEditor);
+    setCropEditorRectangle(rectangle);
+  }, []);
+
+  const closeAndroidCropEditor = useCallback(() => {
+    setCropEditorDocument(null);
+    setCropEditorRectangle(null);
+  }, []);
+
+  const handleCropEditorConfirm = useCallback(async () => {
+    if (!cropEditorDocument) {
+      return;
+    }
+
+    const documentPath = cropEditorDocument.path;
+
+    const rectangle =
+      cropEditorRectangle ??
+      cropEditorDocument.rectangle ??
+      (cropEditorDocument.quad && cropEditorDocument.quad.length === 4
+        ? quadToRectangle(cropEditorDocument.quad)
+        : null);
+
+    if (!rectangle || !pdfScannerManager?.processImage) {
+      closeAndroidCropEditor();
+      await openCropper(documentPath, { waitForPickerDismissal: false });
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const payload = await pdfScannerManager.processImage({
+        imagePath: documentPath,
+        rectangleCoordinates: rectangle,
+        rectangleWidth: cropEditorDocument.width ?? 0,
+        rectangleHeight: cropEditorDocument.height ?? 0,
+        useBase64: false,
+        quality: 90,
+        brightness: 0,
+        contrast: 1,
+        saturation: 1,
+        saveInAppDocument: false,
+      });
+
+      const croppedPath =
+        typeof payload?.croppedImage === 'string' ? stripFileUri(payload.croppedImage) : null;
+
+      if (!croppedPath) {
+        throw new Error('missing_cropped_image');
+      }
+
+      const preview = await preparePreviewImage({ path: croppedPath });
+      setCroppedImageData(preview);
+    } catch (error) {
+      console.error('[FullDocScanner] Crop editor processing failed:', error);
+      resetScannerView({ remount: true });
+      emitError(
+        error instanceof Error ? error : new Error(String(error)),
+        'Failed to crop image. Please try again.',
+      );
+    } finally {
+      setProcessing(false);
+      closeAndroidCropEditor();
+    }
+  }, [
+    closeAndroidCropEditor,
+    cropEditorDocument,
+    cropEditorRectangle,
+    emitError,
+    openCropper,
+    pdfScannerManager,
+    preparePreviewImage,
+    resetScannerView,
+  ]);
+
+  const handleCropEditorCancel = useCallback(() => {
+    resetScannerView({ remount: true });
+  }, [resetScannerView]);
 
   const openCropper = useCallback(
     async (imagePath: string, options?: OpenCropperOptions) => {
@@ -470,6 +579,20 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
       const normalizedDoc = normalizeCapturedDocument(document);
 
+      const shouldOpenAndroidCropEditor =
+        isAndroidCropEditorAvailable &&
+        captureMode === 'grid' &&
+        Boolean(
+          normalizedDoc.rectangle ||
+            (normalizedDoc.quad && normalizedDoc.quad.length === 4),
+        );
+
+      if (shouldOpenAndroidCropEditor) {
+        console.log('[FullDocScanner] Opening Android crop editor with detected rectangle');
+        openAndroidCropEditor(normalizedDoc);
+        return;
+      }
+
       if (captureMode === 'no-grid') {
         console.log('[FullDocScanner] No grid at capture button press: opening cropper for manual selection');
         await openCropper(normalizedDoc.path, { waitForPickerDismissal: false });
@@ -501,7 +624,14 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       console.log('[FullDocScanner] Fallback to manual crop (no croppedPath available)');
       await openCropper(normalizedDoc.path, { waitForPickerDismissal: false });
     },
-    [emitError, openCropper, preparePreviewImage, resetScannerView],
+    [
+      emitError,
+      isAndroidCropEditorAvailable,
+      openAndroidCropEditor,
+      openCropper,
+      preparePreviewImage,
+      resetScannerView,
+    ],
   );
 
   const triggerManualCapture = useCallback(() => {
@@ -944,6 +1074,36 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               onPress={handleConfirm}
               accessibilityLabel={mergedStrings.confirm}
               accessibilityRole="button"
+            >
+              <Text style={styles.confirmButtonText}>{mergedStrings.confirm}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : cropEditorDocument && CropEditor ? (
+        <View style={styles.flex}>
+          <CropEditor
+            document={cropEditorDocument}
+            enableEditor
+            autoCrop={false}
+            onCropChange={setCropEditorRectangle}
+          />
+          <View style={styles.confirmationButtons}>
+            <TouchableOpacity
+              style={[styles.confirmButton, styles.retakeButton]}
+              onPress={handleCropEditorCancel}
+              accessibilityLabel={mergedStrings.retake}
+              accessibilityRole="button"
+              disabled={processing}
+            >
+              <Text style={styles.confirmButtonText}>{mergedStrings.retake}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.confirmButton, styles.confirmButtonPrimary]}
+              onPress={handleCropEditorConfirm}
+              accessibilityLabel={mergedStrings.confirm}
+              accessibilityRole="button"
+              disabled={processing}
             >
               <Text style={styles.confirmButtonText}>{mergedStrings.confirm}</Text>
             </TouchableOpacity>

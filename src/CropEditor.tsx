@@ -26,6 +26,8 @@ interface CropEditorProps {
   overlayStrokeColor?: string;
   handlerColor?: string;
   enablePanStrict?: boolean;
+  enableEditor?: boolean;
+  autoCrop?: boolean;
   onCropChange?: (rectangle: Rectangle) => void;
 }
 
@@ -48,6 +50,8 @@ export const CropEditor: React.FC<CropEditorProps> = ({
   overlayStrokeColor = '#e7a649',
   handlerColor = '#e7a649',
   enablePanStrict = false,
+  enableEditor = false,
+  autoCrop = true,
   onCropChange,
 }) => {
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
@@ -65,6 +69,8 @@ export const CropEditor: React.FC<CropEditorProps> = ({
     console.log('[CropEditor] Document quad:', document.quad);
     console.log('[CropEditor] Document rectangle:', document.rectangle);
 
+    const shouldAutoCrop = autoCrop && !enableEditor;
+
     // Load image size using Image.getSize
     const imageUri = document.path.startsWith('file://') ? document.path : `file://${document.path}`;
     Image.getSize(
@@ -74,7 +80,7 @@ export const CropEditor: React.FC<CropEditorProps> = ({
         setImageSize({ width, height });
 
         // If we have a rectangle (from auto-capture), crop the image
-        if (document.rectangle || document.quad) {
+        if (shouldAutoCrop && (document.rectangle || document.quad)) {
           cropImageToRectangle(imageUri, width, height);
         } else {
           setIsImageLoading(false);
@@ -89,7 +95,7 @@ export const CropEditor: React.FC<CropEditorProps> = ({
         setIsImageLoading(false);
       }
     );
-  }, [document]);
+  }, [autoCrop, cropImageToRectangle, document, enableEditor]);
 
   const cropImageToRectangle = useCallback((imageUri: string, width: number, height: number) => {
     const cropManager = NativeModules.CustomCropManager as CustomCropManagerType | undefined;
@@ -226,6 +232,18 @@ export const CropEditor: React.FC<CropEditorProps> = ({
           <ActivityIndicator size="large" color={handlerColor} />
           <Text style={styles.loadingText}>Loading image...</Text>
         </View>
+      ) : enableEditor ? (
+        <CustomImageCropper
+          height={displaySize.height}
+          width={displaySize.width}
+          image={imageUri}
+          rectangleCoordinates={initialRect}
+          overlayColor={overlayColor}
+          overlayStrokeColor={overlayStrokeColor}
+          handlerColor={handlerColor}
+          enablePanStrict={enablePanStrict}
+          onDragEnd={handleDragEnd}
+        />
       ) : (
         <>
           {/* Show cropped image if available, otherwise show original */}
@@ -236,18 +254,6 @@ export const CropEditor: React.FC<CropEditorProps> = ({
             onLoad={() => console.log('[CropEditor] Image loaded successfully', croppedImageUri ? 'cropped' : 'original')}
             onError={(e) => console.error('[CropEditor] Image load error:', e.nativeEvent.error)}
           />
-          {/* Temporarily disabled CustomImageCropper - showing image only */}
-          {/* <CustomImageCropper
-            height={displaySize.height}
-            width={displaySize.width}
-            image={imageUri}
-            rectangleCoordinates={initialRect}
-            overlayColor={overlayColor}
-            overlayStrokeColor={overlayStrokeColor}
-            handlerColor={handlerColor}
-            enablePanStrict={enablePanStrict}
-            onDragEnd={handleDragEnd}
-          /> */}
         </>
       )}
     </View>
