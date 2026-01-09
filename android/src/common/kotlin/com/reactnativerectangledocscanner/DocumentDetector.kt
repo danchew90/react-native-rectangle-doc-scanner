@@ -262,10 +262,10 @@ class DocumentDetector {
                     var largestRectangle: Rectangle? = null
                     var bestScore = 0.0
                     val imageArea = (srcMat.rows() * srcMat.cols()).toDouble()
-                    // Min: 2% of image (documents should be visible)
-                    // Max: 85% of image (avoid detecting screen borders)
-                    val minArea = max(350.0, imageArea * 0.02)
-                    val maxArea = imageArea * 0.85
+                    // Min: 5% of image (documents should be reasonably sized)
+                    // Max: 70% of image (avoid detecting screen borders)
+                    val minArea = max(350.0, imageArea * 0.05)
+                    val maxArea = imageArea * 0.70
 
                     debugStats.contours = contours.size
 
@@ -439,8 +439,10 @@ class DocumentDetector {
             if (width < minEdge || height < minEdge) {
                 return false
             }
+            // Stricter aspect ratio for typical documents (business cards, A4, etc.)
+            // Business cards: ~1.6, A4: ~0.7, allow range 0.5-2.2
             val aspect = if (height > 0) width / height else 0.0
-            if (aspect < 0.45 || aspect > 2.8) {
+            if (aspect < 0.5 || aspect > 2.2) {
                 return false
             }
 
