@@ -220,6 +220,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [scannerSession, setScannerSession] = useState(0);
   const [cropEditorDocument, setCropEditorDocument] = useState<CapturedDocument | null>(null);
   const [cropEditorRectangle, setCropEditorRectangle] = useState<Rectangle | null>(null);
+  const [androidScanAutoRequested, setAndroidScanAutoRequested] = useState(false);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
@@ -240,6 +241,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       setCroppedImageData(null);
       setCropEditorDocument(null);
       setCropEditorRectangle(null);
+      setAndroidScanAutoRequested(false);
       setRotationDegrees(0);
       setRectangleDetected(false);
       setRectangleHint(false);
@@ -704,6 +706,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         captureModeRef.current = null;
         captureInProgressRef.current = false;
 
+        if (errorMessage.includes('SCAN_CANCELLED')) {
+          return;
+        }
+
         if (error instanceof Error && error.message !== 'capture_in_progress') {
           emitError(
             error,
@@ -940,6 +946,26 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       setCaptureReady(true);
     }
   }, [usesAndroidScannerActivity]);
+
+  useEffect(() => {
+    if (!usesAndroidScannerActivity) {
+      return;
+    }
+
+    if (androidScanAutoRequested || croppedImageData || cropEditorDocument || processing) {
+      return;
+    }
+
+    setAndroidScanAutoRequested(true);
+    triggerManualCapture();
+  }, [
+    androidScanAutoRequested,
+    cropEditorDocument,
+    croppedImageData,
+    processing,
+    triggerManualCapture,
+    usesAndroidScannerActivity,
+  ]);
 
   const activePreviewImage = croppedImageData ? getActivePreviewImage(croppedImageData) : null;
 

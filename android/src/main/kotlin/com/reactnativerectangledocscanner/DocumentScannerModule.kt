@@ -54,7 +54,7 @@ class DocumentScannerModule(reactContext: ReactApplicationContext) :
             .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
             .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
             .setPageLimit(pageLimit.coerceAtMost(2))
-            .setGalleryImportAllowed(false)
+            .setGalleryImportAllowed(true)
             .build()
 
         val scanner = GmsDocumentScanning.getClient(scannerOptions)
