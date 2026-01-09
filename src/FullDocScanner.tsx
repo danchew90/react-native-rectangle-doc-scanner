@@ -221,6 +221,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const [cropEditorDocument, setCropEditorDocument] = useState<CapturedDocument | null>(null);
   const [cropEditorRectangle, setCropEditorRectangle] = useState<Rectangle | null>(null);
   const [androidScanAutoRequested, setAndroidScanAutoRequested] = useState(false);
+  const [androidScanDismissed, setAndroidScanDismissed] = useState(false);
   const resolvedGridColor = gridColor ?? overlayColor;
   const docScannerRef = useRef<DocScannerHandle | null>(null);
   const captureModeRef = useRef<'grid' | 'no-grid' | null>(null);
@@ -668,6 +669,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
     try {
       const payload = await pdfScannerManager.startDocumentScanner({ pageLimit: 2 });
+      setAndroidScanDismissed(false);
       const normalizedPath = stripFileUri(payload?.initialImage ?? payload?.croppedImage ?? '');
 
       const capturePayload: DocScannerCapture = {
@@ -718,13 +720,13 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
     if (!hasScanner) {
       if (usesAndroidScannerActivity) {
+        setAndroidScanDismissed(false);
         startAndroidScan().catch((error: unknown) => {
           const errorMessage = error instanceof Error ? error.message : String(error);
           if (errorMessage.includes('SCAN_CANCELLED') || errorMessage.includes('Document scan cancelled')) {
+            setAndroidScanDismissed(true);
             resetScannerView({ remount: true });
-            requestAnimationFrame(() => {
-              startAndroidScan().catch(() => null);
-            });
+            onClose?.();
             return;
           }
           console.error('[FullDocScanner] Android scan failed:', errorMessage, error);
@@ -775,12 +777,9 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         captureInProgressRef.current = false;
 
         if (errorMessage.includes('SCAN_CANCELLED') || errorMessage.includes('Document scan cancelled')) {
+          setAndroidScanDismissed(true);
           resetScannerView({ remount: true });
-          if (usesAndroidScannerActivity) {
-            requestAnimationFrame(() => {
-              startAndroidScan().catch(() => null);
-            });
-          }
+          onClose?.();
           return;
         }
 
@@ -798,6 +797,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     rectangleDetected,
     rectangleHint,
     captureReady,
+    onClose,
     resetScannerView,
     startAndroidScan,
     usesAndroidScannerActivity,
@@ -949,6 +949,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     resetScannerView({ remount: true });
 
     if (usesAndroidScannerActivity) {
+      setAndroidScanDismissed(false);
       requestAnimationFrame(() => {
         triggerManualCapture();
       });
@@ -1048,6 +1049,10 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       return;
     }
 
+    if (androidScanDismissed) {
+      return;
+    }
+
     if (androidScanAutoRequested || croppedImageData || cropEditorDocument || processing) {
       return;
     }
@@ -1056,6 +1061,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     triggerManualCapture();
   }, [
     androidScanAutoRequested,
+    androidScanDismissed,
     cropEditorDocument,
     croppedImageData,
     processing,
