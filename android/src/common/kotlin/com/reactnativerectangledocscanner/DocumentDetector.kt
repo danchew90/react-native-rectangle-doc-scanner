@@ -261,13 +261,17 @@ class DocumentDetector {
 
                     var largestRectangle: Rectangle? = null
                     var bestScore = 0.0
-                    val minArea = max(350.0, (srcMat.rows() * srcMat.cols()) * 0.0005)
+                    val imageArea = (srcMat.rows() * srcMat.cols()).toDouble()
+                    // Min: 2% of image (documents should be visible)
+                    // Max: 85% of image (avoid detecting screen borders)
+                    val minArea = max(350.0, imageArea * 0.02)
+                    val maxArea = imageArea * 0.85
 
                     debugStats.contours = contours.size
 
                     for (contour in contours) {
                         val contourArea = Imgproc.contourArea(contour)
-                        if (contourArea < minArea) continue
+                        if (contourArea < minArea || contourArea > maxArea) continue
 
                         val approx = MatOfPoint2f()
                         val contour2f = MatOfPoint2f(*contour.toArray())
@@ -291,7 +295,8 @@ class DocumentDetector {
                             val rect = Imgproc.minAreaRect(MatOfPoint2f(*points))
                             val rectArea = rect.size.area()
                             val rectangularity = if (rectArea > 1.0) contourArea / rectArea else 0.0
-                            if (rectangularity >= 0.5 && isCandidateValid(ordered, srcMat)) {
+                            // Stricter rectangularity check (0.7 = more rectangular shapes only)
+                            if (rectangularity >= 0.7 && isCandidateValid(ordered, srcMat)) {
                                 debugStats.candidates += 1
                                 val score = contourArea * rectangularity
                                 if (score > bestScore) {
@@ -436,16 +441,6 @@ class DocumentDetector {
             }
             val aspect = if (height > 0) width / height else 0.0
             if (aspect < 0.45 || aspect > 2.8) {
-                return false
-            }
-
-            // Check margin from view edges to avoid detecting screen borders
-            // Use smaller margin (2%) to be less restrictive
-            val margin = minDim * 0.02
-            if (rectangle.topLeft.x < margin || rectangle.topLeft.y < margin ||
-                rectangle.topRight.x > srcMat.cols() - margin || rectangle.topRight.y < margin ||
-                rectangle.bottomLeft.x < margin || rectangle.bottomLeft.y > srcMat.rows() - margin ||
-                rectangle.bottomRight.x > srcMat.cols() - margin || rectangle.bottomRight.y > srcMat.rows() - margin) {
                 return false
             }
 
