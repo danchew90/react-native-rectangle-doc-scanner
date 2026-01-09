@@ -38,6 +38,29 @@ yarn/npm으로 설치하기만 하면 됩니다 - **수동 설정 불필요!**
 - 설치 중 iOS 최적화 파일 자동 복사
 - `pod install` 후 즉시 사용 가능
 
+## 빠른 시작 가이드
+
+```bash
+# 1. 패키지 설치
+yarn add react-native-rectangle-doc-scanner \
+  github:Michaelvilleneuve/react-native-document-scanner \
+  react-native-perspective-image-cropper \
+  react-native-fs \
+  react-native-image-crop-picker \
+  react-native-image-picker \
+  react-native-svg \
+  expo-modules-core
+
+# 2. iOS 설정
+cd ios && pod install && cd ..
+
+# 3. iOS Info.plist에 카메라 권한 추가 (수동)
+# 4. 앱 실행
+npx react-native run-ios
+# 또는
+npx react-native run-android
+```
+
 ## 설치 방법
 
 ### 1. 패키지 설치
@@ -384,6 +407,54 @@ import { FullDocScanner } from 'react-native-rectangle-doc-scanner';
 />
 ```
 
+## 의존성 패키지 상세 정보
+
+이 라이브러리는 다양한 패키지에 의존합니다. 각 패키지의 역할은 다음과 같습니다:
+
+### 필수 의존성 (Peer Dependencies)
+
+| 패키지 | 역할 | 필수 여부 |
+|--------|------|-----------|
+| `react-native-fs` | 파일 시스템 접근 (이미지 저장/읽기) | ✅ 필수 |
+| `react-native-image-crop-picker` | 이미지 선택 및 크롭 | ✅ 필수 |
+| `react-native-image-picker` | 갤러리/카메라에서 이미지 선택 | ✅ 필수 |
+| `react-native-svg` | SVG 렌더링 (UI 오버레이) | ✅ 필수 |
+| `expo-modules-core` | Expo 모듈 코어 기능 | ✅ 필수 |
+| `expo-image-manipulator` | 이미지 회전 및 편집 | ⚙️ 선택 (회전 기능용) |
+| `react-native-image-rotate` | 이미지 회전 (대안) | ⚙️ 선택 (회전 기능용) |
+
+### 내부 의존성 (Dependencies)
+
+| 패키지 | 역할 |
+|--------|------|
+| `react-native-document-scanner` | 네이티브 문서 스캐너 구현 (GitHub) |
+| `react-native-perspective-image-cropper` | 원근 보정 크롭 에디터 |
+| `prop-types` | React PropTypes 검증 |
+
+### 개발 의존성 (DevDependencies)
+
+| 패키지 | 역할 |
+|--------|------|
+| `typescript` | TypeScript 컴파일러 |
+| `@types/react` | React 타입 정의 |
+| `@types/react-native` | React Native 타입 정의 |
+| `@types/react-native-fs` | react-native-fs 타입 정의 |
+
+### 네이티브 의존성
+
+**iOS (CocoaPods):**
+- OpenCV (이미지 처리 및 문서 감지)
+- AVFoundation (카메라 API)
+- CoreImage (이미지 필터 및 품질 처리)
+
+**Android (Gradle):**
+- OpenCV 4.9.0 (문서 감지)
+- CameraX 1.3.0 (카메라 API)
+- Kotlin Coroutines 1.7.3 (비동기 처리)
+- ML Kit Document Scanner (문서 스캔)
+- ML Kit Object Detection (실시간 사각형 감지)
+- AndroidX Core, AppCompat (Android 기본 라이브러리)
+
 ## 기술 스택
 
 ### iOS
@@ -391,22 +462,24 @@ import { FullDocScanner } from 'react-native-rectangle-doc-scanner';
 - **카메라 API**: AVCapturePhotoOutput (iOS 10+)
 - **이미지 처리**: OpenCV, CoreImage (CIContext)
 - **최소 버전**: iOS 11.0
+- **지원 아키텍처**: arm64, x86_64 (시뮬레이터)
 
 ### Android
-- **언어**: Kotlin
+- **언어**: Kotlin 1.8.21
 - **카메라**: CameraX 1.3.0, Camera2 API
 - **이미지 처리**: OpenCV 4.9.0
 - **ML Kit**: 문서 스캔 및 객체 감지
-- **최소 SDK**: 21 (Android 5.0)
-- **타겟 SDK**: 33 (Android 13)
-- **Kotlin**: 1.8.21
-- **Java**: 17
+- **최소 SDK**: 21 (Android 5.0 Lollipop)
+- **타겟 SDK**: 33 (Android 13 Tiramisu)
+- **Java**: JDK 17
+- **Gradle**: 7.4.2+
+- **Android Gradle Plugin**: 7.4.2+
 
 ## 문제 해결
 
 ### iOS 빌드 오류
 
-Pod 설치 후에도 빌드 오류가 발생하는 경우:
+**Pod 설치 후에도 빌드 오류가 발생하는 경우:**
 
 ```bash
 cd ios
@@ -416,19 +489,139 @@ pod install
 cd ..
 ```
 
+**"Module not found" 또는 헤더 파일 관련 오류:**
+
+```bash
+# Xcode에서 Product > Clean Build Folder (Shift + Cmd + K)
+# 또는 터미널에서:
+cd ios
+xcodebuild clean -workspace YourApp.xcworkspace -scheme YourApp
+cd ..
+```
+
+**CocoaPods 버전 문제:**
+
+```bash
+sudo gem install cocoapods
+pod --version  # 1.11.0 이상 권장
+```
+
 ### Android 빌드 오류
 
-Gradle 빌드 오류가 발생하는 경우:
+**Gradle 빌드 오류가 발생하는 경우:**
 
 ```bash
 cd android
 ./gradlew clean
+./gradlew --stop  # Gradle daemon 중지
+cd ..
+```
+
+**Java 버전 오류:**
+
+이 라이브러리는 Java 17이 필요합니다. Java 버전을 확인하세요:
+
+```bash
+java -version  # java version "17.x.x" 확인
+```
+
+**Kotlin 버전 충돌:**
+
+`android/build.gradle`에서 Kotlin 버전이 1.8.21 이상인지 확인:
+
+```gradle
+buildscript {
+    ext.kotlin_version = '1.8.21'
+}
+```
+
+**OpenCV 의존성 오류:**
+
+OpenCV가 자동으로 다운로드되지 않는 경우:
+
+```bash
+cd android
+./gradlew clean
+./gradlew :app:dependencies  # 의존성 확인
 cd ..
 ```
 
 ### 권한 오류
 
-카메라가 작동하지 않는 경우, 런타임 권한이 올바르게 요청되었는지 확인하세요. iOS의 경우 Info.plist에 권한 설명이 추가되어 있는지, Android의 경우 PermissionsAndroid로 권한을 요청했는지 확인하세요.
+**카메라가 작동하지 않는 경우:**
+
+1. **iOS**: Info.plist에 권한 설명이 추가되어 있는지 확인:
+   - `NSCameraUsageDescription`
+   - `NSPhotoLibraryUsageDescription`
+   - `NSPhotoLibraryAddUsageDescription`
+
+2. **Android**: PermissionsAndroid로 런타임 권한 요청:
+   ```typescript
+   await PermissionsAndroid.request(
+     PermissionsAndroid.PERMISSIONS.CAMERA
+   );
+   ```
+
+3. 기기 설정에서 앱의 카메라 권한이 허용되어 있는지 확인
+
+### Postinstall 스크립트 오류
+
+**postinstall이 실행되지 않는 경우:**
+
+```bash
+# 수동으로 postinstall 실행
+node node_modules/react-native-rectangle-doc-scanner/scripts/postinstall.js
+
+# 또는 패키지 재설치
+rm -rf node_modules
+yarn install  # 또는 npm install
+```
+
+**"react-native-document-scanner not found" 오류:**
+
+```bash
+# react-native-document-scanner 설치 확인
+yarn add github:Michaelvilleneuve/react-native-document-scanner
+```
+
+### Metro Bundler 오류
+
+**"Unable to resolve module" 오류:**
+
+```bash
+# Metro 캐시 삭제
+npx react-native start --reset-cache
+
+# 또는
+rm -rf $TMPDIR/metro-*
+rm -rf $TMPDIR/haste-*
+```
+
+### Peer Dependencies 경고
+
+**"unmet peer dependency" 경고가 나타나는 경우:**
+
+모든 peer dependencies를 설치했는지 확인:
+
+```bash
+yarn add react-native-fs \
+  react-native-image-crop-picker \
+  react-native-image-picker \
+  react-native-svg \
+  expo-modules-core
+```
+
+### Expo 프로젝트
+
+Expo를 사용하는 경우, 일부 네이티브 모듈이 Expo Go에서 작동하지 않을 수 있습니다.
+개발 빌드(development build)를 사용하세요:
+
+```bash
+npx expo prebuild
+npx expo run:ios
+# 또는
+npx expo run:android
+```
 
 ## 라이선스
 
@@ -469,6 +662,29 @@ Just install with yarn/npm - **no manual configuration needed!**
 - Postinstall script automatically patches camera quality
 - Optimized iOS files copied during installation
 - Works immediately after `pod install`
+
+## Quick Start Guide
+
+```bash
+# 1. Install packages
+yarn add react-native-rectangle-doc-scanner \
+  github:Michaelvilleneuve/react-native-document-scanner \
+  react-native-perspective-image-cropper \
+  react-native-fs \
+  react-native-image-crop-picker \
+  react-native-image-picker \
+  react-native-svg \
+  expo-modules-core
+
+# 2. iOS setup
+cd ios && pod install && cd ..
+
+# 3. Add camera permissions to iOS Info.plist (manual)
+# 4. Run your app
+npx react-native run-ios
+# or
+npx react-native run-android
+```
 
 ## Installation
 
@@ -586,7 +802,77 @@ The library has the following minimum requirements:
 
 These are automatically applied, but make sure your project's `android/build.gradle` uses compatible versions.
 
-### 5. Request Runtime Permissions
+**Example `android/build.gradle` configuration:**
+
+```gradle
+buildscript {
+    ext {
+        buildToolsVersion = "33.0.0"
+        minSdkVersion = 21
+        compileSdkVersion = 33
+        targetSdkVersion = 33
+        kotlinVersion = "1.8.21"
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:7.4.2")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    }
+}
+```
+
+**Example `android/app/build.gradle` configuration:**
+
+```gradle
+android {
+    compileSdkVersion rootProject.ext.compileSdkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+    }
+}
+```
+
+### 5. Automatic Quality Patch (Postinstall)
+
+This library automatically optimizes camera quality through a **postinstall script**:
+
+```bash
+# Automatically runs on package installation
+node scripts/postinstall.js
+```
+
+**What postinstall does:**
+1. Locates the `react-native-document-scanner` package (auto-detected in node_modules)
+2. Copies optimized iOS files from the vendor folder:
+   - `IPDFCameraViewController.m/h` - Uses AVCapturePhotoOutput
+   - `DocumentScannerView.m/h` - High quality settings
+   - `RNPdfScannerManager.m/h` - Native bridge
+   - `ios.js`, `index.js` - JavaScript interface
+3. Original files are backed up with `.original` extension
+
+**To run manually:**
+
+```bash
+npm run postinstall
+# or
+node scripts/postinstall.js
+```
+
+**Troubleshooting:**
+- If postinstall fails, ensure `react-native-document-scanner` is installed
+- When using yarn workspaces or monorepos, package hoisting may affect the path
+
+### 6. Request Runtime Permissions
 
 You need to request camera permissions at runtime in your app:
 
@@ -746,6 +1032,54 @@ import { FullDocScanner } from 'react-native-rectangle-doc-scanner';
 />
 ```
 
+## Dependency Details
+
+This library depends on various packages. Here's what each package does:
+
+### Required Dependencies (Peer Dependencies)
+
+| Package | Purpose | Required |
+|---------|---------|----------|
+| `react-native-fs` | File system access (save/read images) | ✅ Required |
+| `react-native-image-crop-picker` | Image selection and cropping | ✅ Required |
+| `react-native-image-picker` | Pick images from gallery/camera | ✅ Required |
+| `react-native-svg` | SVG rendering (UI overlays) | ✅ Required |
+| `expo-modules-core` | Expo module core functionality | ✅ Required |
+| `expo-image-manipulator` | Image rotation and editing | ⚙️ Optional (for rotation) |
+| `react-native-image-rotate` | Image rotation (alternative) | ⚙️ Optional (for rotation) |
+
+### Internal Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `react-native-document-scanner` | Native document scanner implementation (GitHub) |
+| `react-native-perspective-image-cropper` | Perspective correction crop editor |
+| `prop-types` | React PropTypes validation |
+
+### Development Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `typescript` | TypeScript compiler |
+| `@types/react` | React type definitions |
+| `@types/react-native` | React Native type definitions |
+| `@types/react-native-fs` | react-native-fs type definitions |
+
+### Native Dependencies
+
+**iOS (CocoaPods):**
+- OpenCV (image processing and document detection)
+- AVFoundation (camera API)
+- CoreImage (image filters and quality processing)
+
+**Android (Gradle):**
+- OpenCV 4.9.0 (document detection)
+- CameraX 1.3.0 (camera API)
+- Kotlin Coroutines 1.7.3 (async processing)
+- ML Kit Document Scanner (document scanning)
+- ML Kit Object Detection (real-time rectangle detection)
+- AndroidX Core, AppCompat (Android base libraries)
+
 ## Tech Stack
 
 ### iOS
@@ -753,22 +1087,24 @@ import { FullDocScanner } from 'react-native-rectangle-doc-scanner';
 - **Camera API**: AVCapturePhotoOutput (iOS 10+)
 - **Image Processing**: OpenCV, CoreImage (CIContext)
 - **Minimum Version**: iOS 11.0
+- **Supported Architectures**: arm64, x86_64 (simulator)
 
 ### Android
-- **Language**: Kotlin
+- **Language**: Kotlin 1.8.21
 - **Camera**: CameraX 1.3.0, Camera2 API
 - **Image Processing**: OpenCV 4.9.0
 - **ML Kit**: Document scanning and object detection
-- **Minimum SDK**: 21 (Android 5.0)
-- **Target SDK**: 33 (Android 13)
-- **Kotlin**: 1.8.21
-- **Java**: 17
+- **Minimum SDK**: 21 (Android 5.0 Lollipop)
+- **Target SDK**: 33 (Android 13 Tiramisu)
+- **Java**: JDK 17
+- **Gradle**: 7.4.2+
+- **Android Gradle Plugin**: 7.4.2+
 
 ## Troubleshooting
 
 ### iOS Build Errors
 
-If you encounter build errors after pod install:
+**If you encounter build errors after pod install:**
 
 ```bash
 cd ios
@@ -778,19 +1114,139 @@ pod install
 cd ..
 ```
 
+**"Module not found" or header file related errors:**
+
+```bash
+# In Xcode: Product > Clean Build Folder (Shift + Cmd + K)
+# Or from terminal:
+cd ios
+xcodebuild clean -workspace YourApp.xcworkspace -scheme YourApp
+cd ..
+```
+
+**CocoaPods version issues:**
+
+```bash
+sudo gem install cocoapods
+pod --version  # Recommended 1.11.0+
+```
+
 ### Android Build Errors
 
-If you encounter Gradle build errors:
+**If you encounter Gradle build errors:**
 
 ```bash
 cd android
 ./gradlew clean
+./gradlew --stop  # Stop Gradle daemon
+cd ..
+```
+
+**Java version errors:**
+
+This library requires Java 17. Check your Java version:
+
+```bash
+java -version  # Should show "17.x.x"
+```
+
+**Kotlin version conflicts:**
+
+Ensure Kotlin version in `android/build.gradle` is 1.8.21 or higher:
+
+```gradle
+buildscript {
+    ext.kotlin_version = '1.8.21'
+}
+```
+
+**OpenCV dependency errors:**
+
+If OpenCV doesn't download automatically:
+
+```bash
+cd android
+./gradlew clean
+./gradlew :app:dependencies  # Check dependencies
 cd ..
 ```
 
 ### Permission Errors
 
-If the camera is not working, make sure you have requested runtime permissions correctly. For iOS, check that permission descriptions are added to Info.plist. For Android, ensure you've requested permissions using PermissionsAndroid.
+**If the camera is not working:**
+
+1. **iOS**: Check that permission descriptions are added to Info.plist:
+   - `NSCameraUsageDescription`
+   - `NSPhotoLibraryUsageDescription`
+   - `NSPhotoLibraryAddUsageDescription`
+
+2. **Android**: Request runtime permissions using PermissionsAndroid:
+   ```typescript
+   await PermissionsAndroid.request(
+     PermissionsAndroid.PERMISSIONS.CAMERA
+   );
+   ```
+
+3. Verify that camera permissions are granted in device settings
+
+### Postinstall Script Errors
+
+**If postinstall doesn't run:**
+
+```bash
+# Run postinstall manually
+node node_modules/react-native-rectangle-doc-scanner/scripts/postinstall.js
+
+# Or reinstall packages
+rm -rf node_modules
+yarn install  # or npm install
+```
+
+**"react-native-document-scanner not found" error:**
+
+```bash
+# Verify react-native-document-scanner installation
+yarn add github:Michaelvilleneuve/react-native-document-scanner
+```
+
+### Metro Bundler Errors
+
+**"Unable to resolve module" error:**
+
+```bash
+# Clear Metro cache
+npx react-native start --reset-cache
+
+# Or
+rm -rf $TMPDIR/metro-*
+rm -rf $TMPDIR/haste-*
+```
+
+### Peer Dependencies Warning
+
+**If you see "unmet peer dependency" warnings:**
+
+Make sure all peer dependencies are installed:
+
+```bash
+yarn add react-native-fs \
+  react-native-image-crop-picker \
+  react-native-image-picker \
+  react-native-svg \
+  expo-modules-core
+```
+
+### Expo Projects
+
+If using Expo, some native modules may not work in Expo Go.
+Use a development build instead:
+
+```bash
+npx expo prebuild
+npx expo run:ios
+# or
+npx expo run:android
+```
 
 ## License
 
