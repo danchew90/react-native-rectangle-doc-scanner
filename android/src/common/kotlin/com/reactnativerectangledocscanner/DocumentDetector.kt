@@ -210,8 +210,10 @@ class DocumentDetector {
 
                 val median = computeMedian(blurredMat)
                 val sigma = 0.33
-                val cannyLow = max(25.0, (1.0 - sigma) * median)
-                val cannyHigh = max(80.0, (1.0 + sigma) * median)
+                // Increased thresholds for high-res (1280x960) to reduce noise
+                // This makes edge detection less sensitive, focusing on strong edges only
+                val cannyLow = max(50.0, (1.0 - sigma) * median).coerceAtLeast(100.0)
+                val cannyHigh = max(150.0, (1.0 + sigma) * median).coerceAtLeast(200.0)
 
                 // Apply Canny edge detection with adaptive thresholds for better corner detection.
                 Imgproc.Canny(blurredMat, cannyMat, cannyLow, cannyHigh)
@@ -437,20 +439,20 @@ class DocumentDetector {
                 return false
             }
 
+            // TEMPORARILY DISABLED: Enhanced filters were too strict
+            // TODO: Re-enable with more lenient thresholds after testing
+            /*
             // Enhanced validation: Check corner angles (should be close to 90°)
-            // Made more lenient: 50°-130° (was 60°-120°)
             if (!hasValidCornerAngles(rectangle)) {
                 return false
             }
 
             // Enhanced validation: Check edge straightness
-            // Made more lenient: 20° tolerance (was 15°)
             if (!hasValidEdgeStraightness(rectangle, srcMat)) {
                 return false
             }
 
             // Enhanced validation: Check margin from view edges (avoid detecting screen borders)
-            // Made more lenient: 3% margin (was 5%)
             val margin = minDim * 0.03
             if (rectangle.topLeft.x < margin || rectangle.topLeft.y < margin ||
                 rectangle.topRight.x > srcMat.cols() - margin || rectangle.topRight.y < margin ||
@@ -458,6 +460,7 @@ class DocumentDetector {
                 rectangle.bottomRight.x > srcMat.cols() - margin || rectangle.bottomRight.y > srcMat.rows() - margin) {
                 return false
             }
+            */
 
             return true
         }
