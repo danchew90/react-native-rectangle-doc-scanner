@@ -494,10 +494,10 @@ class CameraController(
         val finalWidth = imageWidth
         val finalHeight = imageHeight
 
-        // Apply fit-center scaling to match TextureView display.
+        // Apply center-crop scaling to match TextureView display.
         val scaleX = viewWidth / finalWidth.toFloat()
         val scaleY = viewHeight / finalHeight.toFloat()
-        val scale = scaleX.coerceAtMost(scaleY)
+        val scale = scaleX.coerceAtLeast(scaleY)
 
         val scaledWidth = finalWidth * scale
         val scaledHeight = finalHeight * scale
@@ -583,26 +583,17 @@ class CameraController(
             bufferHeight
         }
 
-        // Scale to fit within the view while maintaining aspect ratio (no zoom/crop)
+        // Scale to fill the view while maintaining aspect ratio (center-crop)
         val scaleX = viewWidth.toFloat() / rotatedBufferWidth.toFloat()
         val scaleY = viewHeight.toFloat() / rotatedBufferHeight.toFloat()
-        val scale = scaleX.coerceAtMost(scaleY)  // Use min to fit
+        val scale = scaleX.coerceAtLeast(scaleY)  // Use max to fill
 
         Log.d(TAG, "[TRANSFORM] Rotated buffer: ${rotatedBufferWidth}x${rotatedBufferHeight}, ScaleX: $scaleX, ScaleY: $scaleY, Using: $scale")
 
         matrix.postScale(scale, scale, centerX, centerY)
 
-        // Track the actual preview viewport within the view for clipping overlays.
-        val scaledWidth = rotatedBufferWidth * scale
-        val scaledHeight = rotatedBufferHeight * scale
-        val offsetX = (viewWidth - scaledWidth) / 2f
-        val offsetY = (viewHeight - scaledHeight) / 2f
-        previewViewport = android.graphics.RectF(
-            offsetX,
-            offsetY,
-            offsetX + scaledWidth,
-            offsetY + scaledHeight
-        )
+        // With center-crop, the preview fully covers the view bounds.
+        previewViewport = android.graphics.RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
 
         textureView.setTransform(matrix)
         Log.d(TAG, "[TRANSFORM] Transform applied successfully")

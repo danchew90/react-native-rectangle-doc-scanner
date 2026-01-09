@@ -150,19 +150,13 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     private fun layoutPreviewAndOverlay(viewWidth: Int, viewHeight: Int) {
         if (viewWidth <= 0 || viewHeight <= 0) return
 
-        val targetWidth: Int
-        val targetHeight: Int
-        val aspectHeight = (viewWidth / PREVIEW_ASPECT_RATIO).toInt()
-        if (aspectHeight <= viewHeight) {
-            targetWidth = viewWidth
-            targetHeight = aspectHeight
-        } else {
-            targetWidth = (viewHeight * PREVIEW_ASPECT_RATIO).toInt()
-            targetHeight = viewHeight
-        }
+        // Always fill width to avoid left/right letterboxing.
+        val targetWidth = viewWidth
+        val targetHeight = (viewWidth / PREVIEW_ASPECT_RATIO).toInt()
 
-        val left = (viewWidth - targetWidth) / 2
-        val top = if (targetHeight < viewHeight) 0 else (viewHeight - targetHeight) / 2
+        val left = 0
+        // Center vertically; allows top/bottom crop when targetHeight > viewHeight.
+        val top = (viewHeight - targetHeight) / 2
         val right = left + targetWidth
         val bottom = top + targetHeight
 
