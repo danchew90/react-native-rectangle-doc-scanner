@@ -30,6 +30,7 @@ type PictureEvent = {
   height?: number;
   rectangleCoordinates?: NativeRectangle | null;
   rectangleOnScreen?: NativeRectangle | null;
+  pages?: Array<{ path: string; width: number; height: number }> | null;
 };
 
 export type RectangleDetectEvent = Omit<RectangleEventPayload, 'rectangleCoordinates' | 'rectangleOnScreen'> & {
@@ -53,6 +54,8 @@ const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
 const { RNPdfScannerManager } = NativeModules;
+const isAndroidDocumentScanner =
+  Platform.OS === 'android' && typeof RNPdfScannerManager?.startDocumentScanner === 'function';
 
 const safeRequire = (moduleName: string) => {
   try {
@@ -136,6 +139,130 @@ const RectangleQuality = {
   BAD_ANGLE: 1,
   TOO_FAR: 2,
 } as const;
+
+const DEFAULT_PAGE_LIMIT = 2;
+
+const ActivityScanner = forwardRef<DocScannerHandle, Props>(
+  (
+    {
+      onCapture,
+      children,
+      showManualCaptureButton = false,
+    },
+    ref,
+  ) => {
+    const captureOriginRef = useRef<'auto' | 'manual'>('auto');
+    const captureResolvers = useRef<{
+      resolve: (value: PictureEvent) => void;
+      reject: (error: Error) => void;
+    } | null>(null);
+
+    const handlePictureTaken = useCallback(
+      (event: PictureEvent) => {
+        const captureError = (event as any)?.error;
+        if (captureError) {
+          captureOriginRef.current = 'auto';
+
+          if (captureResolvers.current) {
+            captureResolvers.current.reject(new Error(String(captureError)));
+            captureResolvers.current = null;
+          }
+          return;
+        }
+
+        const normalizedRectangle =
+          normalizeRectangle(event.rectangleCoordinates ?? null) ??
+          normalizeRectangle(event.rectangleOnScreen ?? null) ??
+          null;
+        const quad = normalizedRectangle ? rectangleToQuad(normalizedRectangle) : null;
+        const origin = captureOriginRef.current;
+        captureOriginRef.current = 'auto';
+
+        const initialPath = event.initialImage ?? null;
+        const croppedPath = event.croppedImage ?? null;
+        const editablePath = initialPath ?? croppedPath;
+
+        if (editablePath) {
+          onCapture?.({
+            path: editablePath,
+            initialPath,
+            croppedPath,
+            quad,
+            rectangle: normalizedRectangle,
+            width: event.width ?? 0,
+            height: event.height ?? 0,
+            origin,
+          });
+        }
+
+        if (captureResolvers.current) {
+          captureResolvers.current.resolve(event);
+          captureResolvers.current = null;
+        }
+      },
+      [onCapture],
+    );
+
+    const handleError = useCallback((error: Error) => {
+      if (captureResolvers.current) {
+        captureResolvers.current.reject(error);
+        captureResolvers.current = null;
+      }
+    }, []);
+
+    const capture = useCallback((): Promise<PictureEvent> => {
+      captureOriginRef.current = 'manual';
+
+      if (!RNPdfScannerManager?.startDocumentScanner) {
+        captureOriginRef.current = 'auto';
+        return Promise.reject(new Error('document_scanner_not_available'));
+      }
+
+      if (captureResolvers.current) {
+        captureOriginRef.current = 'auto';
+        return Promise.reject(new Error('capture_in_progress'));
+      }
+
+      return new Promise<PictureEvent>((resolve, reject) => {
+        captureResolvers.current = { resolve, reject };
+        RNPdfScannerManager.startDocumentScanner({ pageLimit: DEFAULT_PAGE_LIMIT })
+          .then(handlePictureTaken)
+          .catch((error: unknown) => {
+            captureOriginRef.current = 'auto';
+            handleError(error as Error);
+          });
+      });
+    }, [handleError, handlePictureTaken]);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        capture,
+        reset: () => {
+          if (captureResolvers.current) {
+            captureResolvers.current.reject(new Error('reset'));
+            captureResolvers.current = null;
+          }
+          captureOriginRef.current = 'auto';
+        },
+      }),
+      [capture],
+    );
+
+    const handleManualCapture = useCallback(() => {
+      capture().catch(() => null);
+    }, [capture]);
+
+    return (
+      <View style={styles.container}>
+        {showManualCaptureButton && (
+          <TouchableOpacity style={styles.button} onPress={handleManualCapture} />
+        )}
+        {children}
+      </View>
+    );
+  },
+);
 
 const evaluateRectangleQualityInView = (rectangle: Rectangle, viewWidth: number, viewHeight: number) => {
   if (!viewWidth || !viewHeight) {
@@ -1035,10 +1162,17 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>((props, ref) => {
     if (Platform.OS !== 'android') {
       return;
     }
-    console.log('[DocScanner] Using native CameraX pipeline on Android');
+    if (isAndroidDocumentScanner) {
+      console.log('[DocScanner] Using ML Kit document scanner activity on Android');
+    } else {
+      console.log('[DocScanner] Using native CameraX pipeline on Android');
+    }
   }, []);
 
   if (Platform.OS === 'android') {
+    if (isAndroidDocumentScanner) {
+      return <ActivityScanner ref={ref} {...props} />;
+    }
     return <NativeScanner ref={ref} {...props} />;
   }
 

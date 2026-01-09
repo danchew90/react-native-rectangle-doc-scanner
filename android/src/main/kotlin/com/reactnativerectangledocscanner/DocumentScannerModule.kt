@@ -1,16 +1,32 @@
 package com.reactnativerectangledocscanner
 
+import android.app.Activity
+import android.content.Intent
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.uimanager.UIManagerModule
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import kotlinx.coroutines.*
 import org.opencv.core.Point
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 
 class DocumentScannerModule(reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext) {
+    ReactContextBaseJavaModule(reactContext), ActivityEventListener {
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var pendingScanPromise: Promise? = null
+
+    private val scanRequestCode = 39201
+
+    init {
+        reactContext.addActivityEventListener(this)
+    }
 
     companion object {
         const val NAME = "RNPdfScannerManager"
@@ -18,6 +34,55 @@ class DocumentScannerModule(reactContext: ReactApplicationContext) :
     }
 
     override fun getName() = NAME
+
+    @ReactMethod
+    fun startDocumentScanner(options: ReadableMap?, promise: Promise) {
+        val activity = currentActivity
+        if (activity == null) {
+            promise.reject("NO_ACTIVITY", "Activity doesn't exist")
+            return
+        }
+
+        if (pendingScanPromise != null) {
+            promise.reject("SCAN_IN_PROGRESS", "Document scanner already in progress")
+            return
+        }
+
+        val pageLimit = options?.takeIf { it.hasKey("pageLimit") }?.getInt("pageLimit") ?: 2
+
+        val scannerOptions = GmsDocumentScannerOptions.Builder()
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .setPageLimit(pageLimit.coerceAtMost(2))
+            .setGalleryImportAllowed(false)
+            .build()
+
+        val scanner = GmsDocumentScanning.getClient(scannerOptions)
+        pendingScanPromise = promise
+
+        scanner.getStartScanIntent(activity)
+            .addOnSuccessListener { intentSender ->
+                try {
+                    activity.startIntentSenderForResult(
+                        intentSender,
+                        scanRequestCode,
+                        null,
+                        0,
+                        0,
+                        0
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to launch document scanner", e)
+                    pendingScanPromise = null
+                    promise.reject("SCAN_LAUNCH_FAILED", "Failed to launch scanner: ${e.message}", e)
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to get document scanner intent", e)
+                pendingScanPromise = null
+                promise.reject("SCAN_INIT_FAILED", "Failed to initialize scanner: ${e.message}", e)
+            }
+    }
 
     /**
      * Capture image from the document scanner view
@@ -236,6 +301,101 @@ class DocumentScannerModule(reactContext: ReactApplicationContext) :
                 promise.reject("PROCESSING_FAILED", "Failed to process image: ${e.message}", e)
             }
         }
+    }
+
+    override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != scanRequestCode) {
+            return
+        }
+
+        val promise = pendingScanPromise
+        pendingScanPromise = null
+
+        if (promise == null) {
+            return
+        }
+
+        if (resultCode != Activity.RESULT_OK) {
+            promise.reject("SCAN_CANCELLED", "Document scan cancelled")
+            return
+        }
+
+        val result = GmsDocumentScanningResult.fromActivityResultIntent(data)
+        if (result == null) {
+            promise.reject("SCAN_NO_RESULT", "No scan result returned")
+            return
+        }
+
+        val pages = result.pages
+        if (pages.isNullOrEmpty()) {
+            promise.reject("SCAN_NO_PAGES", "No pages returned from scanner")
+            return
+        }
+
+        try {
+            val outputPages = Arguments.createArray()
+            var firstPath: String? = null
+            var firstWidth = 0
+            var firstHeight = 0
+
+            pages.forEachIndexed { index, page ->
+                val imageUri = page.imageUri
+                val outputFile = copyUriToCache(imageUri, index)
+                val (width, height) = readImageSize(outputFile.absolutePath)
+
+                if (index == 0) {
+                    firstPath = outputFile.absolutePath
+                    firstWidth = width
+                    firstHeight = height
+                }
+
+                val pageMap = Arguments.createMap().apply {
+                    putString("path", outputFile.absolutePath)
+                    putInt("width", width)
+                    putInt("height", height)
+                }
+                outputPages.pushMap(pageMap)
+            }
+
+            val response = Arguments.createMap().apply {
+                putString("croppedImage", firstPath)
+                putString("initialImage", firstPath)
+                putInt("width", firstWidth)
+                putInt("height", firstHeight)
+                putArray("pages", outputPages)
+            }
+
+            promise.resolve(response)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to handle scan result", e)
+            promise.reject("SCAN_PROCESS_FAILED", "Failed to handle scan result: ${e.message}", e)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        // No-op
+    }
+
+    private fun copyUriToCache(uri: Uri, index: Int): File {
+        val filename = "docscanner_page_${System.currentTimeMillis()}_$index.jpg"
+        val outputFile = File(reactApplicationContext.cacheDir, filename)
+        val resolver = reactApplicationContext.contentResolver
+        val inputStream: InputStream = resolver.openInputStream(uri)
+            ?: throw IllegalStateException("Failed to open input stream for $uri")
+
+        inputStream.use { input ->
+            FileOutputStream(outputFile).use { output ->
+                input.copyTo(output)
+            }
+        }
+
+        return outputFile
+    }
+
+    private fun readImageSize(path: String): Pair<Int, Int> {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, options)
+        return options.outWidth to options.outHeight
     }
 
     override fun onCatalystInstanceDestroy() {

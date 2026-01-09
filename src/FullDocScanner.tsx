@@ -239,7 +239,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       setRotationDegrees(0);
       setRectangleDetected(false);
       setRectangleHint(false);
-      setCaptureReady(false);
+      setCaptureReady(usesAndroidScannerActivity ? true : false);
       captureModeRef.current = null;
       captureInProgressRef.current = false;
 
@@ -265,7 +265,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         setScannerSession((prev) => prev + 1);
       }
     },
-    [],
+    [usesAndroidScannerActivity],
   );
 
   const mergedStrings = useMemo(
@@ -289,6 +289,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
   const pdfScannerManager = (NativeModules as any)?.RNPdfScannerManager;
   const isAndroidCropEditorAvailable = Platform.OS === 'android' && Boolean(CropEditor);
+  const usesAndroidScannerActivity =
+    Platform.OS === 'android' && typeof pdfScannerManager?.startDocumentScanner === 'function';
 
   const autoEnhancementEnabled = useMemo(
     () => typeof pdfScannerManager?.applyColorControls === 'function',
@@ -647,7 +649,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       captureInProgress: captureInProgressRef.current,
     });
 
-    if (Platform.OS === 'android' && !captureReady) {
+    if (Platform.OS === 'android' && !captureReady && !usesAndroidScannerActivity) {
       console.log('[FullDocScanner] Capture not ready yet, skipping');
       return;
     }
@@ -669,7 +671,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
     console.log('[FullDocScanner] Starting manual capture, grid detected:', rectangleDetected);
 
-    const captureMode = rectangleDetected ? 'grid' : 'no-grid';
+    const captureMode = usesAndroidScannerActivity ? 'grid' : rectangleDetected ? 'grid' : 'no-grid';
     captureModeRef.current = captureMode;
     captureInProgressRef.current = true;
 
@@ -710,7 +712,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           );
         }
       });
-  }, [processing, rectangleDetected, rectangleHint, captureReady, emitError]);
+  }, [processing, rectangleDetected, rectangleHint, captureReady, emitError, usesAndroidScannerActivity]);
 
   const handleGalleryPick = useCallback(async () => {
     console.log('[FullDocScanner] handleGalleryPick called');
@@ -933,6 +935,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     },
     [],
   );
+
+  useEffect(() => {
+    if (usesAndroidScannerActivity) {
+      setCaptureReady(true);
+    }
+  }, [usesAndroidScannerActivity]);
 
   const activePreviewImage = croppedImageData ? getActivePreviewImage(croppedImageData) : null;
 
@@ -1195,16 +1203,17 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
               style={[
                 styles.shutterButton,
                 processing && styles.buttonDisabled,
-                Platform.OS === 'android' && !captureReady && styles.buttonDisabled,
+                Platform.OS === 'android' && !captureReady && !usesAndroidScannerActivity && styles.buttonDisabled,
               ]}
               onPress={triggerManualCapture}
-              disabled={processing || (Platform.OS === 'android' && !captureReady)}
+              disabled={processing || (Platform.OS === 'android' && !captureReady && !usesAndroidScannerActivity)}
               accessibilityLabel={mergedStrings.manualHint}
               accessibilityRole="button"
             >
               <View style={[
                 styles.shutterInner,
-                (Platform.OS === 'android' ? captureReady : rectangleHint) && { backgroundColor: overlayColor }
+                (Platform.OS === 'android' ? captureReady || usesAndroidScannerActivity : rectangleHint) &&
+                  { backgroundColor: overlayColor }
               ]} />
             </TouchableOpacity>
             <View style={styles.rightButtonsPlaceholder} />
