@@ -48,6 +48,7 @@ export type DocScannerCapture = {
   width: number;
   height: number;
   origin: 'auto' | 'manual';
+  pages?: Array<{ path: string; width: number; height: number }> | null;
 };
 
 const isFiniteNumber = (value: unknown): value is number =>
@@ -192,6 +193,7 @@ const ActivityScanner = forwardRef<DocScannerHandle, Props>(
             width: event.width ?? 0,
             height: event.height ?? 0,
             origin,
+            pages: event.pages ?? null,
           });
         }
 
@@ -480,6 +482,7 @@ const VisionCameraScanner = forwardRef<DocScannerHandle, Props>(
             width: event.width ?? 0,
             height: event.height ?? 0,
             origin,
+            pages: event.pages ?? null,
           });
         }
 

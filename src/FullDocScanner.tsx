@@ -293,10 +293,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     [strings],
   );
 
-  const autoEnhancementEnabled = useMemo(
-    () => typeof pdfScannerManager?.applyColorControls === 'function',
-    [pdfScannerManager],
-  );
+  const autoEnhancementEnabled = useMemo(() => {
+    if (usesAndroidScannerActivity) {
+      return false;
+    }
+    return typeof pdfScannerManager?.applyColorControls === 'function';
+  }, [pdfScannerManager, usesAndroidScannerActivity]);
 
   const ensureBase64ForImage = useCallback(
     async (image: PreviewImageInfo): Promise<PreviewImageInfo> => {
@@ -580,6 +582,19 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         return;
       }
 
+      if (usesAndroidScannerActivity) {
+        const pages = document.pages?.length
+          ? document.pages
+          : [{ path: document.path, width: document.width, height: document.height }];
+        const results: FullDocScannerResult[] = pages.map((page) => ({
+          path: stripFileUri(page.path),
+          rotationDegrees: 0,
+        }));
+        onResult(results);
+        resetScannerView({ remount: true });
+        return;
+      }
+
       const normalizedDoc = normalizeCapturedDocument(document);
 
       const shouldOpenAndroidCropEditor =
@@ -630,10 +645,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     [
       emitError,
       isAndroidCropEditorAvailable,
+      onResult,
       openAndroidCropEditor,
       openCropper,
       preparePreviewImage,
       resetScannerView,
+      usesAndroidScannerActivity,
     ],
   );
 
@@ -707,6 +724,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
         captureInProgressRef.current = false;
 
         if (errorMessage.includes('SCAN_CANCELLED')) {
+          resetScannerView({ remount: true });
+          onClose?.();
           return;
         }
 
@@ -717,7 +736,16 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
           );
         }
       });
-  }, [processing, rectangleDetected, rectangleHint, captureReady, emitError, usesAndroidScannerActivity]);
+  }, [
+    emitError,
+    onClose,
+    processing,
+    rectangleDetected,
+    rectangleHint,
+    captureReady,
+    resetScannerView,
+    usesAndroidScannerActivity,
+  ]);
 
   const handleGalleryPick = useCallback(async () => {
     console.log('[FullDocScanner] handleGalleryPick called');
@@ -863,7 +891,19 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
     }
 
     resetScannerView({ remount: true });
-  }, [capturedPhotos.length, isBusinessMode, resetScannerView]);
+
+    if (usesAndroidScannerActivity) {
+      requestAnimationFrame(() => {
+        triggerManualCapture();
+      });
+    }
+  }, [
+    capturedPhotos.length,
+    isBusinessMode,
+    resetScannerView,
+    triggerManualCapture,
+    usesAndroidScannerActivity,
+  ]);
 
   const handleRectangleDetect = useCallback((event: RectangleDetectEvent) => {
     const stableCounter = event.stableCounter ?? 0;
@@ -1142,6 +1182,8 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
             </TouchableOpacity>
           </View>
         </View>
+      ) : usesAndroidScannerActivity ? (
+        <View style={styles.flex} />
       ) : (
         <View style={styles.flex}>
           <DocScanner
