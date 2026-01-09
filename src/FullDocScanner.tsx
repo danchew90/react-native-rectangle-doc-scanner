@@ -187,6 +187,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   cropHeight = 1600,
   type,
 }) => {
+  const useExternalScanner = Platform.OS === 'android';
   const [processing, setProcessing] = useState(false);
   const [croppedImageData, setCroppedImageData] = useState<PreviewImageData | null>(null);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -207,6 +208,12 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   const captureReadyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isBusinessMode = type === 'business';
+
+  useEffect(() => {
+    if (useExternalScanner) {
+      setCaptureReady(true);
+    }
+  }, [useExternalScanner]);
 
   const resetScannerView = useCallback(
     (options?: { remount?: boolean }) => {
@@ -539,7 +546,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
 
     console.log('[FullDocScanner] Starting manual capture, grid detected:', rectangleDetected);
 
-    const captureMode = rectangleDetected ? 'grid' : 'no-grid';
+    const captureMode = useExternalScanner ? 'grid' : (rectangleDetected ? 'grid' : 'no-grid');
     captureModeRef.current = captureMode;
     captureInProgressRef.current = true;
 
@@ -729,6 +736,9 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
   }, [capturedPhotos.length, isBusinessMode, resetScannerView]);
 
   const handleRectangleDetect = useCallback((event: RectangleDetectEvent) => {
+    if (useExternalScanner) {
+      return;
+    }
     const stableCounter = event.stableCounter ?? 0;
     const rectangleCoordinates = event.rectangleOnScreen ?? event.rectangleCoordinates;
     const hasRectangle = Boolean(rectangleCoordinates);
@@ -787,7 +797,7 @@ export const FullDocScanner: React.FC<FullDocScannerProps> = ({
       }
       setRectangleDetected(false);
     }
-  }, [rectangleDetected]);
+  }, [rectangleDetected, useExternalScanner]);
 
   useEffect(
     () => () => {

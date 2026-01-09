@@ -46,6 +46,7 @@ export interface DocumentScannerProps {
     maxAnchorMisses?: number;
     maxCenterDelta?: number;
   };
+  useExternalScanner?: boolean;
   onPictureTaken?: (event: DocumentScannerResult) => void;
   onError?: (error: Error) => void;
   onRectangleDetect?: (event: RectangleEventPayload) => void;

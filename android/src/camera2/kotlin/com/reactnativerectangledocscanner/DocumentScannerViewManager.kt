@@ -94,6 +94,11 @@ class DocumentScannerViewManager : SimpleViewManager<DocumentScannerView>() {
         view.saturation = saturation
     }
 
+    @ReactProp(name = "useExternalScanner")
+    fun setUseExternalScanner(view: DocumentScannerView, enabled: Boolean) {
+        view.setUseExternalScanner(enabled)
+    }
+
     override fun getExportedCustomDirectEventTypeConstants(): MutableMap<String, Any> {
         return MapBuilder.of(
             "onPictureTaken",

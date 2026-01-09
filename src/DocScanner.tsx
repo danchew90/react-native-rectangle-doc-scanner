@@ -994,7 +994,7 @@ const NativeScanner = forwardRef<DocScannerHandle, Props>(
         : detectedRectangle?.rectangleOnScreen ?? detectedRectangle?.rectangleCoordinates ?? null;
     const overlayIsActive = autoCapture ? isAutoCapturing : (detectedRectangle?.stableCounter ?? 0) > 0;
 
-  const detectionThreshold = autoCapture ? minStableFrames : 99999;
+    const detectionThreshold = autoCapture ? minStableFrames : 99999;
 
   return (
       <View style={styles.container}>
@@ -1006,8 +1006,9 @@ const NativeScanner = forwardRef<DocScannerHandle, Props>(
           enableTorch={enableTorch}
           quality={normalizedQuality}
           useBase64={useBase64}
-          manualOnly={false}
+          manualOnly={Platform.OS === 'android'}
           detectionConfig={detectionConfig}
+          useExternalScanner={Platform.OS === 'android'}
           onPictureTaken={handlePictureTaken}
           onError={handleError}
           onRectangleDetect={handleRectangleDetect}
@@ -1031,8 +1032,10 @@ const NativeScanner = forwardRef<DocScannerHandle, Props>(
 );
 
 export const DocScanner = forwardRef<DocScannerHandle, Props>((props, ref) => {
+  const useExternalScanner = Platform.OS === 'android';
+
   useEffect(() => {
-    if (Platform.OS !== 'android') {
+    if (Platform.OS !== 'android' || useExternalScanner) {
       return;
     }
     if (hasVisionCamera) {
@@ -1044,6 +1047,10 @@ export const DocScanner = forwardRef<DocScannerHandle, Props>((props, ref) => {
       });
     }
   }, []);
+
+  if (useExternalScanner) {
+    return <NativeScanner ref={ref} {...props} />;
+  }
 
   if (hasVisionCamera) {
     return <VisionCameraScanner ref={ref} {...props} />;

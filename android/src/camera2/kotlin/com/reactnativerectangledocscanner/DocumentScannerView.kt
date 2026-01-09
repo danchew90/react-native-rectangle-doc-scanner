@@ -49,6 +49,7 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     var brightness: Float = 0f
     var contrast: Float = 1f
     var saturation: Float = 1f
+    var useExternalScanner: Boolean = false
 
     // State
     private var stableCounter = 0
@@ -142,6 +143,10 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     }
 
     private fun initializeCameraWhenReady() {
+        if (useExternalScanner) {
+            Log.d(TAG, "[INIT] External scanner enabled - skipping camera startup")
+            return
+        }
         // If view is already laid out, start camera immediately
         if (width > 0 && height > 0) {
             Log.d(TAG, "[INIT] View already laid out, starting camera immediately")
@@ -172,6 +177,21 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
                     })
                 }
             }
+        }
+    }
+
+    fun setUseExternalScanner(enabled: Boolean) {
+        if (useExternalScanner == enabled) {
+            return
+        }
+        useExternalScanner = enabled
+        Log.d(TAG, "[SET] useExternalScanner: $enabled")
+        if (enabled) {
+            stopCamera()
+            overlayView.setRectangle(null, overlayColor)
+        } else if (width > 0 && height > 0 && cameraController == null) {
+            setupCamera()
+            startCamera()
         }
     }
 
