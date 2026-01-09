@@ -151,10 +151,25 @@ class DocumentScannerView(context: ThemedReactContext) : FrameLayout(context), L
     private fun layoutPreviewAndOverlay(viewWidth: Int, viewHeight: Int) {
         if (viewWidth <= 0 || viewHeight <= 0) return
 
-        // Fill entire view to prevent squished appearance on tablets
-        // CameraX will handle aspect ratio via center-crop in updateTextureViewTransform
-        previewView.layout(0, 0, viewWidth, viewHeight)
-        overlayView.layout(0, 0, viewWidth, viewHeight)
+        // Check if device is tablet (screen width >= 600dp)
+        val isTablet = (viewWidth / resources.displayMetrics.density) >= 600
+
+        if (isTablet) {
+            // Tablet: Fill entire view to prevent squished appearance
+            previewView.layout(0, 0, viewWidth, viewHeight)
+            overlayView.layout(0, 0, viewWidth, viewHeight)
+        } else {
+            // Phone: Use 4:3 aspect ratio with letterboxing
+            val targetAspectRatio = 3f / 4f // width/height
+            val targetWidth = viewWidth
+            val targetHeight = (viewWidth / targetAspectRatio).toInt()
+
+            val top = (viewHeight - targetHeight) / 2
+            val bottom = top + targetHeight
+
+            previewView.layout(0, top, viewWidth, bottom)
+            overlayView.layout(0, top, viewWidth, bottom)
+        }
     }
 
     private fun initializeCameraWhenReady() {

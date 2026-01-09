@@ -438,17 +438,20 @@ class DocumentDetector {
             }
 
             // Enhanced validation: Check corner angles (should be close to 90°)
+            // Made more lenient: 50°-130° (was 60°-120°)
             if (!hasValidCornerAngles(rectangle)) {
                 return false
             }
 
             // Enhanced validation: Check edge straightness
+            // Made more lenient: 20° tolerance (was 15°)
             if (!hasValidEdgeStraightness(rectangle, srcMat)) {
                 return false
             }
 
             // Enhanced validation: Check margin from view edges (avoid detecting screen borders)
-            val margin = minDim * 0.05 // 5% margin
+            // Made more lenient: 3% margin (was 5%)
+            val margin = minDim * 0.03
             if (rectangle.topLeft.x < margin || rectangle.topLeft.y < margin ||
                 rectangle.topRight.x > srcMat.cols() - margin || rectangle.topRight.y < margin ||
                 rectangle.bottomLeft.x < margin || rectangle.bottomLeft.y > srcMat.rows() - margin ||
@@ -484,9 +487,9 @@ class DocumentDetector {
             val angleBL = angleAt(rectangle.topLeft, rectangle.bottomLeft, rectangle.bottomRight)
             val angleBR = angleAt(rectangle.topRight, rectangle.bottomRight, rectangle.bottomLeft)
 
-            // All angles should be within 60°-120° (allow ±30° from 90°)
-            return angleTL in 60.0..120.0 && angleTR in 60.0..120.0 &&
-                   angleBL in 60.0..120.0 && angleBR in 60.0..120.0
+            // All angles should be within 50°-130° (allow ±40° from 90°, more lenient)
+            return angleTL in 50.0..130.0 && angleTR in 50.0..130.0 &&
+                   angleBL in 50.0..130.0 && angleBR in 50.0..130.0
         }
 
         /**
@@ -512,8 +515,8 @@ class DocumentDetector {
                 val dot = (dx1 * dx2 + dy1 * dy2) / (len1 * len2)
                 val angleDiff = Math.toDegrees(kotlin.math.acos(dot.coerceIn(-1.0, 1.0)))
 
-                // Parallel lines should have angle diff close to 0° or 180°
-                return angleDiff < 15.0 || angleDiff > 165.0
+                // Parallel lines should have angle diff close to 0° or 180° (more lenient: 20° tolerance)
+                return angleDiff < 20.0 || angleDiff > 160.0
             }
 
             // Check top vs bottom edges
